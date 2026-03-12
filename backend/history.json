@@ -1,0 +1,18 @@
+[
+  {
+    "timestamp": "2026-03-11T21:08:15.662304",
+    "total_nodes": 1869,
+    "total_edges": 910,
+    "god_classes": 44,
+    "circular_deps": 0,
+    "dead_code": 100
+  },
+  {
+    "timestamp": "2026-03-12T09:25:34.466054",
+    "total_nodes": 1939,
+    "total_edges": 975,
+    "god_classes": 0,
+    "circular_deps": 0,
+    "dead_code": 0
+  }
+]
