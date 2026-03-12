@@ -173,6 +173,16 @@ export async function simulateChanges(deletedNodes: string[], addedEdges: any[] 
     return res.json();
 }
 
+export async function requestSimulationReview(simData: SimulateResponse): Promise<{ report: string }> {
+    const res = await fetch(`${BASE}/simulate/review`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(simData),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
 export async function fetchHealth(): Promise<HealthStatus> {
     const res = await fetch(`${BASE}/health`);
     if (!res.ok) throw new Error(await res.text());
