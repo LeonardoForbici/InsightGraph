@@ -12,6 +12,7 @@ interface AskPanelProps {
     onClose: () => void;
     selectedNodeKey?: string | null;
     onHighlightNodes?: (nodeKeys: string[]) => void;
+    initialMessage?: string;
 }
 
 const SUGGESTIONS = [
@@ -22,11 +23,12 @@ const SUGGESTIONS = [
     'Liste todas as dependências desse serviço.',
 ];
 
-export default function AskPanel({ onClose, selectedNodeKey, onHighlightNodes }: AskPanelProps) {
+export default function AskPanel({ onClose, selectedNodeKey, onHighlightNodes, initialMessage }: AskPanelProps) {
     const [messages, setMessages] = useState<ChatMessage[]>([]);
     const [input, setInput] = useState('');
     const [loading, setLoading] = useState(false);
     const messagesEndRef = useRef<HTMLDivElement>(null);
+    const initialMessageSentRef = useRef(false);
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -35,6 +37,14 @@ export default function AskPanel({ onClose, selectedNodeKey, onHighlightNodes }:
     useEffect(() => {
         scrollToBottom();
     }, [messages, loading]);
+
+    // Auto-send initial message when panel opens
+    useEffect(() => {
+        if (initialMessage && !initialMessageSentRef.current && !loading) {
+            initialMessageSentRef.current = true;
+            handleSend(initialMessage);
+        }
+    }, [initialMessage]);
 
     const handleSend = useCallback(async (text?: string) => {
         const question = text || input.trim();

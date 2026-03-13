@@ -57,8 +57,9 @@ async def lifespan(application):
     try:
         neo4j_service.connect()
         neo4j_service.ensure_indexes()
+        logger.info("Neo4j connection established successfully")
     except Exception as e:
-        logger.warning("Neo4j not available at startup: %s. Start Neo4j and retry.", e)
+        logger.warning("Neo4j not available at startup: %s. Continuing without Neo4j.", e)
     yield
 
 app = FastAPI(
@@ -122,9 +123,14 @@ class HealthStatus(BaseModel):
     chat_model: str = OLLAMA_CHAT_MODEL
     complex_model: str = OLLAMA_COMPLEX_MODEL
 
+class FileContentResponse(BaseModel):
+    content: str
+    file_path: str
+
 # Global state
 scan_state = ScanStatus(status="idle")
 ai_busy = False  # True while Qwen Q&A is processing
+scanned_projects: dict[str, str] = {}  # Maps project_name -> absolute_project_path
 
 # In-memory graph storage (works even without Neo4j)
 memory_nodes: list[dict] = []
@@ -494,6 +500,68 @@ def calculate_metrics(node) -> dict:
     return {"loc": loc, "complexity": complexity}
 
 
+# ──────────────────────────────────────────────
+# Software Intelligence Detection Functions
+# ──────────────────────────────────────────────
+
+def _detect_cloud_blocker(content: str, imports: list[str]) -> bool:
+    """Detect cloud blockers (local disk I/O operations)."""
+    # Java disk I/O
+    java_blockers = ["java.io.File", "java.io.FileInputStream", "java.io.FileOutputStream", 
+                     "java.nio.file.Files", "new File(", "FileReader", "FileWriter"]
+    # TypeScript/Node disk I/O
+    ts_blockers = ["fs.readFile", "fs.writeFile", "fs.readFileSync", "fs.writeFileSync",
+                   "require('fs')", 'require("fs")', "from 'fs'", 'from "fs"']
+    
+    content_lower = content.lower()
+    for blocker in java_blockers + ts_blockers:
+        if blocker.lower() in content_lower:
+            return True
+    
+    # Check imports explicitly
+    for imp in imports:
+        if "java.io" in imp or "java.nio.file" in imp or imp.strip() == "fs":
+            return True
+    
+    return False
+
+
+def _is_sensitive_data_name(name: str) -> bool:
+    """Check if a variable/column name indicates sensitive data (GDPR/LGPD)."""
+    sensitive_keywords = ["cpf", "password", "senha", "email", "credit_card", 
+                         "ssn", "token", "apikey", "api_key", "secret", 
+                         "private_key", "card_number", "cvv", "birthdate", "date_of_birth"]
+    name_lower = name.lower()
+    for keyword in sensitive_keywords:
+        if keyword in name_lower:
+            return True
+    return False
+
+
+def _detect_hardcoded_secret(node_name: str, content: str) -> bool:
+    """
+    Detect if a variable with a secret-like name is assigned a hardcoded string literal.
+    E.g., const PASSWORD = "myPassword123"
+    """
+    if not _is_sensitive_data_name(node_name):
+        return False
+    
+    # Look for patterns like: name = "..." or name = '...'
+    import re
+    patterns = [
+        rf'{node_name}\s*=\s*["\']',  # const NAME = "..."
+        rf'{node_name}\s*:\s*String\s*=\s*["\']',  # NAME: String = "..."
+    ]
+    
+    for pattern in patterns:
+        if re.search(pattern, content):
+            return True
+    
+    return False
+
+
+# ──────────────────────────────────────────────
+
 def parse_java(file_path: str, content: str, project_path: str) -> dict:
     """Parse Java file using tree-sitter and extract classes, methods, decorators."""
     tree = java_parser.parse(content.encode("utf-8"))
@@ -503,6 +571,16 @@ def parse_java(file_path: str, content: str, project_path: str) -> dict:
     layer = _determine_java_layer(file_path, content)
 
     entities = {"nodes": [], "relationships": []}
+
+    # Collect imports for cloud blocker detection
+    imports = []
+    for child in root.children:
+        if child.type == "import_declaration":
+            import_text = child.text.decode("utf-8").replace("import ", "").replace(";", "").strip()
+            imports.append(import_text)
+
+    # Detect cloud blockers and hardcoded secrets at file level
+    cloud_blocker = _detect_cloud_blocker(content, imports)
 
     # Find class declarations
     def find_classes(node):
@@ -520,7 +598,9 @@ def parse_java(file_path: str, content: str, project_path: str) -> dict:
                             decorators.append(child.text.decode("utf-8"))
 
                 metrics = calculate_metrics(node)
-                entities["nodes"].append({
+                
+                # Build node with intelligence properties
+                node_data = {
                     "label": "Java_Class",
                     "namespace_key": ns_key,
                     "name": class_name,
@@ -529,7 +609,17 @@ def parse_java(file_path: str, content: str, project_path: str) -> dict:
                     "layer": layer,
                     "decorators": ", ".join(decorators),
                     **metrics,
-                })
+                }
+                
+                # Add cloud blocker flag
+                if cloud_blocker:
+                    node_data["cloud_blocker"] = True
+                
+                # Add sensitive data flag
+                if _is_sensitive_data_name(class_name):
+                    node_data["labels"] = ["Sensitive_Data"]
+                
+                entities["nodes"].append(node_data)
 
                 # Find methods within this class
                 for child in node.children:
@@ -548,7 +638,8 @@ def parse_java(file_path: str, content: str, project_path: str) -> dict:
                                                 m_decorators.append(mc.text.decode("utf-8"))
 
                                     m_metrics = calculate_metrics(body_child)
-                                    entities["nodes"].append({
+                                    
+                                    method_data = {
                                         "label": "Java_Method",
                                         "namespace_key": method_ns_key,
                                         "name": method_name,
@@ -558,7 +649,21 @@ def parse_java(file_path: str, content: str, project_path: str) -> dict:
                                         "decorators": ", ".join(m_decorators),
                                         "parent_class": class_name,
                                         **m_metrics,
-                                    })
+                                    }
+                                    
+                                    # Add cloud blocker flag
+                                    if cloud_blocker:
+                                        method_data["cloud_blocker"] = True
+                                    
+                                    # Add sensitive data flag
+                                    if _is_sensitive_data_name(method_name):
+                                        method_data["labels"] = ["Sensitive_Data"]
+                                    
+                                    # Detect hardcoded secrets
+                                    if _detect_hardcoded_secret(method_name, content):
+                                        method_data["hardcoded_secret"] = True
+                                    
+                                    entities["nodes"].append(method_data)
                                     entities["relationships"].append({
                                         "from": ns_key,
                                         "to": method_ns_key,
@@ -596,6 +701,18 @@ def parse_typescript(file_path: str, content: str, project_path: str) -> dict:
 
     entities = {"nodes": [], "relationships": []}
 
+    # Collect imports for cloud blocker detection
+    imports = []
+    for child in root.children:
+        if child.type == "import_statement":
+            source_node = child.child_by_field_name("source")
+            if source_node:
+                import_path = source_node.text.decode("utf-8").strip("'\"")
+                imports.append(import_path)
+
+    # Detect cloud blockers and hardcoded secrets at file level
+    cloud_blocker = _detect_cloud_blocker(content, imports)
+
     def find_entities(node):
         # Class declarations
         if node.type == "class_declaration":
@@ -603,7 +720,8 @@ def parse_typescript(file_path: str, content: str, project_path: str) -> dict:
             if name_node:
                 name = name_node.text.decode("utf-8")
                 ns_key = f"{project_name}:{rel_path}:{name}"
-                entities["nodes"].append({
+                
+                node_data = {
                     "label": "TS_Component",
                     "namespace_key": ns_key,
                     "name": name,
@@ -611,7 +729,15 @@ def parse_typescript(file_path: str, content: str, project_path: str) -> dict:
                     "project": project_name,
                     "layer": layer,
                     **calculate_metrics(node)
-                })
+                }
+                
+                # Add intelligence properties
+                if cloud_blocker:
+                    node_data["cloud_blocker"] = True
+                if _is_sensitive_data_name(name):
+                    node_data["labels"] = ["Sensitive_Data"]
+                
+                entities["nodes"].append(node_data)
 
         # Function declarations (including exported)
         if node.type in ("function_declaration", "arrow_function"):
@@ -619,7 +745,8 @@ def parse_typescript(file_path: str, content: str, project_path: str) -> dict:
             if name_node:
                 name = name_node.text.decode("utf-8")
                 ns_key = f"{project_name}:{rel_path}:{name}"
-                entities["nodes"].append({
+                
+                node_data = {
                     "label": "TS_Function",
                     "namespace_key": ns_key,
                     "name": name,
@@ -627,7 +754,17 @@ def parse_typescript(file_path: str, content: str, project_path: str) -> dict:
                     "project": project_name,
                     "layer": layer,
                     **calculate_metrics(node)
-                })
+                }
+                
+                # Add intelligence properties
+                if cloud_blocker:
+                    node_data["cloud_blocker"] = True
+                if _is_sensitive_data_name(name):
+                    node_data["labels"] = ["Sensitive_Data"]
+                if _detect_hardcoded_secret(name, content):
+                    node_data["hardcoded_secret"] = True
+                
+                entities["nodes"].append(node_data)
 
         # Variable declarations with arrow functions (e.g., const MyComponent = () => {})
         if node.type == "lexical_declaration":
@@ -639,7 +776,8 @@ def parse_typescript(file_path: str, content: str, project_path: str) -> dict:
                         name = name_node.text.decode("utf-8")
                         ns_key = f"{project_name}:{rel_path}:{name}"
                         label = "TS_Component" if is_tsx else "TS_Function"
-                        entities["nodes"].append({
+                        
+                        node_data = {
                             "label": label,
                             "namespace_key": ns_key,
                             "name": name,
@@ -647,7 +785,17 @@ def parse_typescript(file_path: str, content: str, project_path: str) -> dict:
                             "project": project_name,
                             "layer": layer,
                             **calculate_metrics(value_node)
-                        })
+                        }
+                        
+                        # Add intelligence properties
+                        if cloud_blocker:
+                            node_data["cloud_blocker"] = True
+                        if _is_sensitive_data_name(name):
+                            node_data["labels"] = ["Sensitive_Data"]
+                        if _detect_hardcoded_secret(name, content):
+                            node_data["hardcoded_secret"] = True
+                        
+                        entities["nodes"].append(node_data)
 
         # Export default function
         if node.type == "export_statement":
@@ -658,7 +806,8 @@ def parse_typescript(file_path: str, content: str, project_path: str) -> dict:
                         name = name_node.text.decode("utf-8")
                         ns_key = f"{project_name}:{rel_path}:{name}"
                         label = "TS_Component" if is_tsx else "TS_Function"
-                        entities["nodes"].append({
+                        
+                        node_data = {
                             "label": label,
                             "namespace_key": ns_key,
                             "name": name,
@@ -666,7 +815,17 @@ def parse_typescript(file_path: str, content: str, project_path: str) -> dict:
                             "project": project_name,
                             "layer": layer,
                             **calculate_metrics(child)
-                        })
+                        }
+                        
+                        # Add intelligence properties
+                        if cloud_blocker:
+                            node_data["cloud_blocker"] = True
+                        if _is_sensitive_data_name(name):
+                            node_data["labels"] = ["Sensitive_Data"]
+                        if _detect_hardcoded_secret(name, content):
+                            node_data["hardcoded_secret"] = True
+                        
+                        entities["nodes"].append(node_data)
 
         for child in node.children:
             find_entities(child)
@@ -940,9 +1099,14 @@ def _count_files(project_path: str) -> int:
 
 async def scan_project(project_path: str) -> dict:
     """Walk a project directory and parse all supported files."""
-    global scan_state
+    global scan_state, scanned_projects
     project_path = os.path.normpath(project_path)
     all_entities = {"nodes": [], "relationships": []}
+    
+    # Register this project for later file access
+    project_name = Path(project_path).name
+    scanned_projects[project_name] = project_path
+    logger.info(f"Registered project: {project_name} -> {project_path}")
 
     if not os.path.isdir(project_path):
         scan_state.errors.append(f"Directory not found: {project_path}")
@@ -1015,7 +1179,24 @@ async def ingest_to_neo4j(entities: dict) -> None:
         scan_state.total_nodes += 1
 
     for rel in entities["relationships"]:
+        # Handle IMPORTS separately - create external dependency node
         if "to_import" in rel:
+            if neo4j_service.is_connected:
+                try:
+                    # Create external dependency node
+                    dep_import = rel["to_import"]
+                    if dep_import and not dep_import.startswith("."):
+                        dep_ns_key = f"external:{dep_import}"
+                        neo4j_service.merge_node("External_Dependency", dep_ns_key, {
+                            "namespace_key": dep_ns_key,
+                            "name": dep_import,
+                            "type": "external"
+                        })
+                        # Create IMPORTS relationship
+                        neo4j_service.merge_relationship(rel["from"], dep_ns_key, "IMPORTS")
+                        scan_state.total_relationships += 1
+                except Exception as e:
+                    logger.error("Failed to process import relationship: %s", e)
             continue
 
         # Always store in memory
@@ -1214,7 +1395,15 @@ async def get_blast_radius(node_key: str):
 @app.get("/api/antipatterns")
 async def get_antipatterns():
     """Detect architectural antipatterns like circular dependencies and god classes."""
-    antipatterns = {"circular_dependencies": [], "god_classes": [], "dead_code": []}
+    antipatterns = {
+        "circular_dependencies": [],
+        "god_classes": [],
+        "dead_code": [],
+        "cloud_blockers": [],
+        "hardcoded_secrets": [],
+        "fat_controllers": [],
+        "top_external_deps": []
+    }
     if not neo4j_service.is_connected:
         return antipatterns
         
@@ -1264,6 +1453,51 @@ async def get_antipatterns():
         """
         dead_res = neo4j_service.graph.run(dead_query).data()
         antipatterns["dead_code"] = dead_res
+
+        # 4. Cloud Blockers (Disk I/O detected)
+        cloud_query = """
+        MATCH (n:Entity)
+        WHERE coalesce(n.cloud_blocker, false) = true
+        RETURN n.namespace_key AS key, n.name AS name, n.layer AS layer, coalesce(n.file, '') AS file
+        LIMIT 100
+        """
+        cloud_res = neo4j_service.graph.run(cloud_query).data()
+        antipatterns["cloud_blockers"] = cloud_res
+
+        # 5. Hardcoded Secrets (Sensitive variables with literal assignments)
+        secrets_query = """
+        MATCH (n:Entity)
+        WHERE coalesce(n.hardcoded_secret, false) = true
+        RETURN n.namespace_key AS key, n.name AS name, n.layer AS layer, coalesce(n.file, '') AS file
+        LIMIT 100
+        """
+        secrets_res = neo4j_service.graph.run(secrets_query).data()
+        antipatterns["hardcoded_secrets"] = secrets_res
+
+        # 6. Fat Controllers (API layer with high complexity)
+        fat_query = """
+        MATCH (n:Entity)
+        WHERE n.layer = 'API' AND coalesce(n.complexity, 0) > 10
+        OPTIONAL MATCH (n)-[r_out]->()
+        OPTIONAL MATCH ()-[r_in]->(n)
+        WITH n, count(DISTINCT r_out) AS out_degree, count(DISTINCT r_in) AS in_degree
+        RETURN n.namespace_key AS key, n.name AS name, n.layer AS layer, 
+               coalesce(n.complexity, 0) AS complexity, out_degree, in_degree
+        ORDER BY coalesce(n.complexity, 0) DESC
+        LIMIT 50
+        """
+        fat_res = neo4j_service.graph.run(fat_query).data()
+        antipatterns["fat_controllers"] = fat_res
+
+        # 7. Top 5 External Dependencies (Most imported packages)
+        deps_query = """
+        MATCH ()-[r:IMPORTS]->(dep:External_Dependency)
+        RETURN dep.name AS package_name, count(*) AS usage_count
+        ORDER BY usage_count DESC
+        LIMIT 5
+        """
+        deps_res = neo4j_service.graph.run(deps_query).data()
+        antipatterns["top_external_deps"] = deps_res
 
     except Exception as e:
         logger.error("Antipatterns query failed: %s", e)
@@ -1560,6 +1794,88 @@ async def get_history():
         with open(history_file, "r") as f:
             return json.load(f)
     return []
+
+
+@app.get("/api/file/content", response_model=FileContentResponse)
+async def get_file_content(file_path: str, project: str = None):
+    """
+    Fetch the raw content of a file used in the graph analysis.
+    Validates that the path is safe and readable.
+    
+    Args:
+        file_path: Relative path to file (as stored in graph nodes)
+        project: Project name (optional, used to locate the file)
+    """
+    global scanned_projects
+    try:
+        # Try to locate the file in this order:
+        # 1. Within the registered project directory
+        # 2. Relative to current working directory
+        # 3. As-is (absolute path)
+        
+        possible_paths = []
+        
+        # First priority: use registered project path
+        if project and project in scanned_projects:
+            project_base = Path(scanned_projects[project])
+            possible_paths.append(project_base / file_path)
+            logger.info(f"Checking registered project path: {project_base / file_path}")
+        
+        # Second priority: relative to cwd
+        cwd_path = Path.cwd() / file_path
+        possible_paths.append(cwd_path)
+        logger.info(f"Checking cwd path: {cwd_path}")
+        
+        # Third priority: absolute path as-is
+        abs_path = Path(file_path).resolve()
+        possible_paths.append(abs_path)
+        logger.info(f"Checking absolute path: {abs_path}")
+        
+        # Find the first existing file
+        found_path = None
+        for candidate in possible_paths:
+            try:
+                resolved = candidate.resolve()
+                if resolved.exists() and resolved.is_file():
+                    found_path = resolved
+                    logger.info(f"Found file at: {found_path}")
+                    break
+            except Exception as e:
+                logger.debug(f"Checking {candidate} failed: {e}")
+                continue
+        
+        if not found_path:
+            logger.warning(f"File not found: {file_path} (project={project}, checked paths={possible_paths})")
+            raise HTTPException(status_code=404, detail=f"File not found: {file_path}")
+        
+        # Security: prevent access outside project directory if project is specified
+        if project and project in scanned_projects:
+            project_base = Path(scanned_projects[project]).resolve()
+            try:
+                found_path.relative_to(project_base)
+            except ValueError:
+                logger.warning(f"Security violation: file outside project: {found_path}")
+                raise HTTPException(status_code=403, detail="Access denied: file outside project directory")
+        
+        # Read file content asynchronously
+        try:
+            content = await asyncio.to_thread(lambda: found_path.read_text(encoding='utf-8'))
+        except UnicodeDecodeError:
+            logger.warning(f"Could not decode file as UTF-8: {found_path}, trying with latin-1")
+            # Fallback to latin-1 which can read most files
+            content = await asyncio.to_thread(lambda: found_path.read_text(encoding='latin-1'))
+        
+        logger.info(f"Successfully read file: {found_path} ({len(content)} bytes)")
+        return FileContentResponse(content=content, file_path=str(found_path.relative_to(found_path.cwd()) if found_path.cwd() in found_path.parents else found_path))
+    
+    except HTTPException:
+        raise
+    except PermissionError as e:
+        logger.error(f"Permission denied reading file {file_path}: {e}")
+        raise HTTPException(status_code=403, detail="Permission denied reading file")
+    except Exception as e:
+        logger.error(f"Unexpected error reading file {file_path}: {e}")
+        raise HTTPException(status_code=500, detail=f"Server error: {str(e)}")
 
 
 @app.get("/api/health", response_model=HealthStatus)

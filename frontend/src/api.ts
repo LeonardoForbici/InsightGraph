@@ -53,6 +53,10 @@ export interface AntipatternData {
     circular_dependencies: { path: string[]; length: number }[];
     god_classes: { key: string; name: string; layer: string; out_degree: number; in_degree: number; complexity: number }[];
     dead_code: { key: string; name: string; layer: string; file: string }[];
+    cloud_blockers: { key: string; name: string; layer: string; file: string }[];
+    hardcoded_secrets: { key: string; name: string; layer: string; file: string }[];
+    fat_controllers: { key: string; name: string; layer: string; complexity: number; out_degree: number; in_degree: number }[];
+    top_external_deps: { package_name: string; usage_count: number }[];
 }
 
 export interface GraphStats {
@@ -182,5 +186,36 @@ export async function fetchHealth(): Promise<HealthStatus> {
 export async function fetchHistory(): Promise<HistorySnapshot[]> {
     const res = await fetch(`${BASE}/history`);
     if (!res.ok) return []; // fail gracefully for history
+    return res.json();
+}
+
+export async function fetchFileContent(filePath: string, project?: string): Promise<{ content: string; file_path: string }> {
+    let url = `${BASE}/file/content?file_path=${encodeURIComponent(filePath)}`;
+    if (project) {
+        url += `&project=${encodeURIComponent(project)}`;
+    }
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function explainComponent(code: string): Promise<{ answer: string }> {
+    const prompt = `Explique em 3 ou 4 linhas simples o que este código faz e qual a sua responsabilidade no sistema:\n\n${code}`;
+    const res = await fetch(`${BASE}/ask`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ question: prompt }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function requestSimulationReview(simulationData: SimulateResponse): Promise<{ report: string }> {
+    const res = await fetch(`${BASE}/review-simulation`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(simulationData),
+    });
+    if (!res.ok) throw new Error(await res.text());
     return res.json();
 }

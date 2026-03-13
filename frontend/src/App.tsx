@@ -53,6 +53,7 @@ export default function App() {
   // ─── Stats & AI Panel State ───
   const [graphStats, setGraphStats] = useState<GraphStats | null>(null);
   const [askOpen, setAskOpen] = useState(false);
+  const [askInitialMessage, setAskInitialMessage] = useState<string | undefined>();
   const [dashboardOpen, setDashboardOpen] = useState(false);
   const [simulationOpen, setSimulationOpen] = useState(false);
   const [isSimulated, setIsSimulated] = useState(false);
@@ -213,6 +214,13 @@ export default function App() {
     }
   }, []);
 
+  const handleRefactorRequest = useCallback((nodeName: string, problemType: string) => {
+    const message = `O Dashboard indicou que a classe/nó "${nodeName}" tem problemas de ${problemType}. Como posso refatorar e resolver isso passo a passo?`;
+    setAskInitialMessage(message);
+    setAskOpen(true);
+    setDashboardOpen(false);
+  }, []);
+
   // ─── Effects ───
   useEffect(() => {
     loadGraph();
@@ -331,14 +339,21 @@ export default function App() {
 
       {askOpen && (
         <AskPanel
-          onClose={() => setAskOpen(false)}
+          onClose={() => {
+            setAskOpen(false);
+            setAskInitialMessage(undefined);
+          }}
           selectedNodeKey={selectedNodeKey}
           onHighlightNodes={setAiHighlightedNodes}
+          initialMessage={askInitialMessage}
         />
       )}
 
       {dashboardOpen && (
-        <Dashboard onClose={() => setDashboardOpen(false)} />
+        <Dashboard 
+          onClose={() => setDashboardOpen(false)}
+          onRefactorRequest={handleRefactorRequest}
+        />
       )}
 
       {simulationOpen && (
