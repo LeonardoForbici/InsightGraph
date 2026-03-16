@@ -11,7 +11,6 @@ import {
     MarkerType,
     BackgroundVariant,
     ReactFlowProvider,
-    useReactFlow,
 } from '@xyflow/react';
 import type { Node, Edge, NodeProps } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
@@ -119,7 +118,7 @@ function CustomNode({ data }: NodeProps) {
             inlineStyle = { background: 'rgba(100,116,139,0.2)', borderColor: '#64748b', color: '#fff' };
         }
     }
-    
+
     // AI Highlight style overrides everything
     if (highlightClass === 'highlighted-ai') {
         inlineStyle = { 
@@ -136,16 +135,34 @@ function CustomNode({ data }: NodeProps) {
             textDecoration: 'line-through',
             fontWeight: 'bold'
         };
-    } else if (data.status === 'impacted') {
-        inlineStyle = {
-            background: 'rgba(249, 115, 22, 0.4)', // orange-500 stronger
-            borderColor: '#f97316',
-            color: '#fff',
-            boxShadow: '0 0 15px rgba(249, 115, 22, 0.5)',
-            fontWeight: 'bold'
-        };
-    } else if (data.dimmed && highlightClass === '') {
-        inlineStyle = { opacity: 0.2 };
+    } else if (typeof data.impact_distance === 'number') {
+        const impactOpacity = typeof data.impactOpacity === 'number' ? data.impactOpacity : 1;
+        const backgroundAlpha = Math.min(0.5, 0.25 + (impactOpacity * 0.5));
+
+        if (data.impact_distance === 1) {
+            // Direct impact
+            inlineStyle = {
+                background: `rgba(249, 115, 22, ${backgroundAlpha})`,
+                borderColor: '#f97316',
+                color: '#1f2937',
+                boxShadow: `0 0 15px rgba(249, 115, 22, ${backgroundAlpha})`,
+                fontWeight: 'bold'
+            };
+        } else {
+            // Indirect impact
+            inlineStyle = {
+                background: `rgba(234, 179, 8, ${backgroundAlpha})`,
+                borderColor: '#eab308',
+                color: '#1f2937',
+                boxShadow: `0 0 12px rgba(234, 179, 8, ${backgroundAlpha})`,
+                fontWeight: 'bold'
+            };
+        }
+    }
+
+    const nodeOpacity = typeof data.dimmed === 'number' ? data.dimmed : data.dimmed ? 0.2 : 1;
+    if (nodeOpacity !== 1) {
+        inlineStyle = { ...inlineStyle, opacity: nodeOpacity };
     }
 
     return (
@@ -173,6 +190,7 @@ interface GraphCanvasProps {
     aiHighlightedNodes: string[];
     selectedNodeKey: string | null;
     onNodeClick: (nodeKey: string, nodeData: GraphNode) => void;
+    onClearAiHighlights?: () => void;
     searchTerm: string;
 }
 
@@ -184,9 +202,9 @@ function GraphCanvasInner({
     aiHighlightedNodes,
     selectedNodeKey,
     onNodeClick,
+    onClearAiHighlights,
     searchTerm,
 }: GraphCanvasProps) {
-    const rf = useReactFlow();
     const [heatmapEnabled, setHeatmapEnabled] = useState(false);
     
     // Clustering state (set of expanded layer sizes). Auto-expand small graphs.
@@ -222,6 +240,20 @@ function GraphCanvasInner({
             ? graphNodes.filter((n) => n.name.toLowerCase().includes(searchTerm.toLowerCase()))
             : graphNodes;
 
+        const impactDistances = graphNodes
+            .map((n) => (typeof n.impact_distance === 'number' ? n.impact_distance : undefined))
+            .filter((d): d is number => typeof d === 'number');
+        const hasImpactDistance = impactDistances.length > 0;
+        const maxImpactDistance = hasImpactDistance ? Math.max(...impactDistances) : 0;
+
+        const computeBlastOpacity = (distance: number) => {
+            if (!hasImpactDistance || maxImpactDistance <= 1) return 1;
+            const min = 0.25;
+            const max = 1;
+            const t = (maxImpactDistance - distance) / (maxImpactDistance - 1);
+            return Math.max(min, Math.min(max, min + t * (max - min)));
+        };
+
         if (filteredNodes.length === 0) return { baseNodes: [], baseEdges: [] };
 
         const nsNodes: Node[] = [];
@@ -239,7 +271,14 @@ function GraphCanvasInner({
             else if (highlightedUpstream.has(gn.namespace_key)) highlightClass = 'highlighted-upstream';
             else if (highlightedDownstream.has(gn.namespace_key)) highlightClass = 'highlighted-downstream';
 
-            const dimsOther = aiHighlightedNodes.length > 0 && highlightClass === '';
+            const isImpactedNode = typeof gn.impact_distance === 'number' && gn.impact_distance > 0;
+            const impactOpacity = isImpactedNode ? computeBlastOpacity(gn.impact_distance!) : undefined;
+
+            const dimsOther = aiHighlightedNodes.length > 0 && highlightClass === ''
+                ? 0.4
+                : hasImpactDistance && highlightClass === ''
+                    ? (typeof impactOpacity === 'number' ? impactOpacity : 0.1)
+                    : false;
 
             if (forceExpandAll || expandedClusters.has(clusterId)) {
                 nsNodes.push({
@@ -255,7 +294,9 @@ function GraphCanvasInner({
                         isHeatmap: heatmapEnabled,
                         complexity: gn.complexity,
                         dimmed: dimsOther,
-                        status: gn.status
+                        status: gn.status,
+                        impact_distance: gn.impact_distance,
+                        impactOpacity,
                     },
                 });
             } else {
@@ -347,7 +388,13 @@ function GraphCanvasInner({
                 else if (highlightedUpstream.has(bn.id)) highlightClass = 'highlighted-upstream';
                 else if (highlightedDownstream.has(bn.id)) highlightClass = 'highlighted-downstream';
 
-                const dimsOther = aiHighlightedNodes.length > 0 && highlightClass === '';
+                const baseDimmed = bn.data.dimmed;
+                const dimsOther = aiHighlightedNodes.length > 0 && highlightClass === ''
+                    ? 0.4
+                    : highlightClass === ''
+                        ? baseDimmed
+                        : false;
+
                 const newData = { ...bn.data, highlightClass, isHeatmap: heatmapEnabled, dimmed: dimsOther };
 
                 if (existing) {
@@ -373,7 +420,7 @@ function GraphCanvasInner({
             return baseEdges.map(be => {
                 let opacity = 1;
                 if (aiHighlightedNodes.length > 0) {
-                    opacity = aiHighlightedNodes.includes(be.source) || aiHighlightedNodes.includes(be.target) ? 1 : 0.15;
+                    opacity = aiHighlightedNodes.includes(be.source) || aiHighlightedNodes.includes(be.target) ? 1 : 0.4;
                 }
                 
                 const existing = currentEdges.find(e => e.id === be.id);
@@ -387,17 +434,7 @@ function GraphCanvasInner({
         });
     }, [baseNodes, baseEdges, selectedNodeKey, aiHighlightedNodes, highlightedUpstream, highlightedDownstream, heatmapEnabled, setNodes, setEdges]);
     
-    // Auto-fit AI nodes
-    useEffect(() => {
-        if (aiHighlightedNodes.length > 0 && nodes.length > 0) {
-            setTimeout(() => {
-                const aiNodes = nodes.filter(n => aiHighlightedNodes.includes(n.id));
-                if (aiNodes.length > 0) {
-                    rf.fitView({ nodes: aiNodes, duration: 800, padding: 3 });
-                }
-            }, 100);
-        }
-    }, [aiHighlightedNodes, nodes, rf]);
+    // NOTE: Removed auto-fit behavior to preserve user viewport context.
 
     const handleNodeDoubleClick = useCallback(
         (_: React.MouseEvent, node: Node) => {
@@ -481,6 +518,16 @@ function GraphCanvasInner({
                 >
                     🔥 Mapa de Risco (Heatmap)
                 </button>
+
+                {aiHighlightedNodes.length > 0 && onClearAiHighlights && (
+                    <button
+                      className="btn btn-secondary"
+                      onClick={onClearAiHighlights}
+                    >
+                      Limpar Destaque
+                    </button>
+                )}
+
                 {expandedClusters.size > 0 && !expandedClusters.has('*ALL*') && (
                     <button 
                       className="btn btn-secondary"

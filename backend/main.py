@@ -14,6 +14,7 @@ import asyncio
 import logging
 import datetime
 import argparse
+import subprocess
 from pathlib import Path
 from typing import Optional
 from contextlib import asynccontextmanager
@@ -30,6 +31,12 @@ from py2neo import Graph, Node, Relationship
 import tree_sitter_java as tsjava
 import tree_sitter_typescript as tstypescript
 from tree_sitter import Language, Parser
+
+# ──────────────────────────────────────────────
+# tkinter imports for folder picker
+# ──────────────────────────────────────────────
+import tkinter as tk
+from tkinter import filedialog
 
 # ──────────────────────────────────────────────
 # Configuration
@@ -55,11 +62,13 @@ logger = logging.getLogger("insightgraph")
 async def lifespan(application):
     """Connect to Neo4j on startup (non-fatal if unavailable)."""
     try:
-        neo4j_service.connect()
-        neo4j_service.ensure_indexes()
-        logger.info("Neo4j connection established successfully")
+        if neo4j_service.connect():
+            neo4j_service.ensure_indexes()
+            logger.info("Neo4j connection established successfully")
+        else:
+            logger.warning("Neo4j not available at startup. Continuing with memory fallback.")
     except Exception as e:
-        logger.warning("Neo4j not available at startup: %s. Continuing without Neo4j.", e)
+        logger.warning("Neo4j error at startup: %s. Continuing with memory fallback.", e)
     yield
 
 app = FastAPI(
@@ -123,6 +132,10 @@ class HealthStatus(BaseModel):
     chat_model: str = OLLAMA_CHAT_MODEL
     complex_model: str = OLLAMA_COMPLEX_MODEL
 
+class SimulationReviewRequest(BaseModel):
+    risk_score: int = 0
+    impact_insights: list[str] = []
+
 class FileContentResponse(BaseModel):
     content: str
     file_path: str
@@ -159,6 +172,9 @@ class Neo4jService:
 
     def ensure_indexes(self):
         """Create indexes and constraints for performance."""
+        if not self.is_connected:
+            return
+        
         queries = [
             "CREATE INDEX idx_namespace IF NOT EXISTS FOR (n:Entity) ON (n.namespace_key)",
             "CREATE INDEX idx_project IF NOT EXISTS FOR (n:Entity) ON (n.project)",
@@ -461,6 +477,51 @@ def _get_project_name(file_path: str, project_path: str) -> str:
         return Path(project_path).name
 
 
+def _get_git_owner(file_path: str) -> str:
+    """Get the last commit author for a file using git log. Returns 'Desconhecido' if not in git or error."""
+    try:
+        result = subprocess.run(
+            ["git", "log", "-1", "--format=%an", "--", file_path],
+            capture_output=True,
+            text=True,
+            timeout=5,
+            cwd=os.path.dirname(file_path) or "."
+        )
+        if result.returncode == 0 and result.stdout.strip():
+            return result.stdout.strip()
+        return "Desconhecido"
+    except (subprocess.TimeoutExpired, subprocess.SubprocessError, FileNotFoundError):
+        return "Desconhecido"
+
+
+# Compliance helpers
+SENSITIVE_TERMS = {"cpf", "cnpj", "senha", "password", "biometria", "token", "nsr", "pis", "rg", "email", "telefone", "phone"}
+LOGGING_METHODS = {"console.log", "console.error", "console.warn", "logger.info", "logger.debug", "logger.warn", "logger.error", "log.info", "log.debug", "log.warn", "log.error", "print"}
+
+
+def _is_sensitive_term(term: str) -> bool:
+    """Check if a term contains sensitive data keywords."""
+    term_lower = term.lower()
+    return any(sensitive in term_lower for sensitive in SENSITIVE_TERMS)
+
+
+def _check_compliance_violation(node, content: str) -> tuple[bool, list[str]]:
+    """Check if a node contains compliance violations (logging sensitive data)."""
+    violations = []
+    # Simple heuristic: look for logging calls with sensitive terms in arguments
+    content_lower = content.lower()
+    for method in LOGGING_METHODS:
+        if method in content_lower:
+            # Check if sensitive terms appear near logging calls
+            for term in SENSITIVE_TERMS:
+                if term in content_lower:
+                    # More precise check: look for term in the node's content
+                    node_text = node.text.decode("utf-8").lower()
+                    if term in node_text and method in node_text:
+                        violations.append(term)
+    return len(violations) > 0, violations
+
+
 def _determine_ts_layer(file_path: str, content: str) -> str:
     """Heuristic to determine the layer of a TS/TSX file."""
     fp = file_path.lower()
@@ -560,7 +621,46 @@ def _detect_hardcoded_secret(node_name: str, content: str) -> bool:
     return False
 
 
-# ──────────────────────────────────────────────
+def _detect_empty_catch(node, content: str) -> bool:
+    """Detect empty or comment-only catch blocks within a node."""
+    def _is_empty_block(block_node):
+        # Ignore braces and whitespace; consider only named children (statements) and exclude comments.
+        for child in block_node.named_children:
+            if child.type in ("line_comment", "block_comment", "comment"):
+                continue
+            # Found a real statement inside catch
+            return False
+        return True
+
+    def _find_catch_clauses(n):
+        if n.type == "catch_clause":
+            yield n
+        for c in n.children:
+            yield from _find_catch_clauses(c)
+
+    for catch in _find_catch_clauses(node):
+        # In Java and TS, catch_clause usually has a block child
+        block = next((c for c in catch.children if c.type == "block"), None)
+        if block and _is_empty_block(block):
+            return True
+    return False
+
+
+def _extract_spring_route(decorators: list[str]) -> str | None:
+    """Try to extract a route path from a Spring mapping decorator."""
+    import re
+    pattern_simple = re.compile(r"@(GetMapping|PostMapping|PutMapping|DeleteMapping|PatchMapping|RequestMapping)\s*\(\s*['\"]([^'\"]+)['\"]")
+    pattern_named = re.compile(r"@(RequestMapping|GetMapping|PostMapping|PutMapping|DeleteMapping|PatchMapping).*?(?:path|value)\s*=\s*['\"]([^'\"]+)['\"]")
+
+    for deco in decorators:
+        m = pattern_simple.search(deco)
+        if m:
+            return m.group(2).strip()
+        m = pattern_named.search(deco)
+        if m:
+            return m.group(2).strip()
+    return None
+
 
 def parse_java(file_path: str, content: str, project_path: str) -> dict:
     """Parse Java file using tree-sitter and extract classes, methods, decorators."""
@@ -638,9 +738,14 @@ def parse_java(file_path: str, content: str, project_path: str) -> dict:
                                                 m_decorators.append(mc.text.decode("utf-8"))
 
                                     m_metrics = calculate_metrics(body_child)
-                                    
+
+                                    method_label = "Java_Method"
+                                    route_path = _extract_spring_route(m_decorators)
+                                    if route_path:
+                                        method_label = "API_Endpoint"
+
                                     method_data = {
-                                        "label": "Java_Method",
+                                        "label": method_label,
                                         "namespace_key": method_ns_key,
                                         "name": method_name,
                                         "file": rel_path,
@@ -648,21 +753,97 @@ def parse_java(file_path: str, content: str, project_path: str) -> dict:
                                         "layer": layer,
                                         "decorators": ", ".join(m_decorators),
                                         "parent_class": class_name,
+                                        "called_routes": [],
                                         **m_metrics,
                                     }
-                                    
+
+                                    if route_path:
+                                        method_data["route_path"] = route_path
+
                                     # Add cloud blocker flag
                                     if cloud_blocker:
                                         method_data["cloud_blocker"] = True
-                                    
+
                                     # Add sensitive data flag
                                     if _is_sensitive_data_name(method_name):
                                         method_data["labels"] = ["Sensitive_Data"]
-                                    
+
                                     # Detect hardcoded secrets
                                     if _detect_hardcoded_secret(method_name, content):
                                         method_data["hardcoded_secret"] = True
-                                    
+
+                                    # Detect swallowed exceptions
+                                    if _detect_empty_catch(body_child, content):
+                                        method_data["swallowed_exception"] = True
+
+                                    # Performance / Security scans
+                                    n_plus_one_risk = False
+                                    sql_injection_risk = False
+
+                                    def _collect_method_calls(n, called_routes: list[str], in_loop=False):
+                                        nonlocal n_plus_one_risk, sql_injection_risk
+
+                                        # Mark loops (for/while/do) as potential N+1 contexts
+                                        if n.type in ("for_statement", "enhanced_for_statement", "while_statement", "do_statement"):
+                                            in_loop = True
+
+                                        if n.type == "method_invocation":
+                                            called = None
+                                            name_node = n.child_by_field_name("name") or n.child_by_field_name("identifier")
+                                            if name_node:
+                                                called = name_node.text.decode("utf-8")
+                                            else:
+                                                import re
+                                                m = re.search(r"([A-Za-z_][A-Za-z0-9_]*)\s*\(", n.text.decode("utf-8"))
+                                                if m:
+                                                    called = m.group(1)
+
+                                            if called:
+                                                lower_called = called.lower()
+                                                # N+1 query heuristic (DB-like methods inside loops)
+                                                if in_loop and any(k in lower_called for k in ("find", "get", "query", "select", "save")):
+                                                    n_plus_one_risk = True
+
+                                                # SQL Injection heuristic (query execution with string concatenation)
+                                                if any(k in lower_called for k in ("executequery", "query")):
+                                                    args_node = n.child_by_field_name("arguments") or n.child_by_field_name("argument_list")
+                                                    if args_node and "+" in args_node.text.decode("utf-8"):
+                                                        sql_injection_risk = True
+
+                                                # HTTP call route extraction (Android/Java clients)
+                                                try:
+                                                    text = n.text.decode("utf-8")
+                                                    import re
+                                                    m = re.search(r"['\"](/[^'\"]+)['\"]", text)
+                                                    if m:
+                                                        called_routes.append(m.group(1))
+                                                except Exception:
+                                                    pass
+
+                                                if called != method_name:
+                                                    called_ns = f"{project_name}:{rel_path}:{called}"
+                                                    entities["relationships"].append({
+                                                        "from": method_ns_key,
+                                                        "to": called_ns,
+                                                        "type": "CALLS",
+                                                    })
+
+                                        for c in n.children:
+                                            _collect_method_calls(c, called_routes, in_loop)
+
+                                    _collect_method_calls(body_child, method_data["called_routes"])
+
+                                    if n_plus_one_risk:
+                                        method_data["n_plus_one_risk"] = True
+                                    if sql_injection_risk:
+                                        method_data["sql_injection_risk"] = True
+
+                                    # Check for compliance violations (logging sensitive data)
+                                    violation, leaked = _check_compliance_violation(body_child, content)
+                                    if violation:
+                                        method_data["compliance_violation"] = True
+                                        method_data["leaked_data"] = leaked
+
                                     entities["nodes"].append(method_data)
                                     entities["relationships"].append({
                                         "from": ns_key,
@@ -689,6 +870,17 @@ def parse_java(file_path: str, content: str, project_path: str) -> dict:
     return entities
 
 
+def _extract_nest_route(decorators: list[str]) -> str | None:
+    """Extract the route path from NestJS decorators like @Get('/x') or @Post('y')."""
+    import re
+    pattern = re.compile(r"@(Get|Post|Put|Delete|Patch)\s*\(\s*['\"]([^'\"]+)['\"]")
+    for deco in decorators:
+        m = pattern.search(deco)
+        if m:
+            return m.group(2).strip()
+    return None
+
+
 def parse_typescript(file_path: str, content: str, project_path: str) -> dict:
     """Parse TypeScript/TSX file using tree-sitter."""
     is_tsx = file_path.endswith(".tsx")
@@ -712,6 +904,75 @@ def parse_typescript(file_path: str, content: str, project_path: str) -> dict:
 
     # Detect cloud blockers and hardcoded secrets at file level
     cloud_blocker = _detect_cloud_blocker(content, imports)
+
+    def _get_decorators(n):
+        return [c.text.decode("utf-8") for c in n.children if c.type == "decorator"]
+
+    def _collect_call_relationships(owner_ns: str, n, called_routes: list[str], in_loop: bool = False):
+        """Traverse the AST subtree and record CALLS edges for call expressions.
+
+        Returns:
+            (n_plus_one_risk: bool, sql_injection_risk: bool)
+        """
+        n_plus_one_risk = False
+        sql_injection_risk = False
+
+        # Mark loop contexts
+        if n.type in ("for_statement", "while_statement", "for_of_statement", "for_in_statement", "do_statement"):
+            in_loop = True
+
+        if n.type == "call_expression":
+            # Try to find the called identifier (could be a plain function or a member access)
+            func_node = n.child_by_field_name("function") or n.child_by_field_name("callee") or (n.children[0] if n.children else None)
+            called_name = None
+            func_text = ""
+            if func_node:
+                func_text = func_node.text.decode("utf-8")
+                if func_node.type in ("identifier", "property_identifier"):
+                    called_name = func_text
+                else:
+                    # For member expressions, take the last identifier (e.g., obj.method)
+                    for c in reversed(func_node.children):
+                        if c.type in ("identifier", "property_identifier"):
+                            called_name = c.text.decode("utf-8")
+                            break
+
+            if called_name:
+                lower = called_name.lower()
+
+                # N+1 query heuristic (calls involving DB-like methods inside loops)
+                if in_loop and any(k in lower for k in ("find", "get", "query", "select", "save")):
+                    n_plus_one_risk = True
+
+                # SQL injection heuristic (string concatenation or template string feeding query)
+                if any(k in lower for k in ("executequery", "query", "$query")):
+                    args = [c for c in n.children if c.type in ("arguments", "argument_list")]
+                    for arg in args:
+                        text = arg.text.decode("utf-8")
+                        if "+" in text or "`" in text:
+                            sql_injection_risk = True
+
+                # HTTP route extraction (frontend/mobile call sites)
+                func_lower = func_text.lower()
+                if any(kw in func_lower for kw in ("fetch(", "axios.", "api.", "http.", "axios(", "http.get", "http.post", "api.get", "api.post")):
+                    import re
+                    m = re.search(r"['\"](/[^'\"]+)['\"]", n.text.decode("utf-8"))
+                    if m:
+                        called_routes.append(m.group(1))
+
+                called_ns = f"{project_name}:{rel_path}:{called_name}"
+                entities["relationships"].append({
+                    "from": owner_ns,
+                    "to": called_ns,
+                    "type": "CALLS",
+                })
+
+        for c in n.children:
+            child_n_plus_one, child_sql_injection = _collect_call_relationships(owner_ns, c, called_routes, in_loop)
+            n_plus_one_risk = n_plus_one_risk or child_n_plus_one
+            sql_injection_risk = sql_injection_risk or child_sql_injection
+
+        return n_plus_one_risk, sql_injection_risk
 
     def find_entities(node):
         # Class declarations
@@ -739,23 +1000,89 @@ def parse_typescript(file_path: str, content: str, project_path: str) -> dict:
                 
                 entities["nodes"].append(node_data)
 
+                # Detect NestJS controller methods (e.g., @Get(), @Post()) and create API_Endpoint nodes
+                for class_child in node.children:
+                    if class_child.type != "class_body":
+                        continue
+                    for method in class_child.children:
+                        if method.type != "method_definition":
+                            continue
+                        decorators = _get_decorators(method)
+                        route_path = _extract_nest_route(decorators)
+                        if not route_path:
+                            continue
+
+                        name_node = method.child_by_field_name("name")
+                        if not name_node:
+                            continue
+
+                        method_name = name_node.text.decode("utf-8")
+                        method_ns = f"{project_name}:{rel_path}:{name}.{method_name}"
+
+                        method_data = {
+                            "label": "API_Endpoint",
+                            "namespace_key": method_ns,
+                            "name": method_name,
+                            "file": rel_path,
+                            "project": project_name,
+                            "layer": layer,
+                            "route_path": route_path,
+                            "called_routes": [],
+                            **calculate_metrics(method),
+                        }
+
+                        if cloud_blocker:
+                            method_data["cloud_blocker"] = True
+                        if _detect_empty_catch(method, content):
+                            method_data["swallowed_exception"] = True
+
+                        entities["nodes"].append(method_data)
+                        entities["relationships"].append({
+                            "from": ns_key,
+                            "to": method_ns,
+                            "type": "HAS_METHOD",
+                        })
+
+                        # Track method calls inside this class method to create CALLS relationships
+                        n_plus_one, sql_injection = _collect_call_relationships(
+                            method_ns, method, method_data["called_routes"]
+                        )
+                        if n_plus_one:
+                            method_data["n_plus_one_risk"] = True
+                        if sql_injection:
+                            method_data["sql_injection_risk"] = True
+
+                        # Check for compliance violations
+                        violation, leaked = _check_compliance_violation(method, content)
+                        if violation:
+                            method_data["compliance_violation"] = True
+                            method_data["leaked_data"] = leaked
+
         # Function declarations (including exported)
         if node.type in ("function_declaration", "arrow_function"):
             name_node = node.child_by_field_name("name")
             if name_node:
                 name = name_node.text.decode("utf-8")
                 ns_key = f"{project_name}:{rel_path}:{name}"
-                
+
+                decorators = _get_decorators(node)
+                route_path = _extract_nest_route(decorators)
+                label = "API_Endpoint" if route_path else "TS_Function"
+
                 node_data = {
-                    "label": "TS_Function",
+                    "label": label,
                     "namespace_key": ns_key,
                     "name": name,
                     "file": rel_path,
                     "project": project_name,
                     "layer": layer,
+                    "called_routes": [],
                     **calculate_metrics(node)
                 }
-                
+
+                if route_path:
+                    node_data["route_path"] = route_path
+
                 # Add intelligence properties
                 if cloud_blocker:
                     node_data["cloud_blocker"] = True
@@ -763,8 +1090,21 @@ def parse_typescript(file_path: str, content: str, project_path: str) -> dict:
                     node_data["labels"] = ["Sensitive_Data"]
                 if _detect_hardcoded_secret(name, content):
                     node_data["hardcoded_secret"] = True
-                
+                if _detect_empty_catch(node, content):
+                    node_data["swallowed_exception"] = True
+
                 entities["nodes"].append(node_data)
+                n_plus_one, sql_injection = _collect_call_relationships(ns_key, node, node_data["called_routes"])
+                if n_plus_one:
+                    node_data["n_plus_one_risk"] = True
+                if sql_injection:
+                    node_data["sql_injection_risk"] = True
+
+                # Check for compliance violations
+                violation, leaked = _check_compliance_violation(node, content)
+                if violation:
+                    node_data["compliance_violation"] = True
+                    node_data["leaked_data"] = leaked
 
         # Variable declarations with arrow functions (e.g., const MyComponent = () => {})
         if node.type == "lexical_declaration":
@@ -784,6 +1124,7 @@ def parse_typescript(file_path: str, content: str, project_path: str) -> dict:
                             "file": rel_path,
                             "project": project_name,
                             "layer": layer,
+                            "called_routes": [],
                             **calculate_metrics(value_node)
                         }
                         
@@ -796,6 +1137,17 @@ def parse_typescript(file_path: str, content: str, project_path: str) -> dict:
                             node_data["hardcoded_secret"] = True
                         
                         entities["nodes"].append(node_data)
+                        n_plus_one, sql_injection = _collect_call_relationships(ns_key, value_node, node_data["called_routes"])
+                        if n_plus_one:
+                            node_data["n_plus_one_risk"] = True
+                        if sql_injection:
+                            node_data["sql_injection_risk"] = True
+
+                        # Check for compliance violations
+                        violation, leaked = _check_compliance_violation(value_node, content)
+                        if violation:
+                            node_data["compliance_violation"] = True
+                            node_data["leaked_data"] = leaked
 
         # Export default function
         if node.type == "export_statement":
@@ -805,8 +1157,11 @@ def parse_typescript(file_path: str, content: str, project_path: str) -> dict:
                     if name_node:
                         name = name_node.text.decode("utf-8")
                         ns_key = f"{project_name}:{rel_path}:{name}"
-                        label = "TS_Component" if is_tsx else "TS_Function"
-                        
+
+                        decorators = _get_decorators(child)
+                        route_path = _extract_nest_route(decorators)
+                        label = "API_Endpoint" if route_path else ("TS_Component" if is_tsx else "TS_Function")
+
                         node_data = {
                             "label": label,
                             "namespace_key": ns_key,
@@ -814,9 +1169,13 @@ def parse_typescript(file_path: str, content: str, project_path: str) -> dict:
                             "file": rel_path,
                             "project": project_name,
                             "layer": layer,
+                            "called_routes": [],
                             **calculate_metrics(child)
                         }
-                        
+
+                        if route_path:
+                            node_data["route_path"] = route_path
+
                         # Add intelligence properties
                         if cloud_blocker:
                             node_data["cloud_blocker"] = True
@@ -824,8 +1183,21 @@ def parse_typescript(file_path: str, content: str, project_path: str) -> dict:
                             node_data["labels"] = ["Sensitive_Data"]
                         if _detect_hardcoded_secret(name, content):
                             node_data["hardcoded_secret"] = True
-                        
+                        if _detect_empty_catch(child, content):
+                            node_data["swallowed_exception"] = True
+
                         entities["nodes"].append(node_data)
+                        n_plus_one, sql_injection = _collect_call_relationships(ns_key, child, node_data["called_routes"])
+                        if n_plus_one:
+                            node_data["n_plus_one_risk"] = True
+                        if sql_injection:
+                            node_data["sql_injection_risk"] = True
+
+                        # Check for compliance violations
+                        violation, leaked = _check_compliance_violation(child, content)
+                        if violation:
+                            node_data["compliance_violation"] = True
+                            node_data["leaked_data"] = leaked
 
         for child in node.children:
             find_entities(child)
@@ -843,6 +1215,28 @@ def parse_typescript(file_path: str, content: str, project_path: str) -> dict:
                     "to_import": import_path,
                     "type": "IMPORTS",
                 })
+
+    # Detect Express-like / Router endpoints (app.get, router.post, etc.)
+    import re
+    endpoint_pattern = re.compile(r"\b(?:app|router)\.(get|post|put|delete|patch)\s*\(\s*['\"]([^'\"]+)['\"]")
+    seen = set(n["namespace_key"] for n in entities["nodes"])
+    for m in endpoint_pattern.finditer(content):
+        method = m.group(1).upper()
+        route_path = m.group(2)
+        ns_key = f"{project_name}:{rel_path}:endpoint:{method}:{route_path}"
+        if ns_key in seen:
+            continue
+        seen.add(ns_key)
+
+        entities["nodes"].append({
+            "label": "API_Endpoint",
+            "namespace_key": ns_key,
+            "name": f"{method} {route_path}",
+            "file": rel_path,
+            "project": project_name,
+            "layer": layer,
+            "route_path": route_path,
+        })
 
     return entities
 
@@ -862,7 +1256,7 @@ async def parse_sql_with_ollama(file_path: str, content: str, project_path: str)
     project_name = _get_project_name(file_path, project_path)
     rel_path = os.path.relpath(file_path, project_path).replace("\\", "/")
 
-    prompt = f"""Analyze this SQL code and return ONLY a valid JSON (no markdown, no explanation) with this exact structure:
+    prompt = f"""Analyze this SQL/PLSQL code and return ONLY a valid JSON (no markdown, no explanation) with this exact structure:
 {{
   "procedures": [
     {{
@@ -874,6 +1268,18 @@ async def parse_sql_with_ollama(file_path: str, content: str, project_path: str)
   ],
   "tables": ["table1", "table2", "table3"]
 }}
+
+The code may include PL/SQL constructs such as:
+- CREATE PROCEDURE
+- CREATE PACKAGE
+- CREATE TRIGGER
+- PRAGMA, CURSOR, EXCEPTION blocks
+
+IMPORTANT: For each procedure/function/package/trigger in the file, extract any call to other procedures/functions/packages/triggers and list their names in the "calls" array. This includes invocations like:
+- MY_PROC(...)
+- schema.OTHER_PROC(...)
+- package_name.fn(...)
+- SOME_TRIGGER(...) (when invoked)
 
 SQL Code:
 ```sql
@@ -977,10 +1383,20 @@ async def ask_ai(question: str, context: str) -> dict:
     ai_busy = True
     
     system_prompt = """Você é o InsightGraph AI, um Arquiteto de Software Sênior e assistente prestativo.
-DIRETRIZES DE RESPOSTA:
-1. Se o usuário apenas cumprimentar, responda de forma amigável.
-2. Se o usuário fizer uma pergunta técnica, forneça uma análise detalhada em Markdown.
-3. SEMPRE que possível, identifique 'namespace_keys' relevantes no contexto.
+DIRETRIZES DE RESPOSTA (OBRIGATÓRIO):
+- Estruture TODAS as respostas em 3 blocos bem definidos (na ordem abaixo), usando cabeçalhos claros.
+
+1) 📊 Visão Executiva (Simples):
+   - Explicação voltada para diretores e stakeholders não-técnicos.
+   - Use analogias do mundo real (ex: "apagar este componente é como tirar o motor do carro").
+
+2) ⚙️ Visão Técnica (Avançada):
+   - Impacto profundo em código, métodos, tabelas e injeções de dependência.
+
+3) ✅ Recomendação de Ação:
+   - Plano de mitigação seguro e próximos passos práticos.
+
+SEMPRE que possível, identifique 'namespace_keys' relevantes no contexto.
 
 RESPONDA SEMPRE NO FORMATO JSON:
 {
@@ -1045,31 +1461,50 @@ Pergunta do usuário:
 
 
 async def ask_complex_ai(prompt_text: str) -> str:
-    """Send a complex request to the high-end architectural model."""
+    """Send a complex request to the high-end architectural model with robust fallbacks."""
     global ai_busy
     ai_busy = True
-    try:
-        logger.info("Deep architectural review requested via %s", OLLAMA_COMPLEX_MODEL)
-        async with httpx.AsyncClient(timeout=300.0) as client:
+
+    async def _call_ollama_generate(model: str, timeout: float) -> str:
+        # Usamos /api/generate pois é mais universal e ignora a ausência de chat_templates
+        async with httpx.AsyncClient(timeout=timeout) as client:
             resp = await client.post(
                 f"{OLLAMA_URL}/api/generate",
                 json={
-                    "model": OLLAMA_COMPLEX_MODEL,
+                    "model": model,
                     "prompt": prompt_text,
                     "stream": False,
                     "options": {
-                        "temperature": 0.4,
-                        "num_predict": 1024,
+                        "temperature": 0.3,
+                        "num_predict": 1024
                     },
-                    "keep_alive": "10m"
+                    "keep_alive": "5m"
                 },
             )
             resp.raise_for_status()
             result = resp.json()
-            return result.get("response", "Erro ao gerar relatório profundo.")
-    except Exception as e:
-        logger.error("Complex AI failed: %s", e)
-        return f"Desculpe, não conseguimos realizar a análise profunda agora: {str(e)}"
+            content = result.get("response", "").strip()
+            
+            if not content:
+                raise ValueError(f"O modelo {model} retornou um texto vazio.")
+                
+            return content
+
+    try:
+        logger.info("Deep architectural review requested via %s", OLLAMA_COMPLEX_MODEL)
+        try:
+            return await _call_ollama_generate(OLLAMA_COMPLEX_MODEL, 180.0)
+        except Exception as e:
+            logger.warning("Complex model failed (%s); falling back to chat model", e)
+            try:
+                return await _call_ollama_generate(OLLAMA_CHAT_MODEL, 90.0)
+            except Exception as e2:
+                logger.warning("Chat model fallback failed (%s); trying fast model", e2)
+                try:
+                    return await _call_ollama_generate(OLLAMA_FAST_MODEL, 60.0)
+                except Exception as e3:
+                    logger.error("All fallback models failed: %s", e3)
+                    return "⚠️ Todos os modelos de IA falharam em gerar o relatório. Verifique se os modelos estão instalados no Ollama (`ollama list`) e se o computador tem memória RAM/VRAM disponível."
     finally:
         ai_busy = False
 
@@ -1082,7 +1517,7 @@ SKIP_DIRS = {
     ".idea", ".vscode", "target", "bin", ".next", "venv", "env",
 }
 
-SUPPORTED_EXTENSIONS = {".java", ".ts", ".tsx", ".sql"}
+SUPPORTED_EXTENSIONS = {".java", ".ts", ".tsx", ".sql", ".prc", ".fnc", ".pkg"}
 
 
 def _count_files(project_path: str) -> int:
@@ -1097,12 +1532,134 @@ def _count_files(project_path: str) -> int:
     return count
 
 
+def _normalize_route(route: str) -> str:
+    """Normalize a HTTP route for matching.
+
+    - Trims whitespace and quotes
+    - Removes query strings
+    - Strips protocol/host
+    - Ensures leading '/'
+    - Converts to lowercase (for case-insensitive matching)
+    """
+    if not route or not isinstance(route, str):
+        return ""
+    r = route.strip().strip("\"'")
+    # Remove query string
+    if "?" in r:
+        r = r.split("?", 1)[0]
+    # Strip protocol/host if present
+    if "://" in r:
+        try:
+            r = r.split("://", 1)[1]
+            # keep only the path
+            if "/" in r:
+                r = r[r.index("/"):]
+        except Exception:
+            pass
+    r = r.strip()
+    if not r.startswith("/"):
+        r = "/" + r
+    # Remove trailing slash (but keep root)
+    if len(r) > 1 and r.endswith("/"):
+        r = r[:-1]
+    return r.lower()
+
+
+def _route_matches(pattern: str, candidate: str) -> bool:
+    """Check if candidate path matches a pattern with optional {param} segments."""
+    if not pattern or not candidate:
+        return False
+
+    p = pattern.strip("/")
+    c = candidate.strip("/")
+    p_segs = p.split("/") if p else []
+    c_segs = c.split("/") if c else []
+
+    if len(p_segs) != len(c_segs):
+        return False
+
+    for ps, cs in zip(p_segs, c_segs):
+        if ps.startswith("{") and ps.endswith("}"):
+            continue
+        if ps != cs:
+            return False
+    return True
+
+
+def _link_cross_project_apis(entities: dict) -> None:
+    """Link frontend/mobile HTTP call sites to backend API endpoints.
+
+    - Builds an index of API_Endpoint nodes by normalized route.
+    - Scans nodes with `called_routes` and matches them to endpoints.
+    - Adds CONSUMES_API relationships when a match is found.
+    """
+    nodes = entities.get("nodes", [])
+    rels = entities.get("relationships", [])
+
+    # Build endpoint index: normalized route -> list of endpoint namespace_keys
+    endpoint_index: dict[str, list[str]] = {}
+    for node in nodes:
+        label = node.get("label") or ""
+        labels = node.get("labels") or []
+        if label == "API_Endpoint" or "API_Endpoint" in labels:
+            route = node.get("route_path")
+            if not route:
+                continue
+            norm = _normalize_route(route)
+            if not norm:
+                continue
+            endpoint_index.setdefault(norm, []).append(node.get("namespace_key"))
+
+    if not endpoint_index:
+        return
+
+    existing = set(
+        (r.get("from"), r.get("to"), r.get("type"))
+        for r in rels
+        if r.get("from") and r.get("to") and r.get("type")
+    )
+
+    for node in nodes:
+        called_routes = node.get("called_routes") or []
+        if not isinstance(called_routes, list) or not called_routes:
+            continue
+
+        src = node.get("namespace_key")
+        if not src:
+            continue
+
+        for raw in called_routes:
+            cand = _normalize_route(raw)
+            if not cand:
+                continue
+
+            # Exact match first
+            matched = set(endpoint_index.get(cand, []))
+
+            # Partial/parametric match for patterns like /users/{id}
+            if not matched:
+                for ep, ns_keys in endpoint_index.items():
+                    if _route_matches(ep, cand) or _route_matches(cand, ep):
+                        matched.update(ns_keys)
+
+            for dst in matched:
+                key = (src, dst, "CONSUMES_API")
+                if key in existing:
+                    continue
+                rels.append({"from": src, "to": dst, "type": "CONSUMES_API"})
+                existing.add(key)
+
+
 async def scan_project(project_path: str) -> dict:
     """Walk a project directory and parse all supported files."""
     global scan_state, scanned_projects
     project_path = os.path.normpath(project_path)
     all_entities = {"nodes": [], "relationships": []}
-    
+
+    # Collect test file names for Test Gap Analysis
+    # We treat any file containing 'test' or 'spec' in the filename as a test file.
+    test_files: set[str] = set()
+
     # Register this project for later file access
     project_name = Path(project_path).name
     scanned_projects[project_name] = project_path
@@ -1120,6 +1677,12 @@ async def scan_project(project_path: str) -> dict:
             file_path = os.path.join(root_dir, file_name)
             ext = os.path.splitext(file_name)[1].lower()
 
+            # Gather test file basenames for Test Gap Analysis
+            fname_lower = file_name.lower()
+            if "test" in fname_lower or "spec" in fname_lower:
+                base = os.path.splitext(file_name)[0]
+                test_files.add(base.lower())
+
             if ext not in SUPPORTED_EXTENSIONS:
                 continue
 
@@ -1129,6 +1692,8 @@ async def scan_project(project_path: str) -> dict:
                 with open(file_path, "r", encoding="utf-8", errors="ignore") as f:
                     content = f.read()
 
+                owner = _get_git_owner(file_path)
+
                 if not content.strip():
                     continue
 
@@ -1136,10 +1701,14 @@ async def scan_project(project_path: str) -> dict:
                     result = parse_java(file_path, content, project_path)
                 elif ext in (".ts", ".tsx"):
                     result = parse_typescript(file_path, content, project_path)
-                elif ext == ".sql":
+                elif ext in (".sql", ".prc", ".fnc", ".pkg"):
                     result = await parse_sql_with_ollama(file_path, content, project_path)
                 else:
                     continue
+
+                # Add owner to all nodes from this file
+                for node in result.get("nodes", []):
+                    node["owner"] = owner
 
                 all_entities["nodes"].extend(result.get("nodes", []))
                 all_entities["relationships"].extend(result.get("relationships", []))
@@ -1155,6 +1724,24 @@ async def scan_project(project_path: str) -> dict:
                 error_msg = f"Error parsing {file_path}: {e}"
                 logger.error(error_msg)
                 scan_state.errors.append(error_msg)
+
+    # Test Gap Analysis: flag classes/components without an associated test file
+    for node in all_entities.get("nodes", []):
+        if node.get("label") not in ("Java_Class", "TS_Component"):
+            continue
+
+        class_name = str(node.get("name", ""))
+        if not class_name:
+            continue
+
+        class_lower = class_name.lower()
+        # A corresponding test file is any filename that includes the class name
+        has_test = any(class_lower in tf for tf in test_files)
+        if not has_test:
+            node["missing_tests"] = True
+
+    # Cross-project API linking (frontend/mobile -> backend endpoints)
+    _link_cross_project_apis(all_entities)
 
     return all_entities
 
@@ -1354,6 +1941,35 @@ async def get_projects():
     return {"projects": projects}
 
 
+@app.delete("/api/projects/{project_name}")
+async def delete_project(project_name: str):
+    """Delete a project's nodes from Neo4j (if connected) and clean in-memory graph."""
+    global memory_nodes, memory_edges
+
+    # Delete from Neo4j if available
+    if neo4j_service.is_connected:
+        try:
+            neo4j_service.graph.run(
+                "MATCH (n:Entity {project: $project_name}) DETACH DELETE n",
+                project_name=project_name,
+            )
+        except Exception as e:
+            logger.error("Failed to delete project nodes from Neo4j: %s", e)
+
+    # Clean in-memory graph
+    before_nodes = len(memory_nodes)
+    memory_nodes = [n for n in memory_nodes if n.get("project") != project_name]
+    removed_keys = {n["namespace_key"] for n in memory_nodes}
+    before_edges = len(memory_edges)
+    memory_edges = [e for e in memory_edges if e["source"] in removed_keys and e["target"] in removed_keys]
+
+    return {
+        "project": project_name,
+        "nodes_removed": before_nodes - len(memory_nodes),
+        "edges_removed": before_edges - len(memory_edges),
+    }
+
+
 @app.get("/api/impact/blast-radius/{node_key:path}")
 async def get_blast_radius(node_key: str):
     """Calculate blast radius (multihop impact) and risk score for a node."""
@@ -1401,10 +2017,195 @@ async def get_antipatterns():
         "dead_code": [],
         "cloud_blockers": [],
         "hardcoded_secrets": [],
+        "swallowed_exceptions": [],
         "fat_controllers": [],
-        "top_external_deps": []
+        "top_external_deps": [],
+        "untested_critical_code": [],
+        "architecture_violations": [],
+        "n_plus_one_risk": [],
+        "sql_injection_risk": [],
+        "compliance_violations": []
     }
+
     if not neo4j_service.is_connected:
+        # Fallback: compute antipatterns from in-memory graph
+        nodes_by_key = {n["namespace_key"]: n for n in memory_nodes}
+        out_degree: dict[str, int] = {}
+        in_degree: dict[str, int] = {}
+
+        for e in memory_edges:
+            src = e.get("source")
+            tgt = e.get("target")
+            if src:
+                out_degree[src] = out_degree.get(src, 0) + 1
+            if tgt:
+                in_degree[tgt] = in_degree.get(tgt, 0) + 1
+
+        # 1. God Classes: high degree OR complex
+        god_classes = []
+        for n in memory_nodes:
+            key = n.get("namespace_key")
+            if not key:
+                continue
+            complexity = n.get("complexity") or 0
+            deg = (out_degree.get(key, 0) + in_degree.get(key, 0))
+            if deg > 15 or complexity > 20:
+                god_classes.append({
+                    "key": key,
+                    "name": n.get("name"),
+                    "layer": n.get("layer"),
+                    "out_degree": out_degree.get(key, 0),
+                    "in_degree": in_degree.get(key, 0),
+                    "complexity": complexity,
+                })
+        antipatterns["god_classes"] = god_classes
+
+        # 2. Dead Code: no incoming edges, ignore Frontend/API
+        excluded_names = {"main", "App", "index"}
+        dead_code = []
+        for n in memory_nodes:
+            key = n.get("namespace_key")
+            if not key:
+                continue
+            layer = n.get("layer")
+            name = (n.get("name") or "")
+            if in_degree.get(key, 0) == 0 and layer not in ("API", "Frontend") and name not in excluded_names:
+                dead_code.append({
+                    "key": key,
+                    "name": name,
+                    "layer": layer,
+                    "file": n.get("file"),
+                })
+        antipatterns["dead_code"] = dead_code
+
+        # 3. Cloud Blockers
+        antipatterns["cloud_blockers"] = [
+            {
+                "key": n["namespace_key"],
+                "name": n.get("name"),
+                "layer": n.get("layer"),
+                "file": n.get("file"),
+            }
+            for n in memory_nodes
+            if n.get("cloud_blocker")
+        ]
+
+        # 4. Hardcoded Secrets
+        antipatterns["hardcoded_secrets"] = [
+            {
+                "key": n["namespace_key"],
+                "name": n.get("name"),
+                "layer": n.get("layer"),
+                "file": n.get("file"),
+            }
+            for n in memory_nodes
+            if n.get("hardcoded_secret")
+        ]
+
+        # 5. Fat Controllers (API layer high complexity)
+        fat_controllers = []
+        for n in memory_nodes:
+            if n.get("layer") == "API" and (n.get("complexity") or 0) > 10:
+                key = n.get("namespace_key")
+                fat_controllers.append({
+                    "key": key,
+                    "name": n.get("name"),
+                    "layer": n.get("layer"),
+                    "complexity": n.get("complexity"),
+                    "out_degree": out_degree.get(key, 0),
+                    "in_degree": in_degree.get(key, 0),
+                })
+        antipatterns["fat_controllers"] = fat_controllers
+
+        # Preserve existing fallbacks for other categories
+        antipatterns["untested_critical_code"] = [
+            {
+                "key": n["namespace_key"],
+                "name": n.get("name"),
+                "layer": n.get("layer"),
+                "complexity": n.get("complexity"),
+            }
+            for n in memory_nodes
+            if n.get("missing_tests") and (n.get("complexity") or 0) > 5
+        ]
+        antipatterns["swallowed_exceptions"] = [
+            {
+                "key": n["namespace_key"],
+                "name": n.get("name"),
+                "layer": n.get("layer"),
+                "file": n.get("file"),
+            }
+            for n in memory_nodes
+            if n.get("swallowed_exception")
+        ]
+
+        # Architecture violations (Frontend -> Database/Service, API -> Database)
+        violations = []
+        for e in memory_edges:
+            src = nodes_by_key.get(e.get("source"))
+            tgt = nodes_by_key.get(e.get("target"))
+            if not src or not tgt:
+                continue
+            if e.get("type") not in ("CALLS", "IMPORTS"):
+                continue
+            src_layer = src.get("layer")
+            tgt_layer = tgt.get("layer")
+            if src_layer == "Frontend" and tgt_layer in ("Database", "Service"):
+                violations.append({
+                    "source": src.get("namespace_key"),
+                    "source_name": src.get("name"),
+                    "source_layer": src_layer,
+                    "target": tgt.get("namespace_key"),
+                    "target_name": tgt.get("name"),
+                    "target_layer": tgt_layer,
+                    "relation": e.get("type"),
+                })
+            if src_layer == "API" and tgt_layer == "Database":
+                violations.append({
+                    "source": src.get("namespace_key"),
+                    "source_name": src.get("name"),
+                    "source_layer": src_layer,
+                    "target": tgt.get("namespace_key"),
+                    "target_name": tgt.get("name"),
+                    "target_layer": tgt_layer,
+                    "relation": e.get("type"),
+                })
+        antipatterns["architecture_violations"] = violations
+
+        antipatterns["n_plus_one_risk"] = [
+            {
+                "key": n["namespace_key"],
+                "name": n.get("name"),
+                "layer": n.get("layer"),
+                "file": n.get("file"),
+            }
+            for n in memory_nodes
+            if n.get("n_plus_one_risk")
+        ]
+
+        antipatterns["sql_injection_risk"] = [
+            {
+                "key": n["namespace_key"],
+                "name": n.get("name"),
+                "layer": n.get("layer"),
+                "file": n.get("file"),
+            }
+            for n in memory_nodes
+            if n.get("sql_injection_risk")
+        ]
+
+        antipatterns["compliance_violations"] = [
+            {
+                "key": n["namespace_key"],
+                "name": n.get("name"),
+                "layer": n.get("layer"),
+                "file": n.get("file"),
+                "leaked_data": n.get("leaked_data", [])
+            }
+            for n in memory_nodes
+            if n.get("compliance_violation")
+        ]
+
         return antipatterns
         
     try:
@@ -1474,7 +2275,27 @@ async def get_antipatterns():
         secrets_res = neo4j_service.graph.run(secrets_query).data()
         antipatterns["hardcoded_secrets"] = secrets_res
 
-        # 6. Fat Controllers (API layer with high complexity)
+        # 6. Untested Critical Code (missing tests with high complexity)
+        untested_query = """
+        MATCH (n:Entity)
+        WHERE coalesce(n.missing_tests, false) = true AND coalesce(n.complexity, 0) > 5
+        RETURN n.namespace_key AS key, n.name AS name, n.layer AS layer, coalesce(n.complexity, 0) AS complexity, coalesce(n.file, '') AS file
+        LIMIT 100
+        """
+        untested_res = neo4j_service.graph.run(untested_query).data()
+        antipatterns["untested_critical_code"] = untested_res
+
+        # 7. Swallowed Exceptions (empty catch blocks)
+        swallowed_query = """
+        MATCH (n:Entity)
+        WHERE coalesce(n.swallowed_exception, false) = true
+        RETURN n.namespace_key AS key, n.name AS name, n.layer AS layer, coalesce(n.file, '') AS file
+        LIMIT 100
+        """
+        swallowed_res = neo4j_service.graph.run(swallowed_query).data()
+        antipatterns["swallowed_exceptions"] = swallowed_res
+
+        # 8. Fat Controllers (API layer with high complexity)
         fat_query = """
         MATCH (n:Entity)
         WHERE n.layer = 'API' AND coalesce(n.complexity, 0) > 10
@@ -1498,6 +2319,52 @@ async def get_antipatterns():
         """
         deps_res = neo4j_service.graph.run(deps_query).data()
         antipatterns["top_external_deps"] = deps_res
+
+        # 8. Architecture violations (Frontend -> Database/Service, API -> Database)
+        arch_query = """
+        MATCH (a:Entity)-[r]->(b:Entity)
+        WHERE type(r) IN ['CALLS', 'IMPORTS']
+          AND (
+              (a.layer = 'Frontend' AND b.layer IN ['Database', 'Service'])
+              OR (a.layer = 'API' AND b.layer = 'Database')
+          )
+        RETURN a.namespace_key AS source, a.name AS source_name, a.layer AS source_layer,
+               b.namespace_key AS target, b.name AS target_name, b.layer AS target_layer,
+               type(r) AS relation
+        LIMIT 200
+        """
+        arch_res = neo4j_service.graph.run(arch_query).data()
+        antipatterns["architecture_violations"] = arch_res
+
+        # 9. N+1 Query Risks
+        nplus_query = """
+        MATCH (n:Entity)
+        WHERE coalesce(n.n_plus_one_risk, false) = true
+        RETURN n.namespace_key AS key, n.name AS name, n.layer AS layer, coalesce(n.file, '') AS file
+        LIMIT 200
+        """
+        nplus_res = neo4j_service.graph.run(nplus_query).data()
+        antipatterns["n_plus_one_risk"] = nplus_res
+
+        # 10. SQL Injection Risks
+        sql_inj_query = """
+        MATCH (n:Entity)
+        WHERE coalesce(n.sql_injection_risk, false) = true
+        RETURN n.namespace_key AS key, n.name AS name, n.layer AS layer, coalesce(n.file, '') AS file
+        LIMIT 200
+        """
+        sql_inj_res = neo4j_service.graph.run(sql_inj_query).data()
+        antipatterns["sql_injection_risk"] = sql_inj_res
+
+        # 11. Compliance Violations
+        compliance_query = """
+        MATCH (n:Entity)
+        WHERE coalesce(n.compliance_violation, false) = true
+        RETURN n.namespace_key AS key, n.name AS name, n.layer AS layer, coalesce(n.file, '') AS file, coalesce(n.leaked_data, []) AS leaked_data
+        LIMIT 200
+        """
+        compliance_res = neo4j_service.graph.run(compliance_query).data()
+        antipatterns["compliance_violations"] = compliance_res
 
     except Exception as e:
         logger.error("Antipatterns query failed: %s", e)
@@ -1656,37 +2523,42 @@ async def simulate_changes(req: SimulateRequest):
     for dk in deleted_set:
         if dk in nodes:
             nodes[dk]["status"] = "deleted"
+            nodes[dk]["impact_distance"] = 0
             
-    # Find impacted nodes recursively (Bi-directional BFS)
+    # Find impacted nodes recursively (Bi-directional BFS) and record impact distance
     # The user wants "everything" impacted if a root node is deleted.
     # We follow all edges in both directions to show system-wide reachability impact.
-    impacted_set = set()
-    queue = list(deleted_set)
-    visited = set(deleted_set)
-    
-    while queue:
-        current_id = queue.pop(0)
-        
-        for edge in edges:
-            src = edge["source"]
-            tgt = edge["target"]
+    adj: dict[str, set[str]] = {}
+    for edge in edges:
+        adj.setdefault(edge["source"], set()).add(edge["target"])
+        adj.setdefault(edge["target"], set()).add(edge["source"])
 
-            # Bi-directional propagation
-            neighbor = None
-            if src == current_id:
-                neighbor = tgt
-            elif tgt == current_id:
-                neighbor = src
-            
-            if neighbor and neighbor not in visited:
-                if neighbor in nodes:
-                    impacted_set.add(neighbor)
-                    visited.add(neighbor)
-                    queue.append(neighbor)
-            
-    for ik in impacted_set:
+    distances: dict[str, int] = {}
+    visited = set(deleted_set)
+    queue: list[tuple[str, int]] = []
+
+    # Seed first-level impact (distance = 1)
+    for d in deleted_set:
+        for neigh in adj.get(d, []):
+            if neigh not in visited:
+                distances[neigh] = 1
+                visited.add(neigh)
+                queue.append((neigh, 1))
+
+    # BFS to propagate impact distances
+    while queue:
+        current_id, dist = queue.pop(0)
+        for neigh in adj.get(current_id, []):
+            if neigh not in visited:
+                distances[neigh] = dist + 1
+                visited.add(neigh)
+                queue.append((neigh, dist + 1))
+
+    impacted_set = set(distances.keys())
+    for ik, dist in distances.items():
         if ik in nodes:
             nodes[ik]["status"] = "impacted"
+            nodes[ik]["impact_distance"] = dist
 
     # Tag edges
     for edge in edges:
@@ -1713,9 +2585,10 @@ async def simulate_changes(req: SimulateRequest):
     critical_keywords = ["main", "app", "application", "index", "server", "start"]
     found_critical = []
     for dk in deleted_set:
-        node_name = nodes[dk].get("name", "").lower()
-        if any(kw in node_name for kw in critical_keywords):
-            found_critical.append(nodes[dk].get("name"))
+        if dk in nodes:  # safety: ignore ghost nodes not loaded into memory
+            node_name = nodes[dk].get("name", "").lower()
+            if any(kw in node_name for kw in critical_keywords):
+                found_critical.append(nodes[dk].get("name"))
     
     if found_critical:
         impact_insights.append(f"🔴 FALHA CRÍTICA: O ponto de entrada do sistema ({', '.join(found_critical)}) foi removido. O ambiente deixará de funcionar.")
@@ -1723,8 +2596,9 @@ async def simulate_changes(req: SimulateRequest):
     # 2. Layer-wise Impact Analysis
     layer_impacts = {}
     for ik in impacted_set:
-        l = nodes[ik].get("layer", "Unknown")
-        layer_impacts[l] = layer_impacts.get(l, 0) + 1
+        if ik in nodes:  # safety: ignore ghost nodes not loaded into memory
+            l = nodes[ik].get("layer", "Unknown")
+            layer_impacts[l] = layer_impacts.get(l, 0) + 1
     
     # Sort layers for consistent reporting
     for layer, count in sorted(layer_impacts.items()):
@@ -1741,6 +2615,37 @@ async def simulate_changes(req: SimulateRequest):
     elif len(impacted_set) > 20:
         impact_insights.append(f"💣 Alto Risco: Esta mudança afeta um grande volume de dependências ({len(impacted_set)} nós).")
 
+    # 5. Contract Break Insights (CALLS dependencies)
+    for dk in deleted_set:
+        node = nodes.get(dk)
+        if not node:
+            continue
+        if node.get("label") not in ("Java_Method", "TS_Function", "SQL_Procedure"):
+            continue
+
+        broken_count = 0
+        for edge in edges:
+            if edge.get("type") != "CALLS":
+                continue
+            if edge.get("source") != dk:
+                continue
+            tgt = edge.get("target")
+            if tgt in impacted_set and tgt in nodes:
+                tgt_label = nodes[tgt].get("label")
+                if tgt_label in ("Java_Method", "TS_Function", "SQL_Procedure"):
+                    broken_count += 1
+
+        if broken_count > 0:
+            label = node.get("label")
+            if label == "SQL_Procedure":
+                template = "⚠️ Quebra de Contrato: A remoção da procedure/função {name} quebrou diretamente {count} outras funções/procedures que dependiam dela."
+            else:
+                template = "⚠️ Quebra de Contrato: A remoção do método {name} quebrou diretamente {count} outras funções que dependiam dele."
+
+            impact_insights.append(
+                template.format(name=node.get('name', dk), count=broken_count)
+            )
+
     affected_nodes_cnt = len(deleted_set) + len(impacted_set)
     affected_edges_cnt = deleted_edges_count + len(req.added_edges)
     risk_score = min(100, len(deleted_set) * 15 + len(impacted_set) * 5 + affected_edges_cnt * 2)
@@ -1755,7 +2660,7 @@ async def simulate_changes(req: SimulateRequest):
 
 
 @app.post("/api/simulate/review")
-async def review_simulation(sim_report: dict):
+async def review_simulation(sim_report: SimulationReviewRequest):
     """Generate a deep architectural review of a simulation scenario."""
     if scan_state.status == "scanning" or ai_busy:
          raise HTTPException(
@@ -1763,8 +2668,8 @@ async def review_simulation(sim_report: dict):
             detail="A IA está ocupada ou o sistema está escaneando. Tente novamente em instantes."
         )
 
-    risk = sim_report.get("risk_score", 0)
-    insights = "\n".join([f"- {i}" for i in sim_report.get("impact_insights", [])])
+    risk = sim_report.risk_score
+    insights = "\n".join([f"- {i}" for i in sim_report.impact_insights])
     
     prompt = f"""Você é um Arquiteto de Software Sênior (Principal Architect).
 Analise o seguinte cenário de simulação de mudanças no sistema:
@@ -1784,6 +2689,84 @@ SEJA PROFISSIONAL, OBJETIVO E TÉCNICO. RESPONDA EM PORTUGUÊS.
 """
     report = await ask_complex_ai(prompt)
     return {"report": report}
+
+
+@app.get("/api/system/browse-folder")
+def browse_folder():
+    """Open native system folder picker dialog and return selected path."""
+    try:
+        root = tk.Tk()
+        root.withdraw()  # Hide the main window
+        root.attributes("-topmost", True)  # Force window to stay on top
+        selected_path = filedialog.askdirectory(title="Select Project Folder")
+        root.destroy()
+        if selected_path:
+            return {"path": selected_path}
+        else:
+            return {"path": None}
+    except Exception as e:
+        logger.error("Folder picker failed: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to open folder picker")
+
+
+@app.get("/api/workspaces")
+async def get_workspaces():
+    """Return list of analyzed project names from Neo4j or memory fallback."""
+    projects = set()
+    
+    # Try Neo4j first
+    if neo4j_service.is_connected:
+        try:
+            query = "MATCH (n) RETURN DISTINCT n.project as project"
+            result = neo4j_service.graph.run(query)
+            for record in result:
+                if record["project"]:
+                    projects.add(record["project"])
+        except Exception as e:
+            logger.warning("Neo4j query failed for projects: %s", e)
+    
+    # Fallback to memory_nodes
+    if not projects:
+        for node in memory_nodes:
+            if "project" in node and node["project"]:
+                projects.add(node["project"])
+    
+    return {"projects": list(projects)}
+
+
+@app.delete("/api/workspaces/{project_name}")
+async def delete_workspace(project_name: str):
+    """Delete all nodes and relationships for a specific project."""
+    global memory_nodes, memory_edges
+    
+    if neo4j_service.is_connected:
+        try:
+            query = "MATCH (n {project: $project_name}) DETACH DELETE n"
+            neo4j_service.graph.run(query, project_name=project_name)
+            logger.info(f"Deleted project {project_name} from Neo4j")
+        except Exception as e:
+            logger.error(f"Failed to delete project {project_name} from Neo4j: {e}")
+            raise HTTPException(status_code=500, detail=f"Failed to delete project from database: {str(e)}")
+    else:
+        # Fallback: filter memory_nodes and memory_edges
+        original_count = len(memory_nodes)
+        memory_nodes = [n for n in memory_nodes if n.get("project") != project_name]
+        deleted_nodes = original_count - len(memory_nodes)
+        
+        # Get set of remaining namespace_keys
+        remaining_keys = {n["namespace_key"] for n in memory_nodes}
+        
+        # Filter edges to only keep those with both source and target in remaining_keys
+        original_edges = len(memory_edges)
+        memory_edges = [
+            e for e in memory_edges 
+            if e["source"] in remaining_keys and e["target"] in remaining_keys
+        ]
+        deleted_edges = original_edges - len(memory_edges)
+        
+        logger.info(f"Deleted project {project_name} from memory: {deleted_nodes} nodes, {deleted_edges} edges")
+    
+    return {"message": f"Projeto {project_name} deletado com sucesso"}
 
 
 @app.get("/api/history")

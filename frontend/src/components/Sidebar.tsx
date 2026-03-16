@@ -4,6 +4,7 @@ interface SidebarProps {
     projects: string[];
     selectedProjects: string[];
     onToggleProject: (project: string) => void;
+    onDeleteProject: (project: string) => void;
     selectedLayer: string;
     onLayerChange: (layer: string) => void;
     searchTerm: string;
@@ -26,6 +27,7 @@ export default function Sidebar({
     projects,
     selectedProjects,
     onToggleProject,
+    onDeleteProject,
     selectedLayer,
     onLayerChange,
     searchTerm,
@@ -82,17 +84,33 @@ export default function Sidebar({
                     </div>
                     <div className="filter-group">
                         {projects.map((project) => (
-                            <label
-                                key={project}
-                                className={`filter-item ${selectedProjects.includes(project) ? 'active' : ''}`}
-                            >
-                                <input
-                                    type="checkbox"
-                                    checked={selectedProjects.includes(project)}
-                                    onChange={() => onToggleProject(project)}
-                                />
-                                {project}
-                            </label>
+                            <div key={project} className="project-item">
+                                <label
+                                    className={`filter-item ${selectedProjects.includes(project) ? 'active' : ''}`}
+                                >
+                                    <input
+                                        type="checkbox"
+                                        checked={selectedProjects.includes(project)}
+                                        onChange={() => onToggleProject(project)}
+                                    />
+                                    {project}
+                                </label>
+                                <span 
+                                    className="project-delete" 
+                                    onClick={() => onDeleteProject(project)} 
+                                    title="Deletar projeto"
+                                    style={{ 
+                                        cursor: 'pointer', 
+                                        color: '#666', 
+                                        marginLeft: '8px',
+                                        fontSize: '14px'
+                                    }}
+                                    onMouseEnter={(e) => e.currentTarget.style.color = '#f56565'}
+                                    onMouseLeave={(e) => e.currentTarget.style.color = '#666'}
+                                >
+                                    🗑️
+                                </span>
+                            </div>
                         ))}
                     </div>
                 </div>

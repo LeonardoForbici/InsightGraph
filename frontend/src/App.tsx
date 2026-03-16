@@ -97,6 +97,27 @@ export default function App() {
     }
   }, [selectedProjects, selectedLayer]);
 
+  const handleDeleteProject = useCallback(async (projectName: string) => {
+    try {
+      const response = await fetch(`/api/workspaces/${encodeURIComponent(projectName)}`, {
+        method: 'DELETE',
+      });
+      if (response.ok) {
+        setProjects((prev) => prev.filter((p) => p !== projectName));
+        // Also remove from selectedProjects if it was selected
+        setSelectedProjects((prev) => prev.filter((p) => p !== projectName));
+        // Reload graph to reflect changes
+        loadGraph();
+      } else {
+        console.error('Failed to delete project');
+        alert('Falha ao deletar o projeto.');
+      }
+    } catch (error) {
+      console.error('Error deleting project:', error);
+      alert('Erro ao deletar o projeto.');
+    }
+  }, [loadGraph]);
+
   const handleScan = useCallback(async () => {
     if (workspaces.length === 0) return;
 
@@ -169,6 +190,10 @@ export default function App() {
     setAiHighlightedNodes([]);
   }, []);
 
+  const handleClearAiHighlights = useCallback(() => {
+    setAiHighlightedNodes([]);
+  }, []);
+
   const handleToggleProject = useCallback((project: string) => {
     setSelectedProjects((prev) =>
       prev.includes(project)
@@ -230,6 +255,22 @@ export default function App() {
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
     };
+  }, []);
+
+  // Load existing analyzed projects on app start
+  useEffect(() => {
+    const loadExistingProjects = async () => {
+      try {
+        const response = await fetch('/api/workspaces');
+        const data = await response.json();
+        if (data.projects && data.projects.length > 0) {
+          setProjects(data.projects);
+        }
+      } catch (error) {
+        console.error('Failed to load existing projects:', error);
+      }
+    };
+    loadExistingProjects();
   }, []);
 
   // ─── Render ───
@@ -309,6 +350,7 @@ export default function App() {
         projects={projects}
         selectedProjects={selectedProjects}
         onToggleProject={handleToggleProject}
+        onDeleteProject={handleDeleteProject}
         selectedLayer={selectedLayer}
         onLayerChange={setSelectedLayer}
         searchTerm={searchTerm}
@@ -325,6 +367,7 @@ export default function App() {
         aiHighlightedNodes={aiHighlightedNodes}
         selectedNodeKey={selectedNodeKey}
         onNodeClick={handleNodeClick}
+        onClearAiHighlights={handleClearAiHighlights}
         searchTerm={searchTerm}
       />
 

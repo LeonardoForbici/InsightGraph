@@ -38,6 +38,18 @@ export default function TopBar({
         }
     };
 
+    const handleBrowseFolder = async () => {
+        try {
+            const response = await fetch('/api/system/browse-folder');
+            const data = await response.json();
+            if (data.path) {
+                setInputPath(data.path);
+            }
+        } catch (error) {
+            console.error('Failed to open folder picker:', error);
+        }
+    };
+
     const handleKeyDown = (e: React.KeyboardEvent) => {
         if (e.key === 'Enter') handleAdd();
     };
@@ -61,7 +73,10 @@ export default function TopBar({
                     placeholder="C:\caminho\do\projeto ..."
                     disabled={isScanning}
                 />
-                <button className="btn btn-secondary" onClick={handleAdd} disabled={isScanning}>
+                <button className="btn btn-secondary" onClick={handleBrowseFolder} disabled={isScanning}>
+                    📁 Procurar Pasta
+                </button>
+                <button className="btn btn-secondary" onClick={handleAdd} disabled={isScanning || !inputPath.trim()}>
                     + Adicionar
                 </button>
                 <button

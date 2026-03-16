@@ -14,6 +14,7 @@ export interface GraphNode {
     loc?: number;
     complexity?: number;
     status?: 'deleted' | 'impacted';
+    impact_distance?: number;
 }
 
 export interface GraphEdge {
@@ -211,7 +212,7 @@ export async function explainComponent(code: string): Promise<{ answer: string }
 }
 
 export async function requestSimulationReview(simulationData: SimulateResponse): Promise<{ report: string }> {
-    const res = await fetch(`${BASE}/review-simulation`, {
+    const res = await fetch(`${BASE}/simulate/review`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(simulationData),
