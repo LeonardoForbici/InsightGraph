@@ -1,4 +1,0 @@
-# file: C:\git\InsightGraph\backend\symbol_resolver.py
-# hypothesis_version: 6.151.9
-
-[',', '.', 'class_name', 'confidence_score', 'conflicts', 'declaring_class', 'file', 'insightgraph', 'is_connected', 'key', 'module', 'name', 'namespace_key', 'param_types', 'parameter_types', 'properties', 'props', 'qualified_name', 'resolution_method', 'returnType', 'return_type', 'semantic_conflicts', 'source', 'source_code', 'void']
