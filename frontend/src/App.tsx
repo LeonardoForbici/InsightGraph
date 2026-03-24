@@ -7,6 +7,7 @@ import AskPanel from './components/AskPanel';
 import StatsBar from './components/StatsBar';
 import Dashboard from './components/Dashboard';
 import SimulationPanel from './components/SimulationPanel';
+import CodeQLModal from './components/CodeQLModal';
 import {
   scanProjects,
   getScanStatus,
@@ -53,8 +54,10 @@ export default function App() {
   // ─── Stats & AI Panel State ───
   const [graphStats, setGraphStats] = useState<GraphStats | null>(null);
   const [askOpen, setAskOpen] = useState(false);
+  const [askInitialMessage, setAskInitialMessage] = useState<string | undefined>();
   const [dashboardOpen, setDashboardOpen] = useState(false);
   const [simulationOpen, setSimulationOpen] = useState(false);
+  const [codeQLOpen, setCodeQLOpen] = useState(false);
   const [isSimulated, setIsSimulated] = useState(false);
   const [simRisk, setSimRisk] = useState<number | null>(null);
   const [simInsights, setSimInsights] = useState<string[]>([]);
@@ -95,6 +98,27 @@ export default function App() {
       console.error('Failed to load graph:', err);
     }
   }, [selectedProjects, selectedLayer]);
+
+  const handleDeleteProject = useCallback(async (projectName: string) => {
+    try {
+      const response = await fetch(`/api/workspaces/${encodeURIComponent(projectName)}`, {
+        method: 'DELETE',
+      });
+      if (response.ok) {
+        setProjects((prev) => prev.filter((p) => p !== projectName));
+        // Also remove from selectedProjects if it was selected
+        setSelectedProjects((prev) => prev.filter((p) => p !== projectName));
+        // Reload graph to reflect changes
+        loadGraph();
+      } else {
+        console.error('Failed to delete project');
+        alert('Falha ao deletar o projeto.');
+      }
+    } catch (error) {
+      console.error('Error deleting project:', error);
+      alert('Erro ao deletar o projeto.');
+    }
+  }, [loadGraph]);
 
   const handleScan = useCallback(async () => {
     if (workspaces.length === 0) return;
@@ -168,6 +192,10 @@ export default function App() {
     setAiHighlightedNodes([]);
   }, []);
 
+  const handleClearAiHighlights = useCallback(() => {
+    setAiHighlightedNodes([]);
+  }, []);
+
   const handleToggleProject = useCallback((project: string) => {
     setSelectedProjects((prev) =>
       prev.includes(project)
@@ -213,6 +241,13 @@ export default function App() {
     }
   }, []);
 
+  const handleRefactorRequest = useCallback((nodeName: string, problemType: string) => {
+    const message = `O Dashboard indicou que a classe/nó "${nodeName}" tem problemas de ${problemType}. Como posso refatorar e resolver isso passo a passo?`;
+    setAskInitialMessage(message);
+    setAskOpen(true);
+    setDashboardOpen(false);
+  }, []);
+
   // ─── Effects ───
   useEffect(() => {
     loadGraph();
@@ -222,6 +257,22 @@ export default function App() {
     return () => {
       if (pollRef.current) clearInterval(pollRef.current);
     };
+  }, []);
+
+  // Load existing analyzed projects on app start
+  useEffect(() => {
+    const loadExistingProjects = async () => {
+      try {
+        const response = await fetch('/api/workspaces');
+        const data = await response.json();
+        if (data.projects && data.projects.length > 0) {
+          setProjects(data.projects);
+        }
+      } catch (error) {
+        console.error('Failed to load existing projects:', error);
+      }
+    };
+    loadExistingProjects();
   }, []);
 
   // ─── Render ───
@@ -240,6 +291,8 @@ export default function App() {
         onToggleDashboard={() => setDashboardOpen((prev) => !prev)}
         simulationOpen={simulationOpen}
         onToggleSimulation={() => setSimulationOpen((prev) => !prev)}
+        codeQLOpen={codeQLOpen}
+        onToggleCodeQL={() => setCodeQLOpen((prev) => !prev)}
       />
 
       {isSimulated && (
@@ -301,6 +354,7 @@ export default function App() {
         projects={projects}
         selectedProjects={selectedProjects}
         onToggleProject={handleToggleProject}
+        onDeleteProject={handleDeleteProject}
         selectedLayer={selectedLayer}
         onLayerChange={setSelectedLayer}
         searchTerm={searchTerm}
@@ -317,6 +371,7 @@ export default function App() {
         aiHighlightedNodes={aiHighlightedNodes}
         selectedNodeKey={selectedNodeKey}
         onNodeClick={handleNodeClick}
+        onClearAiHighlights={handleClearAiHighlights}
         searchTerm={searchTerm}
       />
 
@@ -331,14 +386,21 @@ export default function App() {
 
       {askOpen && (
         <AskPanel
-          onClose={() => setAskOpen(false)}
+          onClose={() => {
+            setAskOpen(false);
+            setAskInitialMessage(undefined);
+          }}
           selectedNodeKey={selectedNodeKey}
           onHighlightNodes={setAiHighlightedNodes}
+          initialMessage={askInitialMessage}
         />
       )}
 
       {dashboardOpen && (
-        <Dashboard onClose={() => setDashboardOpen(false)} />
+        <Dashboard 
+          onClose={() => setDashboardOpen(false)}
+          onRefactorRequest={handleRefactorRequest}
+        />
       )}
 
       {simulationOpen && (
@@ -347,6 +409,10 @@ export default function App() {
           onSimulationComplete={handleSimulationComplete}
           onClose={() => setSimulationOpen(false)} 
         />
+      )}
+
+      {codeQLOpen && (
+        <CodeQLModal onClose={() => setCodeQLOpen(false)} />
       )}
 
       {aiReport && (

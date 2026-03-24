@@ -1,0 +1,4 @@
+# file: C:\git\InsightGraph\backend\fragility_calculator.py
+# hypothesis_version: 6.151.9
+
+[0.0, 0.2, 60.0, 100.0, 100, 300, 500, ':', 'OLLAMA_COMPLEX_MODEL', 'OLLAMA_URL', 'cnt', 'complexity', 'from', 'insightgraph', 'is_connected', 'key', 'max_depth', 'model', 'name', 'namespace_key', 'num_predict', 'options', 'prompt', 'properties', 'qwen2.5-coder:7b', 'response', 'score', 'source', 'stream', 'target', 'temperature', 'to']

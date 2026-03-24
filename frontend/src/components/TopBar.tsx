@@ -1,5 +1,6 @@
 import { useState } from 'react';
 
+// TopBar Component
 interface TopBarProps {
     workspaces: string[];
     onAddWorkspace: (path: string) => void;
@@ -13,6 +14,8 @@ interface TopBarProps {
     onToggleDashboard: () => void;
     simulationOpen: boolean;
     onToggleSimulation: () => void;
+    codeQLOpen: boolean;
+    onToggleCodeQL: () => void;
 }
 
 export default function TopBar({
@@ -27,6 +30,8 @@ export default function TopBar({
     onToggleDashboard,
     simulationOpen,
     onToggleSimulation,
+    codeQLOpen,
+    onToggleCodeQL,
 }: TopBarProps) {
     const [inputPath, setInputPath] = useState('');
 
@@ -35,6 +40,18 @@ export default function TopBar({
         if (trimmed && !workspaces.includes(trimmed)) {
             onAddWorkspace(trimmed);
             setInputPath('');
+        }
+    };
+
+    const handleBrowseFolder = async () => {
+        try {
+            const response = await fetch('/api/system/browse-folder');
+            const data = await response.json();
+            if (data.path) {
+                setInputPath(data.path);
+            }
+        } catch (error) {
+            console.error('Failed to open folder picker:', error);
         }
     };
 
@@ -61,7 +78,10 @@ export default function TopBar({
                     placeholder="C:\caminho\do\projeto ..."
                     disabled={isScanning}
                 />
-                <button className="btn btn-secondary" onClick={handleAdd} disabled={isScanning}>
+                <button className="btn btn-secondary" onClick={handleBrowseFolder} disabled={isScanning}>
+                    📁 Procurar Pasta
+                </button>
+                <button className="btn btn-secondary" onClick={handleAdd} disabled={isScanning || !inputPath.trim()}>
                     + Adicionar
                 </button>
                 <button
@@ -88,6 +108,14 @@ export default function TopBar({
                     title="Ver Métricas Arquiteturais e Dashboard de Antipatterns"
                 >
                     📊 Dashboard
+                </button>
+
+                <button
+                    className={`btn ${codeQLOpen ? 'btn-accent' : 'btn-secondary'}`}
+                    onClick={onToggleCodeQL}
+                    title="Análise de Segurança com CodeQL"
+                >
+                    🔒 CodeQL
                 </button>
 
                 <button

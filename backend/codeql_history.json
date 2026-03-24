@@ -1,0 +1,124 @@
+{
+  "analyses": [
+    {
+      "job_id": "aad27c77-db1a-40d4-8a57-1555a20e8021",
+      "project_id": "10a36d75-640b-4d9f-9b8a-cd1b2e3ded74",
+      "project_name": "meuProjeto",
+      "started_at": "2026-03-24T00:15:12.053730+00:00",
+      "completed_at": "2026-03-24T00:49:26.954650+00:00",
+      "duration_seconds": 2054.90092,
+      "suite": "security-and-quality",
+      "status": "completed",
+      "results_summary": {
+        "total_issues": 0,
+        "ingested": 0,
+        "skipped": 0,
+        "tainted_paths": 0,
+        "vulnerabilities_by_severity": {
+          "error": 0,
+          "warning": 0,
+          "note": 0
+        }
+      },
+      "sarif_path": "C:\\git\\InsightGraph\\backend\\codeql-results\\meuProjeto_20260324_001512.sarif",
+      "sarif_size_bytes": 555729,
+      "error_message": null
+    },
+    {
+      "job_id": "3f428329-4f35-49ae-858b-11510740b68e",
+      "project_id": "10a36d75-640b-4d9f-9b8a-cd1b2e3ded74",
+      "project_name": "meuProjeto",
+      "started_at": "2026-03-24T00:55:42.855251+00:00",
+      "completed_at": "2026-03-24T00:55:53.977873+00:00",
+      "duration_seconds": 11.122622,
+      "suite": "security-extended",
+      "status": "completed",
+      "results_summary": {
+        "total_issues": 0,
+        "ingested": 0,
+        "skipped": 0,
+        "tainted_paths": 0,
+        "vulnerabilities_by_severity": {
+          "error": 0,
+          "warning": 0,
+          "note": 0
+        }
+      },
+      "sarif_path": "C:\\git\\InsightGraph\\backend\\codeql-results\\meuProjeto_20260324_005542.sarif",
+      "sarif_size_bytes": 468257,
+      "error_message": null
+    },
+    {
+      "job_id": "880963c1-3e50-4d9d-a295-fa0860c71a7e",
+      "project_id": "10a36d75-640b-4d9f-9b8a-cd1b2e3ded74",
+      "project_name": "meuProjeto",
+      "started_at": "2026-03-24T00:56:14.038888+00:00",
+      "completed_at": "2026-03-24T00:56:24.710068+00:00",
+      "duration_seconds": 10.67118,
+      "suite": "security-critical",
+      "status": "completed",
+      "results_summary": {
+        "total_issues": 0,
+        "ingested": 0,
+        "skipped": 0,
+        "tainted_paths": 0,
+        "vulnerabilities_by_severity": {
+          "error": 0,
+          "warning": 0,
+          "note": 0
+        }
+      },
+      "sarif_path": "C:\\git\\InsightGraph\\backend\\codeql-results\\meuProjeto_20260324_005614.sarif",
+      "sarif_size_bytes": 468257,
+      "error_message": null
+    },
+    {
+      "job_id": "aab78b0d-1107-4417-a507-cfb629d64116",
+      "project_id": "10a36d75-640b-4d9f-9b8a-cd1b2e3ded74",
+      "project_name": "meuProjeto",
+      "started_at": "2026-03-24T01:01:12.591190+00:00",
+      "completed_at": "2026-03-24T01:01:12.608319+00:00",
+      "duration_seconds": 0.017129,
+      "suite": "security-and-quality",
+      "status": "completed",
+      "results_summary": {
+        "total_issues": 0,
+        "ingested": 0,
+        "skipped": 0,
+        "tainted_paths": 0,
+        "vulnerabilities_by_severity": {
+          "error": 0,
+          "warning": 0,
+          "note": 0
+        }
+      },
+      "sarif_path": "C:\\git\\InsightGraph\\backend\\codeql-results\\meuProjeto_20260324_001512.sarif",
+      "sarif_size_bytes": 555729,
+      "error_message": null
+    },
+    {
+      "job_id": "f22b3e3d-f089-438b-819b-7f3478536752",
+      "project_id": "10a36d75-640b-4d9f-9b8a-cd1b2e3ded74",
+      "project_name": "meuProjeto",
+      "started_at": "2026-03-24T11:21:07.379211+00:00",
+      "completed_at": "2026-03-24T11:21:07.392107+00:00",
+      "duration_seconds": 0.012896,
+      "suite": "security-and-quality",
+      "status": "completed",
+      "results_summary": {
+        "total_issues": 0,
+        "ingested": 0,
+        "skipped": 0,
+        "tainted_paths": 0,
+        "vulnerabilities_by_severity": {
+          "error": 0,
+          "warning": 0,
+          "note": 0
+        }
+      },
+      "sarif_path": "C:\\git\\InsightGraph\\backend\\codeql-results\\meuProjeto_20260324_001512.sarif",
+      "sarif_size_bytes": 555729,
+      "error_message": null
+    }
+  ]
+}
