@@ -1,4 +1,0 @@
-# file: C:\git\InsightGraph\backend\bidirectional_analyzer.py
-# hypothesis_version: 6.151.9
-
-[0.0, 15.0, ':', 'BOTTOM_UP', 'CALLS', 'CALLS_HTTP', 'DISPLAYED_BY', 'MAPPED_FROM', 'SERIALIZED_BY', 'angular', 'change_type', 'data_type', 'database', 'file', 'from', 'insightgraph', 'java', 'labels', 'name', 'new_type', 'old_type', 'procedure', 'properties', 'side_effect_risk', 'source', 'target', 'to', 'type', 'typescript']

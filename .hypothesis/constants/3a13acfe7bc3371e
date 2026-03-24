@@ -1,4 +1,0 @@
-# file: C:\git\InsightGraph\backend\taint_propagator.py
-# hypothesis_version: 6.151.9
-
-['.component.ts', '.html', '.java', '.pkb', '.pks', '.pls', '.sql', '.ts', 'AngularComponent', 'BIGINT', 'CALLS', 'CALLS_HTTP', 'Column', 'DECIMAL', 'DISPLAYED_BY', 'FLOAT', 'Function', 'HAS_FIELD', 'HAS_PARAMETER', 'INT', 'INTEGER', 'JavaClass', 'JavaMethod', 'MAPPED_FROM', 'MAPS_TO_COLUMN', 'NUMBER', 'NUMERIC', 'Package', 'Procedure', 'SERIALIZED_BY', 'Table', 'TypeScriptClass', 'TypeScriptFunction', 'View', 'angular', 'data_type', 'database', 'file', 'from', 'insightgraph', 'is_connected', 'java', 'key', 'labels', 'name', 'node_key', 'procedure', 'properties', 'source', 'target', 'to', 'type', 'type_prop', 'typescript', 'unknown', 'visited', '|']
