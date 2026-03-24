@@ -1,3 +1,4 @@
+// InsightGraph API Client
 const BASE = '/api';
 
 /* ─── Types ─── */
@@ -217,6 +218,129 @@ export async function requestSimulationReview(simulationData: SimulateResponse):
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(simulationData),
     });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+// ============================================
+// CodeQL API Functions
+// ============================================
+
+export interface CodeQLProject {
+    id: string;
+    name: string;
+    source_path: string;
+    language: string;
+    database_path: string;
+    created_at: string;
+    last_analyzed: string | null;
+}
+
+export interface CodeQLJob {
+    job_id: string;
+    project_id: string;
+    project_name: string;
+    status: 'queued' | 'running' | 'completed' | 'failed';
+    stage: string;
+    progress: number;
+    created_at: string;
+    started_at: string | null;
+    completed_at: string | null;
+    error: string | null;
+}
+
+export interface CodeQLAnalysisResult {
+    vulnerabilities_count: number;
+    ingested_count: number;
+    skipped_count: number;
+    tainted_paths_count: number;
+}
+
+// Fetch all CodeQL projects
+export async function fetchCodeQLProjects(): Promise<CodeQLProject[]> {
+    const res = await fetch(`${BASE}/codeql/projects`);
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+// Create a new CodeQL project
+export async function createCodeQLProject(
+    name: string,
+    sourcePath: string,
+    language?: string
+): Promise<CodeQLProject> {
+    const res = await fetch(`${BASE}/codeql/projects`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            name,
+            source_path: sourcePath,
+            language,
+        }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+// Update a CodeQL project
+export async function updateCodeQLProject(
+    projectId: string,
+    sourcePath: string
+): Promise<CodeQLProject> {
+    const res = await fetch(`${BASE}/codeql/projects/${projectId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            source_path: sourcePath,
+        }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+// Delete a CodeQL project
+export async function deleteCodeQLProject(projectId: string): Promise<void> {
+    const res = await fetch(`${BASE}/codeql/projects/${projectId}`, {
+        method: 'DELETE',
+    });
+    if (!res.ok) throw new Error(await res.text());
+}
+
+// Delete a CodeQL project's database
+export async function deleteCodeQLDatabase(projectId: string): Promise<void> {
+    const res = await fetch(`${BASE}/codeql/projects/${projectId}/database`, {
+        method: 'DELETE',
+    });
+    if (!res.ok) throw new Error(await res.text());
+}
+
+// Start CodeQL analysis
+export async function startCodeQLAnalysis(
+    projectId: string,
+    suite: string = 'security-and-quality'
+): Promise<{ job_id: string }> {
+    const res = await fetch(`${BASE}/codeql/analyze`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            project_id: projectId,
+            suite,
+        }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+// Get CodeQL job status
+export async function getCodeQLJobStatus(jobId: string): Promise<CodeQLJob> {
+    const res = await fetch(`${BASE}/codeql/jobs/${jobId}`);
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+// Get CodeQL analysis results
+export async function getCodeQLResults(projectId: string): Promise<CodeQLAnalysisResult> {
+    const res = await fetch(`${BASE}/codeql/results/${projectId}`);
     if (!res.ok) throw new Error(await res.text());
     return res.json();
 }

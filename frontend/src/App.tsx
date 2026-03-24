@@ -7,6 +7,7 @@ import AskPanel from './components/AskPanel';
 import StatsBar from './components/StatsBar';
 import Dashboard from './components/Dashboard';
 import SimulationPanel from './components/SimulationPanel';
+import CodeQLModal from './components/CodeQLModal';
 import {
   scanProjects,
   getScanStatus,
@@ -56,6 +57,7 @@ export default function App() {
   const [askInitialMessage, setAskInitialMessage] = useState<string | undefined>();
   const [dashboardOpen, setDashboardOpen] = useState(false);
   const [simulationOpen, setSimulationOpen] = useState(false);
+  const [codeQLOpen, setCodeQLOpen] = useState(false);
   const [isSimulated, setIsSimulated] = useState(false);
   const [simRisk, setSimRisk] = useState<number | null>(null);
   const [simInsights, setSimInsights] = useState<string[]>([]);
@@ -289,6 +291,8 @@ export default function App() {
         onToggleDashboard={() => setDashboardOpen((prev) => !prev)}
         simulationOpen={simulationOpen}
         onToggleSimulation={() => setSimulationOpen((prev) => !prev)}
+        codeQLOpen={codeQLOpen}
+        onToggleCodeQL={() => setCodeQLOpen((prev) => !prev)}
       />
 
       {isSimulated && (
@@ -405,6 +409,10 @@ export default function App() {
           onSimulationComplete={handleSimulationComplete}
           onClose={() => setSimulationOpen(false)} 
         />
+      )}
+
+      {codeQLOpen && (
+        <CodeQLModal onClose={() => setCodeQLOpen(false)} />
       )}
 
       {aiReport && (

@@ -1,5 +1,6 @@
 import { useState } from 'react';
 
+// TopBar Component
 interface TopBarProps {
     workspaces: string[];
     onAddWorkspace: (path: string) => void;
@@ -13,6 +14,8 @@ interface TopBarProps {
     onToggleDashboard: () => void;
     simulationOpen: boolean;
     onToggleSimulation: () => void;
+    codeQLOpen: boolean;
+    onToggleCodeQL: () => void;
 }
 
 export default function TopBar({
@@ -27,6 +30,8 @@ export default function TopBar({
     onToggleDashboard,
     simulationOpen,
     onToggleSimulation,
+    codeQLOpen,
+    onToggleCodeQL,
 }: TopBarProps) {
     const [inputPath, setInputPath] = useState('');
 
@@ -103,6 +108,14 @@ export default function TopBar({
                     title="Ver Métricas Arquiteturais e Dashboard de Antipatterns"
                 >
                     📊 Dashboard
+                </button>
+
+                <button
+                    className={`btn ${codeQLOpen ? 'btn-accent' : 'btn-secondary'}`}
+                    onClick={onToggleCodeQL}
+                    title="Análise de Segurança com CodeQL"
+                >
+                    🔒 CodeQL
                 </button>
 
                 <button

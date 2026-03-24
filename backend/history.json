@@ -86,5 +86,13 @@
     "god_classes": 291,
     "circular_deps": 0,
     "dead_code": 291
+  },
+  {
+    "timestamp": "2026-03-23T19:21:49.579177",
+    "total_nodes": 1980,
+    "total_edges": 17268,
+    "god_classes": 350,
+    "circular_deps": 0,
+    "dead_code": 350
   }
 ]

@@ -39,6 +39,11 @@ import tkinter as tk
 from tkinter import filedialog
 
 # ──────────────────────────────────────────────
+# CodeQL imports
+# ──────────────────────────────────────────────
+from codeql_orchestrator import CodeQLOrchestrator
+
+# ──────────────────────────────────────────────
 # Configuration
 # ──────────────────────────────────────────────
 NEO4J_URI = os.getenv("NEO4J_URI", "bolt://localhost:7687")
@@ -401,6 +406,110 @@ class Neo4jService:
 
 
 neo4j_service = Neo4jService()
+
+# Initialize CodeQL components
+def _discover_codeql_path() -> str:
+    """Auto-discover CodeQL CLI executable.
+    
+    Priority:
+    1. CODEQL_PATH environment variable
+    2. 'codeql' in system PATH
+    3. Common installation directories on Windows
+    """
+    import shutil
+    
+    # 1. Explicit env var
+    env_path = os.getenv("CODEQL_PATH")
+    if env_path:
+        if os.path.isfile(env_path):
+            logger.info("CodeQL CLI found via CODEQL_PATH: %s", env_path)
+            return env_path
+        logger.warning("CODEQL_PATH set to '%s' but file not found, continuing search...", env_path)
+    
+    # 2. Already in PATH
+    found = shutil.which("codeql")
+    if found:
+        logger.info("CodeQL CLI found in PATH: %s", found)
+        return found
+    
+    # 3. Probe common Windows locations
+    common_locations = [
+        r"C:\codeql\codeql\codeql.exe",
+        r"C:\codeql\codeql.exe",
+        os.path.expanduser(r"~\codeql\codeql.exe"),
+        os.path.expanduser(r"~\codeql\codeql\codeql.exe"),
+        r"C:\Program Files\codeql\codeql.exe",
+        r"C:\Program Files (x86)\codeql\codeql.exe",
+    ]
+    for loc in common_locations:
+        if os.path.isfile(loc):
+            logger.info("CodeQL CLI discovered at: %s", loc)
+            return loc
+    
+    # Fallback — return bare name and let subprocess raise a clear error later
+    logger.warning("CodeQL CLI not found in PATH or common locations. "
+                   "Set CODEQL_PATH env var or install from "
+                   "https://github.com/github/codeql-cli-binaries")
+    return "codeql"
+
+
+def initialize_codeql():
+    """Initialize CodeQL orchestrator and all its dependencies."""
+    from codeql_database_manager import DatabaseManager
+    from codeql_analysis_engine import AnalysisEngine
+    from codeql_bridge import CodeQLBridge
+    from codeql_models import ProjectRegistry, AnalysisHistory
+    from sarif_manager import SARIFManager
+    import os
+
+    # Aggressive defaults for maximum throughput on a single analysis job.
+    # Keep env override support for fine tuning in production.
+    os.environ.setdefault("CODEQL_DB_THREADS", "0")
+    os.environ.setdefault("CODEQL_DB_RAM", "0")
+    os.environ.setdefault("CODEQL_ANALYZE_THREADS", "0")
+    os.environ.setdefault("CODEQL_ANALYZE_RAM", "0")
+    
+    # Auto-discover CodeQL CLI
+    codeql_path = _discover_codeql_path()
+    codeql_db_dir = os.getenv("CODEQL_DB_DIR", "./codeql_databases")
+    codeql_results_dir = os.getenv("CODEQL_RESULTS_DIR", "./codeql-results")
+    codeql_timeout = int(os.getenv("CODEQL_TIMEOUT", "600"))
+    codeql_db_timeout = int(os.getenv("CODEQL_DB_TIMEOUT", str(codeql_timeout)))
+    codeql_analyze_timeout = int(os.getenv("CODEQL_ANALYZE_TIMEOUT", "5400"))
+    codeql_max_concurrent = int(os.getenv("CODEQL_MAX_CONCURRENT", "1"))
+    
+    # Initialize components
+    database_manager = DatabaseManager(codeql_path=codeql_path, timeout=codeql_db_timeout)
+    analysis_engine = AnalysisEngine(codeql_path=codeql_path, timeout=codeql_analyze_timeout)
+    sarif_manager = SARIFManager(output_dir=codeql_results_dir)
+    sarif_ingestor = CodeQLBridge(neo4j_service=neo4j_service)
+    project_registry = ProjectRegistry()
+    analysis_history = AnalysisHistory()
+    
+    # Initialize orchestrator
+    orchestrator = CodeQLOrchestrator(
+        database_manager=database_manager,
+        analysis_engine=analysis_engine,
+        sarif_ingestor=sarif_ingestor,
+        project_registry=project_registry,
+        analysis_history=analysis_history,
+        max_concurrent=codeql_max_concurrent,
+        sarif_manager=sarif_manager,
+    )
+    
+    logger.info(
+        "CodeQL orchestrator initialized successfully (db_timeout=%ss, analyze_timeout=%ss, db_threads=%s, db_ram=%s, analyze_threads=%s, analyze_ram=%s, max_concurrent=%d)",
+        codeql_db_timeout,
+        codeql_analyze_timeout,
+        os.getenv("CODEQL_DB_THREADS"),
+        os.getenv("CODEQL_DB_RAM"),
+        os.getenv("CODEQL_ANALYZE_THREADS"),
+        os.getenv("CODEQL_ANALYZE_RAM"),
+        codeql_max_concurrent,
+    )
+    return orchestrator
+
+codeql_orchestrator = initialize_codeql()
 
 def get_memory_graph_context(node_key: str = None, limit: int = 50) -> str:
     """Build a text summary of the graph from memory for AI context."""
@@ -1412,14 +1521,29 @@ Pergunta do usuário:
 
     async def _call_ollama(model_name: str, timeout: float) -> str:
         async with httpx.AsyncClient(timeout=timeout) as client:
-            resp = await client.post(
-                f"{OLLAMA_URL}/api/chat",
-                json={
+            chat_payload = {
+                "model": model_name,
+                "messages": [
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": prompt}
+                ],
+                "stream": False,
+                "options": {
+                    "temperature": 0.2,
+                    "num_predict": 400,
+                    "top_k": 20,
+                    "top_p": 0.9
+                },
+                "keep_alive": "5m"
+            }
+            resp = await client.post(f"{OLLAMA_URL}/api/chat", json=chat_payload)
+
+            # Older Ollama builds may not expose /api/chat; fallback to /api/generate.
+            if resp.status_code == 404:
+                logger.warning("Ollama /api/chat not found. Falling back to /api/generate.")
+                generate_payload = {
                     "model": model_name,
-                    "messages": [
-                        {"role": "system", "content": system_prompt},
-                        {"role": "user", "content": prompt}
-                    ],
+                    "prompt": f"{system_prompt}\n\n{prompt}",
                     "stream": False,
                     "options": {
                         "temperature": 0.2,
@@ -1428,8 +1552,12 @@ Pergunta do usuário:
                         "top_p": 0.9
                     },
                     "keep_alive": "5m"
-                },
-            )
+                }
+                resp = await client.post(f"{OLLAMA_URL}/api/generate", json=generate_payload)
+                resp.raise_for_status()
+                result = resp.json()
+                return result.get("response", "{}")
+
             resp.raise_for_status()
             result = resp.json()
             return result.get("message", {}).get("content", "{}")
@@ -2791,6 +2919,20 @@ async def get_file_content(file_path: str, project: str = None):
     """
     global scanned_projects
     try:
+        import re
+        from urllib.parse import unquote
+
+        # Normalize incoming path from different producers (graph/SARIF/UI).
+        normalized_input = (file_path or "").strip().strip('"').strip("'")
+        normalized_input = unquote(normalized_input)
+        if normalized_input.startswith("file://"):
+            normalized_input = normalized_input[7:]
+        normalized_input = normalized_input.replace("\\", "/")
+        # Strip line/column suffix, e.g. "src/Foo.java:123:9" -> "src/Foo.java"
+        match = re.match(r"^(.*\.[A-Za-z0-9_]+):\d+(?::\d+)?$", normalized_input)
+        if match:
+            normalized_input = match.group(1)
+
         # Try to locate the file in this order:
         # 1. Within the registered project directory
         # 2. Relative to current working directory
@@ -2798,21 +2940,97 @@ async def get_file_content(file_path: str, project: str = None):
         
         possible_paths = []
         
-        # First priority: use registered project path
+        # First priority: use registered project path from runtime scans
         if project and project in scanned_projects:
             project_base = Path(scanned_projects[project])
-            possible_paths.append(project_base / file_path)
-            logger.info(f"Checking registered project path: {project_base / file_path}")
+            possible_paths.append(project_base / normalized_input)
+            logger.info(f"Checking registered project path: {project_base / normalized_input}")
+
+        # Also try CodeQL project registry source_path when project name matches.
+        if project:
+            try:
+                for p in codeql_orchestrator.project_registry.list_projects():
+                    if p.name == project:
+                        codeql_base = Path(p.source_path)
+                        normalized_file = normalized_input
+
+                        # Standard candidate: source_path + file_path
+                        possible_paths.append(codeql_base / normalized_file)
+
+                        # If source_path already points to "src" and file_path starts with "src/",
+                        # avoid duplicating segment (".../src/src/...").
+                        if codeql_base.name.lower() == "src" and normalized_file.startswith("src/"):
+                            possible_paths.append(codeql_base.parent / normalized_file)
+
+                        # If file_path is relative from inside src (for example "main/java/..."),
+                        # try anchoring under src explicitly.
+                        possible_paths.append(codeql_base / "src" / normalized_file)
+
+                        logger.info(
+                            "Checking CodeQL project path candidates for %s using base %s",
+                            project,
+                            codeql_base,
+                        )
+                        break
+            except Exception as e:
+                logger.warning("Failed to resolve CodeQL project path for %s: %s", project, e)
         
         # Second priority: relative to cwd
-        cwd_path = Path.cwd() / file_path
+        cwd_path = Path.cwd() / normalized_input
         possible_paths.append(cwd_path)
         logger.info(f"Checking cwd path: {cwd_path}")
         
         # Third priority: absolute path as-is
-        abs_path = Path(file_path).resolve()
+        abs_path = Path(normalized_input).resolve()
         possible_paths.append(abs_path)
         logger.info(f"Checking absolute path: {abs_path}")
+
+        # Additional fallback: search in all known project roots when project name does not match.
+        known_roots = []
+        for root in scanned_projects.values():
+            try:
+                known_roots.append(Path(root).resolve())
+            except Exception:
+                pass
+        try:
+            for p in codeql_orchestrator.project_registry.list_projects():
+                try:
+                    known_roots.append(Path(p.source_path).resolve())
+                except Exception:
+                    continue
+        except Exception:
+            pass
+        # Deduplicate roots
+        unique_roots = []
+        seen_roots = set()
+        for root in known_roots:
+            key = str(root).lower()
+            if key not in seen_roots:
+                seen_roots.add(key)
+                unique_roots.append(root)
+
+        for root in unique_roots:
+            variants = [normalized_input]
+            parts = [p for p in normalized_input.split("/") if p]
+            if parts and parts[0].lower() == root.name.lower():
+                variants.append("/".join(parts[1:]))
+
+            src_idx = normalized_input.lower().find("/src/")
+            if src_idx > 0:
+                variants.append(normalized_input[src_idx + 1:])  # keep from "src/..."
+
+            # Deduplicate variants
+            unique_variants = []
+            seen_variants = set()
+            for v in variants:
+                key = v.lower()
+                if v and key not in seen_variants:
+                    seen_variants.add(key)
+                    unique_variants.append(v)
+
+            for variant in unique_variants:
+                possible_paths.append(root / variant)
+                possible_paths.append(root / "src" / variant)
         
         # Find the first existing file
         found_path = None
@@ -2828,17 +3046,37 @@ async def get_file_content(file_path: str, project: str = None):
                 continue
         
         if not found_path:
-            logger.warning(f"File not found: {file_path} (project={project}, checked paths={possible_paths})")
-            raise HTTPException(status_code=404, detail=f"File not found: {file_path}")
+            logger.warning(
+                f"File not found: {file_path} (normalized={normalized_input}, project={project}, checked paths={possible_paths})"
+            )
+            raise HTTPException(status_code=404, detail=f"File not found: {normalized_input}")
         
-        # Security: prevent access outside project directory if project is specified
-        if project and project in scanned_projects:
-            project_base = Path(scanned_projects[project]).resolve()
+        # Security: prevent access outside known project roots when project is specified.
+        if project:
+            allowed_roots = []
+            if project in scanned_projects:
+                allowed_roots.append(Path(scanned_projects[project]).resolve())
             try:
-                found_path.relative_to(project_base)
-            except ValueError:
-                logger.warning(f"Security violation: file outside project: {found_path}")
-                raise HTTPException(status_code=403, detail="Access denied: file outside project directory")
+                for p in codeql_orchestrator.project_registry.list_projects():
+                    if p.name == project:
+                        allowed_roots.append(Path(p.source_path).resolve())
+                        break
+            except Exception:
+                pass
+
+            if allowed_roots:
+                inside_allowed_root = False
+                for root in allowed_roots:
+                    try:
+                        found_path.relative_to(root)
+                        inside_allowed_root = True
+                        break
+                    except ValueError:
+                        continue
+
+                if not inside_allowed_root:
+                    logger.warning(f"Security violation: file outside project roots: {found_path}")
+                    raise HTTPException(status_code=403, detail="Access denied: file outside project directory")
         
         # Read file content asynchronously
         try:
@@ -2949,3 +3187,166 @@ if __name__ == "__main__":
         import uvicorn
         # Fallback for standard hot-reloading
         uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
+
+
+# ──────────────────────────────────────────────
+# CodeQL API Endpoints
+# ──────────────────────────────────────────────
+from dataclasses import asdict as _asdict
+
+@app.get("/api/codeql/projects")
+async def get_codeql_projects():
+    """Get all CodeQL projects."""
+    try:
+        projects = codeql_orchestrator.project_registry.list_projects()
+        return [_asdict(p) for p in projects]
+    except Exception as e:
+        logger.error(f"Error listing CodeQL projects: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/codeql/projects")
+async def create_codeql_project(request: dict):
+    """Create a new CodeQL project."""
+    try:
+        from codeql_models import CodeQLProject
+        project = CodeQLProject.create(
+            name=request["name"],
+            source_path=request["source_path"],
+            language=request.get("language", "java"),
+            database_path=request.get("database_path", ""),
+        )
+        codeql_orchestrator.project_registry.add_project(project)
+        return _asdict(project)
+    except Exception as e:
+        logger.error(f"Error creating CodeQL project: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.patch("/api/codeql/projects/{project_id}")
+async def update_codeql_project(project_id: str, request: dict):
+    """Update a CodeQL project."""
+    try:
+        project = codeql_orchestrator.project_registry.get_project(project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        if "source_path" in request:
+            project.source_path = request["source_path"]
+        if "database_path" in request:
+            project.database_path = request["database_path"]
+        if "name" in request:
+            project.name = request["name"]
+
+        codeql_orchestrator.project_registry.add_project(project)
+        return _asdict(project)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating CodeQL project: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/codeql/projects/{project_id}")
+async def delete_codeql_project(project_id: str):
+    """Delete a CodeQL project."""
+    try:
+        removed = codeql_orchestrator.project_registry.remove_project(project_id)
+        if not removed:
+            raise HTTPException(status_code=404, detail="Project not found")
+        return {"message": "Project deleted successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting CodeQL project: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete("/api/codeql/projects/{project_id}/database")
+async def delete_codeql_database(project_id: str):
+    """Delete a CodeQL project's database."""
+    try:
+        import shutil
+        project = codeql_orchestrator.project_registry.get_project(project_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="Project not found")
+
+        db_path = Path(project.database_path)
+        if db_path.exists():
+            shutil.rmtree(db_path)
+
+        return {"message": "Database deleted successfully"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error deleting CodeQL database: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/codeql/analyze")
+async def start_codeql_analysis(request: dict, background_tasks: BackgroundTasks):
+    """Start CodeQL analysis for a project."""
+    try:
+        job_id = await codeql_orchestrator.start_analysis(
+            project_id=request["project_id"],
+            suite=request.get("suite", "security-and-quality"),
+            force_recreate=request.get("force_recreate", False),
+        )
+        return {"job_id": job_id}
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Error starting CodeQL analysis: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/codeql/jobs/{job_id}")
+async def get_codeql_job_status(job_id: str):
+    """Get CodeQL job status."""
+    try:
+        job = codeql_orchestrator.get_status(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail="Job not found")
+        payload = _asdict(job)
+        payload["active_jobs"] = len(codeql_orchestrator.active_jobs)
+        payload["queue_size"] = len(codeql_orchestrator.job_queue)
+        payload["server_time"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+
+        if job.status == "queued" and job_id in codeql_orchestrator.job_queue:
+            payload["queue_position"] = list(codeql_orchestrator.job_queue).index(job_id) + 1
+        else:
+            payload["queue_position"] = None
+
+        return payload
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error getting CodeQL job status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/codeql/results/{project_id}")
+async def get_codeql_results(project_id: str):
+    """Get CodeQL analysis results for a project."""
+    try:
+        entries = codeql_orchestrator.analysis_history.list_entries(project_id=project_id, limit=1)
+        if not entries:
+            return {
+                "vulnerabilities_count": 0,
+                "ingested_count": 0,
+                "skipped_count": 0,
+                "tainted_paths_count": 0,
+            }
+
+        latest = entries[0]
+        summary = latest.results_summary or {}
+        return {
+            "vulnerabilities_count": summary.get("total_issues", 0),
+            "ingested_count": summary.get("ingested", 0),
+            "skipped_count": summary.get("skipped", 0),
+            "tainted_paths_count": summary.get("tainted_paths", 0),
+        }
+    except Exception as e:
+        logger.error(f"Error getting CodeQL results: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
