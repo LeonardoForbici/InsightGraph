@@ -7,6 +7,7 @@ interface NodeDetailProps {
     impact: ImpactData | null;
     blastRadius?: BlastRadiusData | null;
     onClose: () => void;
+    onViewUsages?: (nodeKey: string, nodeName: string) => void;
 }
 
 function getTypeIcon(labels: string[]): { icon: string; bg: string; color: string } {
@@ -20,7 +21,7 @@ function getTypeIcon(labels: string[]): { icon: string; bg: string; color: strin
     return { icon: '◇', bg: 'rgba(139,147,176,0.08)', color: '#8b93b0' };
 }
 
-export default function NodeDetail({ node, impact, blastRadius, onClose }: NodeDetailProps) {
+export default function NodeDetail({ node, impact, blastRadius, onClose, onViewUsages }: NodeDetailProps) {
     // Todos os hooks DEVEM ser chamados ANTES de qualquer condicional
     const [activeTab, setActiveTab] = useState<'details' | 'code'>('details');
     const [fileContent, setFileContent] = useState<string>('');
@@ -62,6 +63,13 @@ export default function NodeDetail({ node, impact, blastRadius, onClose }: NodeD
 
     const mainLabel = node.labels.find((l) => l !== 'Entity') || 'Entity';
     const typeInfo = getTypeIcon(node.labels);
+    const methodLikeLabels = new Set(['Java_Method', 'TS_Function', 'API_Endpoint', 'SQL_Procedure']);
+    const canViewUsages = Boolean(
+        onViewUsages &&
+        node.namespace_key &&
+        !node.namespace_key.startsWith('cluster:') &&
+        node.labels?.some((l) => methodLikeLabels.has(l)),
+    );
 
     return (
         <div className="node-detail">
@@ -156,6 +164,15 @@ export default function NodeDetail({ node, impact, blastRadius, onClose }: NodeD
                             <span className="node-detail-value">{node.decorators}</span>
                         </div>
                     )}
+                    {canViewUsages && (
+                        <button
+                            className="btn btn-secondary"
+                            style={{ width: '100%', margin: '8px 0 10px', fontSize: 12 }}
+                            onClick={() => onViewUsages?.(node.namespace_key, node.name)}
+                        >
+                            🔍 Ver usos do método
+                        </button>
+                    )}
                     {node.loc !== undefined && (
                         <div className="node-detail-row" style={{ marginTop: 8 }}>
                             <span className="node-detail-label">Linhas de Código</span>
@@ -170,6 +187,40 @@ export default function NodeDetail({ node, impact, blastRadius, onClose }: NodeD
                                 {node.complexity > 10 && <span style={{ marginLeft: 6, color: '#ef4444' }}>⚠️ Alta</span>}
                             </span>
                         </div>
+                    )}
+                    {typeof node.hotspot_score === 'number' && (
+                        <div className="node-detail-row">
+                            <span className="node-detail-label">Hotspot Score</span>
+                            <span className="node-detail-value" style={{ color: node.hotspot_score > 70 ? '#ef4444' : node.hotspot_score > 40 ? '#f59e0b' : '#22c55e' }}>
+                                {node.hotspot_score.toFixed(2)}
+                            </span>
+                        </div>
+                    )}
+                    {typeof node.git_churn === 'number' && (
+                        <div className="node-detail-row">
+                            <span className="node-detail-label">Git Churn</span>
+                            <span className="node-detail-value">{node.git_churn}</span>
+                        </div>
+                    )}
+                    {(typeof node.wmc === 'number' || typeof node.cbo === 'number' || typeof node.rfc === 'number' || typeof node.lcom === 'number') && (
+                        <>
+                            <div className="node-detail-row">
+                                <span className="node-detail-label">CK WMC</span>
+                                <span className="node-detail-value">{node.wmc ?? 0}</span>
+                            </div>
+                            <div className="node-detail-row">
+                                <span className="node-detail-label">CK CBO</span>
+                                <span className="node-detail-value">{node.cbo ?? 0}</span>
+                            </div>
+                            <div className="node-detail-row">
+                                <span className="node-detail-label">CK RFC</span>
+                                <span className="node-detail-value">{node.rfc ?? 0}</span>
+                            </div>
+                            <div className="node-detail-row">
+                                <span className="node-detail-label">CK LCOM</span>
+                                <span className="node-detail-value">{typeof node.lcom === 'number' ? node.lcom.toFixed(2) : '0.00'}</span>
+                            </div>
+                        </>
                     )}
                     {blastRadius && (
                         <div className="node-detail-row">

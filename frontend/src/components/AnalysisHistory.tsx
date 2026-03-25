@@ -547,7 +547,7 @@ function DetailModal({ entry, onClose }: DetailModalProps) {
         return `${minutes} minutos e ${remainingSeconds} segundos`;
     };
 
-    const formatFileSize = (bytes: number | null): string => {
+    const formatFileSize = (bytes: number | null | undefined): string => {
         if (!bytes) return 'N/A';
         if (bytes < 1024) return `${bytes} B`;
         if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(2)} KB`;

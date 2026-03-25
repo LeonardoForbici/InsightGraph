@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { fetchAntipatterns, fetchGraphStats, type AntipatternData, type GraphStats } from '../api';
+import { fetchAntipatterns, fetchGraphStats, fetchHotspots, fetchEvolutionSummary, fetchHotspotCochange, fetchCallResolutionSummary, fetchRagStatus, type AntipatternData, type GraphStats, type HotspotItem, type EvolutionSummary, type CochangePair, type CallResolutionSummary, type RagStatus } from '../api';
 import EvolutionTimeline from './EvolutionTimeline';
 
 interface DashboardProps {
@@ -10,17 +10,32 @@ interface DashboardProps {
 export default function Dashboard({ onClose, onRefactorRequest }: DashboardProps) {
     const [antipatterns, setAntipatterns] = useState<AntipatternData | null>(null);
     const [stats, setStats] = useState<GraphStats | null>(null);
+    const [hotspots, setHotspots] = useState<HotspotItem[]>([]);
+    const [evolutionSummary, setEvolutionSummary] = useState<EvolutionSummary | null>(null);
+    const [cochange, setCochange] = useState<Record<string, CochangePair[]>>({});
+    const [callResolution, setCallResolution] = useState<CallResolutionSummary | null>(null);
+    const [ragStatus, setRagStatus] = useState<RagStatus | null>(null);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
         const load = async () => {
             try {
-                const [aData, sData] = await Promise.all([
+                const [aData, sData, hData, eData, cData, crData, rgData] = await Promise.all([
                     fetchAntipatterns(),
-                    fetchGraphStats()
+                    fetchGraphStats(),
+                    fetchHotspots(20, 90),
+                    fetchEvolutionSummary(20),
+                    fetchHotspotCochange(90, 12),
+                    fetchCallResolutionSummary(undefined, 12),
+                    fetchRagStatus(),
                 ]);
                 setAntipatterns(aData);
                 setStats(sData);
+                setHotspots(hData.hotspots || []);
+                setEvolutionSummary(eData);
+                setCochange(cData.projects || {});
+                setCallResolution(crData);
+                setRagStatus(rgData);
             } catch (err) {
                 console.error("Failed to load dashboard data.", err);
             } finally {
@@ -55,6 +70,152 @@ export default function Dashboard({ onClose, onRefactorRequest }: DashboardProps
                         <EvolutionTimeline />
                     </div>
 
+                    {evolutionSummary && (
+                        <div className="dashboard-section">
+                            <h3>Tendência Arquitetural</h3>
+                            <div className="stats-grid">
+                                <div className="stat-card">
+                                    <span className="stat-value" style={{ color: evolutionSummary.trend.risk_delta > 0 ? '#ef4444' : '#22c55e' }}>
+                                        {evolutionSummary.trend.risk_delta > 0 ? '+' : ''}{evolutionSummary.trend.risk_delta}
+                                    </span>
+                                    <span className="stat-label">Variação de Risco</span>
+                                </div>
+                                <div className="stat-card">
+                                    <span className="stat-value" style={{ color: '#60a5fa' }}>
+                                        {evolutionSummary.trend.nodes_delta > 0 ? '+' : ''}{evolutionSummary.trend.nodes_delta}
+                                    </span>
+                                    <span className="stat-label">Variação de Nós</span>
+                                </div>
+                                <div className="stat-card">
+                                    <span className="stat-value" style={{ color: '#a78bfa' }}>
+                                        {evolutionSummary.trend.edges_delta > 0 ? '+' : ''}{evolutionSummary.trend.edges_delta}
+                                    </span>
+                                    <span className="stat-label">Variação de Arestas</span>
+                                </div>
+                                <div className="stat-card">
+                                    <span className="stat-value" style={{ color: (evolutionSummary.trend.call_resolution_delta ?? 0) >= 0 ? '#22c55e' : '#ef4444' }}>
+                                        {(evolutionSummary.trend.call_resolution_delta ?? 0) > 0 ? '+' : ''}{(evolutionSummary.trend.call_resolution_delta ?? 0)}%
+                                    </span>
+                                    <span className="stat-label">Delta Resolução de Calls</span>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
+                    {callResolution && (
+                        <div className="dashboard-section">
+                            <h3>Precisão do Call Graph</h3>
+                            <p className="section-desc">Qualidade da resolução de chamadas (`CALLS` → `CALLS_RESOLVED`) no scan atual.</p>
+                            <div className="stats-grid">
+                                <div className="stat-card">
+                                    <span className="stat-value">{callResolution.total_calls}</span>
+                                    <span className="stat-label">CALLS detectadas</span>
+                                </div>
+                                <div className="stat-card">
+                                    <span className="stat-value" style={{ color: '#22c55e' }}>{callResolution.resolved_calls}</span>
+                                    <span className="stat-label">Resolvidas</span>
+                                </div>
+                                <div className="stat-card">
+                                    <span className="stat-value" style={{ color: '#f97316' }}>{callResolution.unresolved_calls}</span>
+                                    <span className="stat-label">Não resolvidas</span>
+                                </div>
+                                <div className="stat-card">
+                                    <span className="stat-value" style={{ color: callResolution.resolution_rate >= 70 ? '#22c55e' : '#ef4444' }}>
+                                        {callResolution.resolution_rate}%
+                                    </span>
+                                    <span className="stat-label">Taxa de resolução</span>
+                                </div>
+                            </div>
+
+                            {callResolution.by_project.length > 0 && (
+                                <>
+                                    <h4 style={{ marginTop: 16 }}>Taxa por Projeto</h4>
+                                    <table className="data-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Projeto</th>
+                                                <th>CALLS</th>
+                                                <th>Resolvidas</th>
+                                                <th>Não resolvidas</th>
+                                                <th>Taxa</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {callResolution.by_project.map((p) => (
+                                                <tr key={p.project}>
+                                                    <td>{p.project}</td>
+                                                    <td>{p.total_calls}</td>
+                                                    <td>{p.resolved_calls}</td>
+                                                    <td>{p.unresolved_calls}</td>
+                                                    <td style={{ fontWeight: 'bold', color: p.resolution_rate >= 70 ? '#22c55e' : '#ef4444' }}>
+                                                        {p.resolution_rate}%
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </>
+                            )}
+
+                            {callResolution.top_unresolved.length > 0 && (
+                                <>
+                                    <h4 style={{ marginTop: 16 }}>Top Chamadas Não Resolvidas</h4>
+                                    <table className="data-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Owner Hint</th>
+                                                <th>Método</th>
+                                                <th>Ocorrências</th>
+                                                <th>Exemplo</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {callResolution.top_unresolved.map((u, i) => (
+                                                <tr key={`${u.owner_hint || '-'}:${u.method_hint}:${i}`}>
+                                                    <td>{u.owner_hint || '-'}</td>
+                                                    <td style={{ fontWeight: 'bold' }}>{u.method_hint}</td>
+                                                    <td>{u.count}</td>
+                                                    <td style={{ fontSize: 12 }}>
+                                                        {u.examples?.[0]?.source_name || u.examples?.[0]?.source || '-'}
+                                                    </td>
+                                                </tr>
+                                            ))}
+                                        </tbody>
+                                    </table>
+                                </>
+                            )}
+                        </div>
+                    )}
+
+                    {ragStatus && (
+                        <div className="dashboard-section">
+                            <h3>Status do RAG Local</h3>
+                            <p className="section-desc">Saúde do índice semântico local usado na busca e Q&A.</p>
+                            <div className="stats-grid">
+                                <div className="stat-card">
+                                    <span className="stat-value">{ragStatus.entries}</span>
+                                    <span className="stat-label">Entradas Indexadas</span>
+                                </div>
+                                <div className="stat-card">
+                                    <span className="stat-value">{ragStatus.with_embeddings}</span>
+                                    <span className="stat-label">Com Embeddings</span>
+                                </div>
+                                <div className="stat-card">
+                                    <span className="stat-value" style={{ color: ragStatus.embedding_coverage >= 70 ? '#22c55e' : '#f97316' }}>
+                                        {ragStatus.embedding_coverage}%
+                                    </span>
+                                    <span className="stat-label">Cobertura Semântica</span>
+                                </div>
+                                <div className="stat-card">
+                                    <span className="stat-value" style={{ color: ragStatus.stale ? '#ef4444' : '#22c55e' }}>
+                                        {ragStatus.stale ? 'STALE' : 'OK'}
+                                    </span>
+                                    <span className="stat-label">Consistência do Índice</span>
+                                </div>
+                            </div>
+                        </div>
+                    )}
+
                     {/* General Stats */}
                     {stats && (
                         <div className="dashboard-section">
@@ -73,6 +234,70 @@ export default function Dashboard({ onClose, onRefactorRequest }: DashboardProps
                                     <span className="stat-label">Projetos Escaneados</span>
                                 </div>
                             </div>
+                        </div>
+                    )}
+
+                    {hotspots.length > 0 && (
+                        <div className="dashboard-section">
+                            <h3>🌋 Hotspots (Complexidade × Churn)</h3>
+                            <p className="section-desc">Arquivos mais perigosos para alteração com base em churn de Git e complexidade (janela de 90 dias).</p>
+                            <table className="data-table">
+                                <thead>
+                                    <tr>
+                                        <th>Entidade</th>
+                                        <th>Arquivo</th>
+                                        <th>Complexidade</th>
+                                        <th>Churn</th>
+                                        <th>Hotspot</th>
+                                        <th>Categoria</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {hotspots.map((h, i) => (
+                                        <tr key={`${h.namespace_key}-${i}`}>
+                                            <td style={{ fontWeight: 'bold', color: 'var(--text-bright)' }}>{h.name}</td>
+                                            <td style={{ fontSize: 12 }}>{h.file || '-'}</td>
+                                            <td>{h.complexity ?? 0}</td>
+                                            <td>{h.git_churn ?? 0}</td>
+                                            <td style={{ fontWeight: 'bold', color: '#f97316' }}>{h.hotspot_score ?? 0}</td>
+                                            <td>{h.category ?? 'low'}</td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                    )}
+
+                    {Object.keys(cochange).length > 0 && (
+                        <div className="dashboard-section">
+                            <h3>🔗 Co-change (Arquivos que quebram juntos)</h3>
+                            <p className="section-desc">Pares de arquivos que mudam juntos com frequência (90 dias).</p>
+                            {Object.entries(cochange).map(([project, pairs]) => (
+                                <div key={project} style={{ marginBottom: 16 }}>
+                                    <h4 style={{ margin: '8px 0', color: 'var(--text-bright)' }}>{project}</h4>
+                                    <table className="data-table">
+                                        <thead>
+                                            <tr>
+                                                <th>Arquivo A</th>
+                                                <th>Arquivo B</th>
+                                                <th>Co-change</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            {pairs.slice(0, 8).map((p, i) => (
+                                                <tr key={`${project}-${i}`}>
+                                                    <td style={{ fontSize: 12 }}>{p.file_a}</td>
+                                                    <td style={{ fontSize: 12 }}>{p.file_b}</td>
+                                                    <td style={{ fontWeight: 'bold' }}>{p.cochange_count}</td>
+                                                </tr>
+                                            ))}
+                                            {pairs.length === 0 && (
+                                                <tr><td colSpan={3}>Sem dados de co-change para este projeto.</td></tr>
+                                            )}
+                                        </tbody>
+                                    </table>
+                                </div>
+                            ))}
                         </div>
                     )}
 

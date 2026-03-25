@@ -16,6 +16,12 @@ export interface GraphNode {
     complexity?: number;
     status?: 'deleted' | 'impacted';
     impact_distance?: number;
+    git_churn?: number;
+    hotspot_score?: number;
+    wmc?: number;
+    cbo?: number;
+    rfc?: number;
+    lcom?: number;
 }
 
 export interface GraphEdge {
@@ -89,9 +95,22 @@ export interface HealthStatus {
     neo4j: string;
     ollama_scanner: string;
     ollama_chat: string;
+    ollama_embed?: string;
     scanner_model: string;
     chat_model: string;
     complex_model: string;
+    embed_model?: string;
+    rag_index_nodes?: number;
+}
+
+export interface RagStatus {
+    entries: number;
+    with_embeddings: number;
+    embedding_coverage: number;
+    stale: boolean;
+    embed_model: string;
+    index_file: string;
+    metadata?: Record<string, unknown>;
 }
 
 export interface HistorySnapshot {
@@ -101,6 +120,283 @@ export interface HistorySnapshot {
     god_classes: number;
     circular_deps: number;
     dead_code: number;
+}
+
+export type ChangeType =
+    | 'rename_parameter'
+    | 'change_column_type'
+    | 'change_method_signature'
+    | 'change_procedure_param';
+
+export interface ChangeDescriptor {
+    change_type: ChangeType;
+    target_key: string;
+    parameter_name?: string;
+    old_type?: string;
+    new_type?: string;
+    max_depth?: number;
+}
+
+export interface AffectedItem {
+    namespace_key: string;
+    name: string;
+    labels: string[];
+    category: 'DIRECT' | 'TRANSITIVE' | 'INFERRED';
+    confidence_score: number;
+    call_chain: string[];
+    requires_manual_review: boolean;
+    resolution_method: 'exact_key' | 'qualified_name' | 'heuristic' | 'semantic';
+}
+
+export interface AnalysisMetadata {
+    total_affected: number;
+    high_confidence_count: number;
+    low_confidence_count: number;
+    parse_errors: string[];
+    unresolved_links: string[];
+    semantic_analysis_available: boolean;
+    truncated: boolean;
+    elapsed_seconds: number;
+}
+
+export interface SemanticImpact {
+    summary: string;
+    risk_level: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
+    breaking_changes: string[];
+    migration_steps: string[];
+    estimated_effort: string;
+}
+
+export interface AffectedSet {
+    items: AffectedItem[];
+    analysis_metadata: AnalysisMetadata;
+    semantic_analysis?: SemanticImpact | null;
+}
+
+export interface DataFlowLink {
+    from_key: string;
+    to_key: string;
+    rel_type: string;
+    resolved: boolean;
+}
+
+export interface DataFlowChain {
+    column_key: string;
+    links: DataFlowLink[];
+}
+
+export interface FieldLevelNode {
+    namespace_key: string;
+    name: string;
+    kind?: string;
+    data_type?: string;
+    param_mode?: string;
+    parent_key?: string;
+    labels?: string[];
+    relationship_type?: string;
+}
+
+export interface ContractBreak {
+    namespace_key: string;
+    name?: string;
+    signature_hash?: string;
+    previous_signature_hash?: string;
+    contract_broken?: boolean;
+    affected_set?: {
+        total_affected: number;
+    };
+}
+
+export interface FragilityDetail {
+    node_key: string;
+    name: string;
+    fragility_score: number;
+    previous_fragility_score: number | null;
+    dependents_count: number;
+    graph_depth: number;
+    cyclomatic_complexity: number;
+    is_god_class: boolean;
+    refactoring_recommendation: string | null;
+    vulnerability_count: number;
+}
+
+export interface TaintPoint {
+    node_key: string;
+    name: string;
+    layer: string;
+    data_type: string;
+    precision_risk: boolean;
+    precision_risk_description: string;
+    resolved: boolean;
+}
+
+export interface TaintPath {
+    origin_key: string;
+    origin_layer: string;
+    destination_layer: string;
+    points: TaintPoint[];
+    total_hops: number;
+    unresolved_links: string[];
+}
+
+export interface TypeContext {
+    declaring_class: string;
+    param_types: string[];
+    return_type: string;
+    module: string;
+}
+
+export interface ResolvedSymbol {
+    namespace_key: string;
+    name: string;
+    type_context: TypeContext;
+    resolution_method: 'exact_key' | 'qualified_name' | 'heuristic' | 'semantic';
+    confidence_score: number;
+    semantic_conflicts: string[];
+}
+
+export interface SideEffect {
+    artifact_key: string;
+    artifact_name: string;
+    effect_type: 'SILENT_LOGIC_FAILURE' | 'DOMAIN_RESTRICTION' | 'RETROACTIVE_RULE_VIOLATION';
+    rule_violated: string;
+    side_effect_risk: boolean;
+    inferred: boolean;
+    confidence_score: number;
+}
+
+export interface PropagationChainItem {
+    node_key: string;
+    name: string;
+    layer: string;
+    data_type: string;
+    fragility_score: number;
+    precision_risk: boolean;
+    side_effect_risk: boolean;
+}
+
+export interface BidirectionalResult {
+    origin_key: string;
+    direction: 'BOTTOM_UP' | 'TOP_DOWN';
+    chain: PropagationChainItem[];
+    taint_path: TaintPath | null;
+    side_effects: SideEffect[];
+    total_hops: number;
+    isolated: boolean;
+    elapsed_seconds: number;
+    truncated: boolean;
+}
+
+export interface SecurityIssue {
+    rule_id: string;
+    severity: 'error' | 'warning' | 'note' | string;
+    message: string;
+    file_path: string;
+    start_line: number;
+    end_line: number;
+    entity_key?: string;
+}
+
+export interface MethodUsageItem {
+    key: string;
+    name: string;
+    file?: string;
+    layer?: string;
+    type: string;
+    confidence_score?: number;
+    hop_distance?: number;
+}
+
+export interface MethodUsageResponse {
+    node_key: string;
+    callers: MethodUsageItem[];
+    callees: MethodUsageItem[];
+    total_callers: number;
+    total_callees: number;
+}
+
+export interface CkMetric {
+    namespace_key: string;
+    class_name: string;
+    project?: string;
+    file?: string;
+    layer?: string;
+    wmc: number;
+    cbo: number;
+    rfc: number;
+    lcom: number;
+    risk_score: number;
+    is_god_class: boolean;
+    hotspot_score: number;
+}
+
+export interface EvolutionSummary {
+    series: Array<{
+        timestamp: string;
+        risk_score: number;
+        total_nodes: number;
+        total_edges: number;
+        god_classes: number;
+        circular_deps: number;
+        dead_code: number;
+        call_resolution_rate?: number;
+    }>;
+    trend: {
+        risk_delta: number;
+        nodes_delta: number;
+        edges_delta: number;
+        call_resolution_delta?: number;
+    };
+    top_hotspots_by_project: Record<string, Array<{
+        namespace_key: string;
+        name: string;
+        file: string;
+        complexity: number;
+        git_churn: number;
+        hotspot_score: number;
+    }>>;
+    window_size: number;
+}
+
+export interface HotspotItem extends GraphNode {
+    git_churn: number;
+    hotspot_score: number;
+    category?: 'critical' | 'danger' | 'watch' | 'low' | string;
+}
+
+export interface CochangePair {
+    file_a: string;
+    file_b: string;
+    cochange_count: number;
+}
+
+export interface CallResolutionProject {
+    project: string;
+    total_calls: number;
+    resolved_calls: number;
+    unresolved_calls: number;
+    resolution_rate: number;
+}
+
+export interface CallResolutionUnresolved {
+    owner_hint?: string | null;
+    method_hint: string;
+    count: number;
+    examples: Array<{
+        source: string;
+        source_name?: string;
+        source_file?: string;
+        source_project?: string;
+    }>;
+}
+
+export interface CallResolutionSummary {
+    total_calls: number;
+    resolved_calls: number;
+    unresolved_calls: number;
+    resolution_rate: number;
+    by_project: CallResolutionProject[];
+    top_unresolved: CallResolutionUnresolved[];
 }
 
 /* ─── API Functions ─── */
@@ -189,8 +485,203 @@ export async function requestSimulationReview(simData: SimulateResponse): Promis
     return res.json();
 }
 
+export async function analyzeImpact(change: ChangeDescriptor): Promise<AffectedSet> {
+    const res = await fetch(`${BASE}/impact/analyze`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(change),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function fetchDataFlow(nodeKey: string): Promise<DataFlowChain> {
+    const res = await fetch(`${BASE}/dataflow/${encodeURIComponent(nodeKey)}`);
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function fetchContractBreaks(): Promise<{ broken_contracts: ContractBreak[] }> {
+    const res = await fetch(`${BASE}/contracts/broken`);
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function fetchFieldNodes(nodeKey: string): Promise<{ field_nodes: FieldLevelNode[] }> {
+    const res = await fetch(`${BASE}/fields/${encodeURIComponent(nodeKey)}`);
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function fetchFragility(nodeKey: string): Promise<FragilityDetail> {
+    const res = await fetch(`${BASE}/fragility/${encodeURIComponent(nodeKey)}`);
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function fetchFragilityRanking(topN: number = 20): Promise<FragilityDetail[]> {
+    const res = await fetch(`${BASE}/fragility/ranking?top_n=${encodeURIComponent(String(topN))}`);
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function fetchTaintPropagation(payload: {
+    origin_key: string;
+    change_type: string;
+    old_type?: string;
+    new_type?: string;
+}): Promise<TaintPath> {
+    const res = await fetch(`${BASE}/taint/propagate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function resolveSymbol(name: string, contextKey?: string): Promise<ResolvedSymbol[]> {
+    const params = new URLSearchParams({ name });
+    if (contextKey) params.set('context_key', contextKey);
+    const res = await fetch(`${BASE}/symbol/resolve?${params.toString()}`);
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function fetchSideEffects(payload: {
+    change: {
+        change_type: string;
+        target_key?: string;
+        artifact_key?: string;
+        old_type?: string;
+        new_type?: string;
+    };
+    affected_set?: string[];
+    include_inferred?: boolean;
+}): Promise<SideEffect[]> {
+    const res = await fetch(`${BASE}/side-effects/detect`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function fetchBidirectionalImpact(payload: {
+    origin_key: string;
+    direction: 'BOTTOM_UP' | 'TOP_DOWN';
+    change?: Record<string, unknown>;
+}): Promise<BidirectionalResult> {
+    const res = await fetch(`${BASE}/bidirectional/analyze`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function fetchNodeVulnerabilities(nodeKey: string): Promise<SecurityIssue[]> {
+    const res = await fetch(`${BASE}/security/node/${encodeURIComponent(nodeKey)}/vulnerabilities`);
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function fetchMethodUsages(nodeKey: string): Promise<MethodUsageResponse> {
+    const res = await fetch(`${BASE}/method/${encodeURIComponent(nodeKey)}/usages`);
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function fetchHotspots(topN: number = 50, days?: number): Promise<{ hotspots: HotspotItem[]; window_days?: number | null }> {
+    const params = new URLSearchParams({ top_n: String(topN) });
+    if (typeof days === 'number' && days > 0) params.set('days', String(days));
+    const res = await fetch(`${BASE}/hotspots?${params.toString()}`);
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function ragSearch(
+    query: string,
+    nodeKey?: string,
+    limit: number = 20,
+    semantic: boolean = true,
+): Promise<{ nodes: GraphNode[] }> {
+    const params = new URLSearchParams({ q: query, limit: String(limit) });
+    if (nodeKey) params.set('node_key', nodeKey);
+    params.set('semantic', String(semantic));
+    const res = await fetch(`${BASE}/rag/search?${params.toString()}`);
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function rebuildRagIndex(includeEmbeddings: boolean = false): Promise<{
+    indexed_nodes: number;
+    status: string;
+    include_embeddings?: boolean;
+    embedding_model?: string | null;
+}> {
+    const res = await fetch(`${BASE}/rag/index`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ include_embeddings: includeEmbeddings }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function fetchCkMetrics(project?: string, minRisk: number = 0): Promise<{ metrics: CkMetric[]; total: number }> {
+    const params = new URLSearchParams({ min_risk: String(minRisk) });
+    if (project) params.set('project', project);
+    const res = await fetch(`${BASE}/metrics/ck?${params.toString()}`);
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function semanticGraphSearch(
+    query: string,
+    topK: number = 20,
+    nodeKey?: string,
+    semantic: boolean = true,
+): Promise<{ results: GraphNode[]; query: string }> {
+    const params = new URLSearchParams({ q: query, top_k: String(topK) });
+    if (nodeKey) params.set('node_key', nodeKey);
+    params.set('semantic', String(semantic));
+    const res = await fetch(`${BASE}/graph/search?${params.toString()}`);
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function fetchEvolutionSummary(window: number = 20): Promise<EvolutionSummary> {
+    const res = await fetch(`${BASE}/evolution/summary?window=${encodeURIComponent(String(window))}`);
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function fetchHotspotCochange(days: number = 90, topN: number = 30): Promise<{ projects: Record<string, CochangePair[]>; window_days: number }> {
+    const params = new URLSearchParams({ days: String(days), top_n: String(topN) });
+    const res = await fetch(`${BASE}/hotspots/cochange?${params.toString()}`);
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function fetchCallResolutionSummary(project?: string, topN: number = 20): Promise<CallResolutionSummary> {
+    const params = new URLSearchParams({ top_n: String(topN) });
+    if (project) params.set('project', project);
+    const res = await fetch(`${BASE}/calls/resolution?${params.toString()}`);
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
 export async function fetchHealth(): Promise<HealthStatus> {
     const res = await fetch(`${BASE}/health`);
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function fetchRagStatus(): Promise<RagStatus> {
+    const res = await fetch(`${BASE}/rag/status`);
     if (!res.ok) throw new Error(await res.text());
     return res.json();
 }
@@ -217,16 +708,6 @@ export async function explainComponent(code: string): Promise<{ answer: string }
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ question: prompt }),
-    });
-    if (!res.ok) throw new Error(await res.text());
-    return res.json();
-}
-
-export async function requestSimulationReview(simulationData: SimulateResponse): Promise<{ report: string }> {
-    const res = await fetch(`${BASE}/simulate/review`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(simulationData),
     });
     if (!res.ok) throw new Error(await res.text());
     return res.json();
@@ -264,6 +745,29 @@ export interface CodeQLAnalysisResult {
     ingested_count: number;
     skipped_count: number;
     tainted_paths_count: number;
+}
+
+export interface CodeQLResultsSummary {
+    total_issues: number;
+    ingested: number;
+    skipped: number;
+    tainted_paths: number;
+    vulnerabilities_by_severity: Record<string, number>;
+}
+
+export interface CodeQLHistoryEntry {
+    job_id: string;
+    project_id: string;
+    project_name: string;
+    started_at: string;
+    completed_at: string;
+    duration_seconds: number;
+    suite: string;
+    status: 'completed' | 'failed' | string;
+    results_summary?: CodeQLResultsSummary | null;
+    sarif_path?: string | null;
+    sarif_size_bytes?: number | null;
+    error_message?: string | null;
 }
 
 // Fetch all CodeQL projects
@@ -351,6 +855,24 @@ export async function getCodeQLJobStatus(jobId: string): Promise<CodeQLJob> {
 // Get CodeQL analysis results
 export async function getCodeQLResults(projectId: string): Promise<CodeQLAnalysisResult> {
     const res = await fetch(`${BASE}/codeql/results/${projectId}`);
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function fetchCodeQLHistory(params?: {
+    projectId?: string;
+    startDate?: string;
+    endDate?: string;
+    limit?: number;
+}): Promise<CodeQLHistoryEntry[]> {
+    const qs = new URLSearchParams();
+    if (params?.projectId) qs.set('project_id', params.projectId);
+    if (params?.startDate) qs.set('start_date', params.startDate);
+    if (params?.endDate) qs.set('end_date', params.endDate);
+    if (typeof params?.limit === 'number') qs.set('limit', String(params.limit));
+    const suffix = qs.toString();
+    const url = suffix ? `${BASE}/codeql/history?${suffix}` : `${BASE}/codeql/history`;
+    const res = await fetch(url);
     if (!res.ok) throw new Error(await res.text());
     return res.json();
 }

@@ -1,6 +1,5 @@
 import { useState } from 'react';
 
-// TopBar Component
 interface TopBarProps {
     workspaces: string[];
     onAddWorkspace: (path: string) => void;
@@ -16,6 +15,11 @@ interface TopBarProps {
     onToggleSimulation: () => void;
     codeQLOpen: boolean;
     onToggleCodeQL: () => void;
+    onSemanticSearch: (query: string) => void;
+    semanticSearchEnabled: boolean;
+    onToggleSemanticSearchMode: () => void;
+    onRebuildRagIndex: () => void;
+    ragReindexing: boolean;
 }
 
 export default function TopBar({
@@ -32,6 +36,11 @@ export default function TopBar({
     onToggleSimulation,
     codeQLOpen,
     onToggleCodeQL,
+    onSemanticSearch,
+    semanticSearchEnabled,
+    onToggleSemanticSearchMode,
+    onRebuildRagIndex,
+    ragReindexing,
 }: TopBarProps) {
     const [inputPath, setInputPath] = useState('');
 
@@ -47,16 +56,10 @@ export default function TopBar({
         try {
             const response = await fetch('/api/system/browse-folder');
             const data = await response.json();
-            if (data.path) {
-                setInputPath(data.path);
-            }
+            if (data.path) setInputPath(data.path);
         } catch (error) {
             console.error('Failed to open folder picker:', error);
         }
-    };
-
-    const handleKeyDown = (e: React.KeyboardEvent) => {
-        if (e.key === 'Enter') handleAdd();
     };
 
     const isScanning = scanStatus === 'scanning';
@@ -64,7 +67,7 @@ export default function TopBar({
     return (
         <div className="topbar">
             <div className="topbar-logo">
-                <div className="icon">◆</div>
+                <div className="icon">IG</div>
                 <span>InsightGraph</span>
             </div>
 
@@ -74,22 +77,18 @@ export default function TopBar({
                     type="text"
                     value={inputPath}
                     onChange={(e) => setInputPath(e.target.value)}
-                    onKeyDown={handleKeyDown}
-                    placeholder="C:\caminho\do\projeto ..."
+                    onKeyDown={(e) => e.key === 'Enter' && handleAdd()}
+                    placeholder="C:\\path\\to\\project ..."
                     disabled={isScanning}
                 />
                 <button className="btn btn-secondary" onClick={handleBrowseFolder} disabled={isScanning}>
-                    📁 Procurar Pasta
+                    Browse
                 </button>
                 <button className="btn btn-secondary" onClick={handleAdd} disabled={isScanning || !inputPath.trim()}>
-                    + Adicionar
+                    Add
                 </button>
-                <button
-                    className="btn btn-primary"
-                    onClick={onScan}
-                    disabled={isScanning || workspaces.length === 0}
-                >
-                    {isScanning ? '⟳ Escaneando...' : '▶ Escanear Tudo'}
+                <button className="btn btn-primary" onClick={onScan} disabled={isScanning || workspaces.length === 0}>
+                    {isScanning ? 'Scanning...' : 'Scan All'}
                 </button>
             </div>
 
@@ -97,66 +96,78 @@ export default function TopBar({
                 <button
                     className={`btn ${simulationOpen ? 'btn-accent' : 'btn-secondary'}`}
                     onClick={onToggleSimulation}
-                    title="Simular adição ou remoção de componentes"
+                    title="Run architecture simulation"
                 >
-                    🧪 Simular
+                    Simulate
                 </button>
-
                 <button
                     className={`btn btn-secondary ${dashboardOpen ? 'active' : ''}`}
                     onClick={onToggleDashboard}
-                    title="Ver Métricas Arquiteturais e Dashboard de Antipatterns"
+                    title="Open architectural dashboard"
                 >
-                    📊 Dashboard
+                    Dashboard
                 </button>
-
                 <button
                     className={`btn ${codeQLOpen ? 'btn-accent' : 'btn-secondary'}`}
                     onClick={onToggleCodeQL}
-                    title="Análise de Segurança com CodeQL"
+                    title="Open CodeQL security analysis"
                 >
-                    🔒 CodeQL
+                    CodeQL
                 </button>
-
                 <button
                     className={`btn btn-accent ${askOpen ? 'active' : ''}`}
                     onClick={onToggleAsk}
                     disabled={isScanning}
-                    title={isScanning ? 'Aguarde o scan terminar' : 'Pergunte à IA sobre sua arquitetura'}
+                    title={isScanning ? 'Wait for scan to finish' : 'Ask the AI assistant'}
                 >
-                    🤖 IA Assistente
+                    AI Assistant
+                </button>
+                <button
+                    className="btn btn-secondary"
+                    onClick={() => {
+                        const q = window.prompt('Search in graph:');
+                        if (q) onSemanticSearch(q);
+                    }}
+                    title={semanticSearchEnabled ? 'Hybrid lexical + semantic search' : 'Lexical-only search'}
+                >
+                    {semanticSearchEnabled ? 'Hybrid Search' : 'Lexical Search'}
+                </button>
+                <button
+                    className="btn btn-secondary"
+                    onClick={onToggleSemanticSearchMode}
+                    title="Toggle semantic embeddings in search"
+                >
+                    {semanticSearchEnabled ? 'Semantic ON' : 'Semantic OFF'}
+                </button>
+                <button
+                    className="btn btn-secondary"
+                    onClick={onRebuildRagIndex}
+                    disabled={ragReindexing}
+                    title="Rebuild RAG index and embeddings locally"
+                >
+                    {ragReindexing ? 'Reindexing...' : 'Reindex RAG'}
                 </button>
             </div>
 
             <div className="topbar-status">
                 <div className="status-indicator">
-                    <span
-                        className={`status-dot ${isScanning ? 'scanning' : ''} ${scanStatus === 'error' ? 'error' : ''}`}
-                    />
-                    {scanStatus === 'idle' && <span>Pronto</span>}
+                    <span className={`status-dot ${isScanning ? 'scanning' : ''} ${scanStatus === 'error' ? 'error' : ''}`} />
+                    {scanStatus === 'idle' && <span>Ready</span>}
                     {isScanning && (
                         <span>
                             {scanStats.progress > 0
-                                ? `${scanStats.progress.toFixed(0)}% · ${scanStats.files} arquivos`
-                                : `Escaneando... ${scanStats.files} arquivos`}
+                                ? `${scanStats.progress.toFixed(0)}% · ${scanStats.files} files`
+                                : `Scanning... ${scanStats.files} files`}
                         </span>
                     )}
-                    {scanStatus === 'completed' && (
-                        <span>
-                            ✓ {scanStats.nodes} nós · {scanStats.rels} conexões
-                        </span>
-                    )}
-                    {scanStatus === 'error' && <span>Erro</span>}
+                    {scanStatus === 'completed' && <span>{scanStats.nodes} nodes · {scanStats.rels} edges</span>}
+                    {scanStatus === 'error' && <span>Error</span>}
                 </div>
             </div>
 
-            {/* Scan progress bar */}
             {isScanning && (
                 <div className="scan-progress">
-                    <div
-                        className="scan-progress-bar"
-                        style={{ width: `${scanStats.progress || 2}%` }}
-                    />
+                    <div className="scan-progress-bar" style={{ width: `${scanStats.progress || 2}%` }} />
                 </div>
             )}
         </div>

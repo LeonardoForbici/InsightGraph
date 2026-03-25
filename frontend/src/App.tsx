@@ -8,6 +8,7 @@ import StatsBar from './components/StatsBar';
 import Dashboard from './components/Dashboard';
 import SimulationPanel from './components/SimulationPanel';
 import CodeQLModal from './components/CodeQLModal';
+import MethodUsageView from './components/MethodUsageView';
 import {
   scanProjects,
   getScanStatus,
@@ -16,7 +17,9 @@ import {
   fetchBlastRadius,
   fetchProjects,
   fetchGraphStats,
-  requestSimulationReview
+  requestSimulationReview,
+  semanticGraphSearch,
+  rebuildRagIndex
 } from './api';
 import type { GraphNode, ImpactData, GraphStats, BlastRadiusData } from './api';
 import './index.css';
@@ -58,11 +61,15 @@ export default function App() {
   const [dashboardOpen, setDashboardOpen] = useState(false);
   const [simulationOpen, setSimulationOpen] = useState(false);
   const [codeQLOpen, setCodeQLOpen] = useState(false);
+  const [methodUsageOpen, setMethodUsageOpen] = useState(false);
+  const [methodUsageNode, setMethodUsageNode] = useState<{ key: string; name: string } | null>(null);
   const [isSimulated, setIsSimulated] = useState(false);
   const [simRisk, setSimRisk] = useState<number | null>(null);
   const [simInsights, setSimInsights] = useState<string[]>([]);
   const [isReviewLoading, setIsReviewLoading] = useState(false);
   const [aiReport, setAiReport] = useState<string | null>(null);
+  const [semanticSearchEnabled, setSemanticSearchEnabled] = useState(true);
+  const [ragReindexing, setRagReindexing] = useState(false);
   
   // Create a ref for the full simulation data to pass to review
   const lastSimData = useRef<any>(null);
@@ -248,6 +255,60 @@ export default function App() {
     setDashboardOpen(false);
   }, []);
 
+  const handleViewUsages = useCallback((nodeKey: string, nodeName: string) => {
+    const methodLikeLabels = new Set(['Java_Method', 'TS_Function', 'API_Endpoint', 'SQL_Procedure']);
+    const node = graphNodes.find((n) => n.namespace_key === nodeKey);
+    const isMethodLike = Boolean(
+      node &&
+      !node.namespace_key.startsWith('cluster:') &&
+      (node.labels || []).some((l) => methodLikeLabels.has(l)),
+    );
+    if (!isMethodLike) {
+      alert('Usos do método só está disponível para métodos/funções/procedures.');
+      return;
+    }
+    setMethodUsageNode({ key: nodeKey, name: nodeName });
+    setMethodUsageOpen(true);
+  }, [graphNodes]);
+
+  const handleNavigateFromUsages = useCallback((nodeKey: string) => {
+    const target = graphNodes.find((n) => n.namespace_key === nodeKey);
+    if (target) {
+      handleNodeClick(nodeKey, target);
+      setMethodUsageOpen(false);
+    }
+  }, [graphNodes, handleNodeClick]);
+
+  const handleSemanticSearch = useCallback(async (query: string) => {
+    const q = query.trim();
+    if (!q) return;
+    try {
+      const res = await semanticGraphSearch(q, 20, selectedNodeKey || undefined, semanticSearchEnabled);
+      const keys = (res.results || []).map((r: any) => r.key || r.namespace_key).filter(Boolean);
+      setAiHighlightedNodes(keys);
+      if (keys.length > 0) {
+        const first = graphNodes.find((n) => n.namespace_key === keys[0]);
+        if (first) setSelectedNode(first);
+      }
+    } catch (err) {
+      console.error('Semantic search failed:', err);
+      alert('Falha na busca semântica.');
+    }
+  }, [selectedNodeKey, graphNodes, semanticSearchEnabled]);
+
+  const handleRebuildRag = useCallback(async () => {
+    try {
+      setRagReindexing(true);
+      const result = await rebuildRagIndex(true);
+      alert(`RAG reindex concluido: ${result.indexed_nodes} nos.`);
+    } catch (err) {
+      console.error('RAG reindex failed:', err);
+      alert('Falha ao reindexar RAG/embeddings.');
+    } finally {
+      setRagReindexing(false);
+    }
+  }, []);
+
   // ─── Effects ───
   useEffect(() => {
     loadGraph();
@@ -293,6 +354,11 @@ export default function App() {
         onToggleSimulation={() => setSimulationOpen((prev) => !prev)}
         codeQLOpen={codeQLOpen}
         onToggleCodeQL={() => setCodeQLOpen((prev) => !prev)}
+        onSemanticSearch={handleSemanticSearch}
+        semanticSearchEnabled={semanticSearchEnabled}
+        onToggleSemanticSearchMode={() => setSemanticSearchEnabled((prev) => !prev)}
+        onRebuildRagIndex={handleRebuildRag}
+        ragReindexing={ragReindexing}
       />
 
       {isSimulated && (
@@ -380,7 +446,17 @@ export default function App() {
         impact={impactData}
         blastRadius={blastRadius}
         onClose={handleCloseDetail}
+        onViewUsages={handleViewUsages}
       />
+
+      {methodUsageOpen && methodUsageNode && (
+        <MethodUsageView
+          nodeKey={methodUsageNode.key}
+          nodeName={methodUsageNode.name}
+          onClose={() => setMethodUsageOpen(false)}
+          onNavigateTo={handleNavigateFromUsages}
+        />
+      )}
 
       {graphNodes.length > 0 && <StatsBar stats={graphStats} />}
 

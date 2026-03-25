@@ -94,5 +94,17 @@
     "god_classes": 350,
     "circular_deps": 0,
     "dead_code": 350
+  },
+  {
+    "timestamp": "2026-03-24T22:05:25.294937",
+    "total_nodes": 2181,
+    "total_edges": 25147,
+    "god_classes": 716,
+    "circular_deps": 0,
+    "dead_code": 429,
+    "call_resolution_rate": 25.2,
+    "call_total": 15952,
+    "call_resolved": 4020,
+    "call_unresolved": 11932
   }
 ]

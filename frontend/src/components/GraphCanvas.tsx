@@ -16,6 +16,7 @@ import type { Node, Edge, NodeProps } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import dagre from '@dagrejs/dagre';
 import type { GraphNode, GraphEdge } from '../api';
+import GraphCanvas3D from './GraphCanvas3D';
 
 /* ─── Helpers ─── */
 function getNodeClass(labels: string[]): string {
@@ -80,24 +81,34 @@ function layoutGraph(nodes: Node[], edges: Edge[], direction = 'TB'): { nodes: N
 
 /* ─── Custom Node Component ─── */
 function CustomNode({ data }: NodeProps) {
+    const hiddenHandleStyle: React.CSSProperties = {
+        opacity: 0,
+        pointerEvents: 'none',
+        width: 1,
+        height: 1,
+        border: 'none',
+        background: 'transparent',
+    };
+
     if (data.isCluster) {
         return (
             <>
-                <Handle type="target" position={Position.Top} style={{ opacity: 0 }} />
+                <Handle type="target" position={Position.Top} style={hiddenHandleStyle} isConnectable={false} />
                 <div 
                   className="custom-node cluster-node" 
                   style={{ 
                     background: '#1e293b', color: '#cbd5e1', fontSize: '1rem', 
                     padding: '16px', borderRadius: '12px', textAlign: 'center', 
                     border: '2px dashed #475569', boxShadow: '0 8px 16px rgba(0,0,0,0.4)',
-                    minWidth: '150px'
+                    minWidth: '150px',
+                    cursor: 'pointer',
                   }}
                 >
                     <div style={{ fontWeight: 'bold' }}>📦 {String(data.label)}</div>
                     <div style={{ fontSize: '0.8rem', opacity: 0.7, marginTop: '4px' }}>{Number(data.count)} items inside</div>
                     <div style={{ fontSize: '0.7rem', color: '#60a5fa', marginTop: '4px' }}>Double-click to expand</div>
                 </div>
-                <Handle type="source" position={Position.Bottom} style={{ opacity: 0 }} />
+                <Handle type="source" position={Position.Bottom} style={hiddenHandleStyle} isConnectable={false} />
             </>
         );
     }
@@ -167,14 +178,14 @@ function CustomNode({ data }: NodeProps) {
 
     return (
         <>
-            <Handle type="target" position={Position.Top} style={{ opacity: 0 }} />
-            <div className={`custom-node ${nodeClass} ${highlightClass || ''}`} style={inlineStyle}>
+            <Handle type="target" position={Position.Top} style={hiddenHandleStyle} isConnectable={false} />
+            <div className={`custom-node ${nodeClass} ${highlightClass || ''}`} style={{ ...inlineStyle, cursor: 'pointer' }}>
                 <div>
                     {String(data.icon || '')} {String(data.label || '')}
                 </div>
                 {data.sublabel ? <div className="node-sublabel">{String(data.sublabel)}</div> : null}
             </div>
-            <Handle type="source" position={Position.Bottom} style={{ opacity: 0 }} />
+            <Handle type="source" position={Position.Bottom} style={hiddenHandleStyle} isConnectable={false} />
         </>
     );
 }
@@ -206,6 +217,10 @@ function GraphCanvasInner({
     searchTerm,
 }: GraphCanvasProps) {
     const [heatmapEnabled, setHeatmapEnabled] = useState(false);
+    const [viewMode, setViewMode] = useState<'2d' | '3d'>('2d');
+    const [autoMode, setAutoMode] = useState(true);
+    const [clustered3D, setClustered3D] = useState(true);
+    const [focusRequestId, setFocusRequestId] = useState(0);
     
     // Clustering state (set of expanded layer sizes). Auto-expand small graphs.
     const [expandedClusters, setExpandedClusters] = useState<Set<string>>(new Set());
@@ -219,6 +234,37 @@ function GraphCanvasInner({
             }
         }
     }, [graphNodes]);
+
+    useEffect(() => {
+        // Restore persisted preferences once
+        try {
+            const mode = localStorage.getItem('ig:viewMode');
+            const auto = localStorage.getItem('ig:autoMode');
+            const cluster3d = localStorage.getItem('ig:clustered3D');
+            if (mode === '2d' || mode === '3d') setViewMode(mode);
+            if (auto === 'true' || auto === 'false') setAutoMode(auto === 'true');
+            if (cluster3d === 'true' || cluster3d === 'false') setClustered3D(cluster3d === 'true');
+        } catch {
+            // ignore storage errors
+        }
+    }, []);
+
+    useEffect(() => {
+        try {
+            localStorage.setItem('ig:viewMode', viewMode);
+            localStorage.setItem('ig:autoMode', String(autoMode));
+            localStorage.setItem('ig:clustered3D', String(clustered3D));
+        } catch {
+            // ignore storage errors
+        }
+    }, [viewMode, autoMode, clustered3D]);
+
+    useEffect(() => {
+        if (!autoMode) return;
+        // Auto switch: above 550 nodes prefer 3D, else keep 2D.
+        if (graphNodes.length > 550 && viewMode !== '3d') setViewMode('3d');
+        if (graphNodes.length <= 550 && viewMode !== '2d') setViewMode('2d');
+    }, [graphNodes.length, autoMode, viewMode]);
 
     // Auto-expand clusters if AI points to them
     useEffect(() => {
@@ -236,6 +282,9 @@ function GraphCanvasInner({
 
     // Build the graph payload dynamically observing expanded clusters
     const { baseNodes, baseEdges } = useMemo(() => {
+        if (viewMode === '3d') {
+            return { baseNodes: [], baseEdges: [] };
+        }
         const filteredNodes = searchTerm
             ? graphNodes.filter((n) => n.name.toLowerCase().includes(searchTerm.toLowerCase()))
             : graphNodes;
@@ -365,7 +414,7 @@ function GraphCanvasInner({
         }
         return { baseNodes: nsNodes, baseEdges: nsEdges };
 
-    }, [graphNodes, graphEdges, expandedClusters, searchTerm]); // ONLY structural dependencies
+    }, [graphNodes, graphEdges, expandedClusters, searchTerm, viewMode]); // ONLY structural dependencies
 
     const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
     const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
@@ -478,39 +527,94 @@ function GraphCanvasInner({
 
     return (
         <div className="canvas-area">
-            <ReactFlow
-                nodes={nodes}
-                edges={edges}
-                onNodesChange={onNodesChange}
-                onEdgesChange={onEdgesChange}
-                onNodeClick={handleNodeClick}
-                onNodeDoubleClick={handleNodeDoubleClick}
-                nodeTypes={nodeTypes}
-                fitView
-                fitViewOptions={{ padding: 0.25 }}
-                minZoom={0.05}
-                maxZoom={2.5}
-                proOptions={{ hideAttribution: true }}
-            >
-                <Controls />
-                <MiniMap
-                    nodeColor={(n) => {
-                        if (n.data.isCluster) return '#60a5fa';
-                        if (n.data.highlightClass === 'highlighted-ai') return '#f472b6';
-                        const cls = (n.data as Record<string, unknown>).nodeClass as string;
-                        if (cls?.includes('java')) return '#fb923c';
-                        if (cls?.includes('ts')) return '#60a5fa';
-                        if (cls?.includes('sql')) return '#34d399';
-                        if (cls?.includes('mobile')) return '#a78bfa';
-                        return '#5a6380';
-                    }}
-                    maskColor="rgba(6, 8, 26, 0.75)"
+            {viewMode === '2d' ? (
+                <ReactFlow
+                    nodes={nodes}
+                    edges={edges}
+                    onNodesChange={onNodesChange}
+                    onEdgesChange={onEdgesChange}
+                    onNodeClick={handleNodeClick}
+                    onNodeDoubleClick={handleNodeDoubleClick}
+                    nodeTypes={nodeTypes}
+                    fitView
+                    fitViewOptions={{ padding: 0.25 }}
+                    minZoom={0.05}
+                    maxZoom={2.5}
+                    proOptions={{ hideAttribution: true }}
+                >
+                    <Controls />
+                    <MiniMap
+                        nodeColor={(n) => {
+                            if (n.data.isCluster) return '#60a5fa';
+                            if (n.data.highlightClass === 'highlighted-ai') return '#f472b6';
+                            const cls = (n.data as Record<string, unknown>).nodeClass as string;
+                            if (cls?.includes('java')) return '#fb923c';
+                            if (cls?.includes('ts')) return '#60a5fa';
+                            if (cls?.includes('sql')) return '#34d399';
+                            if (cls?.includes('mobile')) return '#a78bfa';
+                            return '#5a6380';
+                        }}
+                        maskColor="rgba(6, 8, 26, 0.75)"
+                    />
+                    <Background variant={BackgroundVariant.Dots} gap={28} size={1} color="rgba(139,147,176,0.04)" />
+                </ReactFlow>
+            ) : (
+                <GraphCanvas3D
+                    graphNodes={graphNodes}
+                    graphEdges={graphEdges}
+                    highlightedUpstream={highlightedUpstream}
+                    highlightedDownstream={highlightedDownstream}
+                    aiHighlightedNodes={aiHighlightedNodes}
+                    selectedNodeKey={selectedNodeKey}
+                    onNodeClick={onNodeClick}
+                    searchTerm={searchTerm}
+                    heatmapEnabled={heatmapEnabled}
+                    clustered={clustered3D}
+                    focusNodeKey={selectedNodeKey}
+                    focusRequestId={focusRequestId}
                 />
-                <Background variant={BackgroundVariant.Dots} gap={28} size={1} color="rgba(139,147,176,0.04)" />
-            </ReactFlow>
+            )}
 
             {/* Overlays */}
             <div style={{ position: 'absolute', top: 16, right: 16, zIndex: 5, display: 'flex', gap: '8px' }}>
+                <button
+                  className={`btn ${viewMode === '3d' ? 'btn-accent' : 'btn-secondary'}`}
+                  onClick={() => {
+                      setAutoMode(false);
+                      setViewMode(viewMode === '2d' ? '3d' : '2d');
+                  }}
+                  style={{ boxShadow: '0 4px 12px rgba(0,0,0,0.2)' }}
+                >
+                    {viewMode === '2d' ? '🌐 Modo 3D' : '🗺️ Modo 2D'}
+                </button>
+                <button
+                  className={`btn ${autoMode ? 'btn-accent' : 'btn-secondary'}`}
+                  onClick={() => setAutoMode((v) => !v)}
+                  style={{ boxShadow: '0 4px 12px rgba(0,0,0,0.2)' }}
+                  title="Alterna fallback automático 2D/3D por volume de nós"
+                >
+                    {autoMode ? '⚙️ Auto ON' : '⚙️ Auto OFF'}
+                </button>
+                {viewMode === '3d' && (
+                    <button
+                      className={`btn ${clustered3D ? 'btn-accent' : 'btn-secondary'}`}
+                      onClick={() => setClustered3D((v) => !v)}
+                      style={{ boxShadow: '0 4px 12px rgba(0,0,0,0.2)' }}
+                      title="Agrupa nós por camada/projeto no modo 3D"
+                    >
+                        {clustered3D ? '🧩 Cluster 3D ON' : '🧩 Cluster 3D OFF'}
+                    </button>
+                )}
+                {viewMode === '3d' && selectedNodeKey && (
+                    <button
+                      className="btn btn-secondary"
+                      onClick={() => setFocusRequestId((v) => v + 1)}
+                      style={{ boxShadow: '0 4px 12px rgba(0,0,0,0.2)' }}
+                      title="Move a câmera para o nó selecionado"
+                    >
+                        🎯 Centrar Selecionado
+                    </button>
+                )}
                 <button 
                   className={`btn ${heatmapEnabled ? 'btn-accent' : 'btn-secondary'}`}
                   onClick={() => setHeatmapEnabled(!heatmapEnabled)}
@@ -528,7 +632,7 @@ function GraphCanvasInner({
                     </button>
                 )}
 
-                {expandedClusters.size > 0 && !expandedClusters.has('*ALL*') && (
+                {viewMode === '2d' && expandedClusters.size > 0 && !expandedClusters.has('*ALL*') && (
                     <button 
                       className="btn btn-secondary"
                       onClick={() => setExpandedClusters(new Set())}

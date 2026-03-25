@@ -182,14 +182,11 @@ function CodeQLModal({ onClose }: CodeQLModalProps) {
 
     const pollJobStatus = useCallback(async () => {
         const updatedJobs = new Map(jobs);
-        let allComplete = true;
 
         for (const [jobId, job] of jobs.entries()) {
             if (job.status === 'completed' || job.status === 'failed' || job.status === 'cancelled') {
                 continue;
             }
-
-            allComplete = false;
 
             try {
                 const res = await fetch(`/api/codeql/jobs/${jobId}`);

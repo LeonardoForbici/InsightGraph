@@ -10,14 +10,17 @@ Models:
 import os
 import sys
 import json
+import re
 import asyncio
 import logging
 import datetime
 import argparse
 import subprocess
+from dataclasses import asdict
 from pathlib import Path
 from typing import Optional
 from contextlib import asynccontextmanager
+from collections import defaultdict
 
 import httpx
 from fastapi import FastAPI, HTTPException, BackgroundTasks
@@ -42,6 +45,16 @@ from tkinter import filedialog
 # CodeQL imports
 # ──────────────────────────────────────────────
 from codeql_orchestrator import CodeQLOrchestrator
+from bidirectional_analyzer import BidirectionalAnalyzer
+from contract_break_detector import ContractBreakDetector
+from data_flow_tracker import DataFlowTracker
+from deep_parser import DeepParser
+from fragility_calculator import FragilityCalculator
+from impact_engine import ChangeDescriptor, ImpactEngine
+from semantic_analyzer import SemanticAnalyzer
+from side_effect_detector import SideEffectDetector
+from symbol_resolver import SymbolResolver
+from taint_propagator import TaintPropagator
 
 # ──────────────────────────────────────────────
 # Configuration
@@ -56,6 +69,8 @@ OLLAMA_FAST_MODEL = os.getenv("OLLAMA_FAST_MODEL", "qwen2.5-coder:1.5b")
 OLLAMA_CHAT_MODEL = os.getenv("OLLAMA_CHAT_MODEL", "qwen3.5:4b")
 # Tier 3: Complex Analysis (Inteligência máxima, mas lento)
 OLLAMA_COMPLEX_MODEL = os.getenv("OLLAMA_COMPLEX_MODEL", "qwen3-coder-next:q4_K_M")
+OLLAMA_EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "nomic-embed-text")
+RAG_INDEX_FILE = Path(os.getenv("RAG_INDEX_FILE", "rag_index.json"))
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("insightgraph")
@@ -74,6 +89,13 @@ async def lifespan(application):
             logger.warning("Neo4j not available at startup. Continuing with memory fallback.")
     except Exception as e:
         logger.warning("Neo4j error at startup: %s. Continuing with memory fallback.", e)
+
+    try:
+        _ensure_memory_graph_loaded()
+        loaded = _load_rag_index()
+        logger.info("RAG index startup load: %d entries from %s", loaded, RAG_INDEX_FILE)
+    except Exception as e:
+        logger.warning("RAG startup load failed: %s", e)
     yield
 
 app = FastAPI(
@@ -133,9 +155,12 @@ class HealthStatus(BaseModel):
     neo4j: str = "disconnected"
     ollama_scanner: str = "unknown"
     ollama_chat: str = "unknown"
+    ollama_embed: str = "unknown"
     scanner_model: str = OLLAMA_FAST_MODEL
     chat_model: str = OLLAMA_CHAT_MODEL
     complex_model: str = OLLAMA_COMPLEX_MODEL
+    embed_model: str = OLLAMA_EMBED_MODEL
+    rag_index_nodes: int = 0
 
 class SimulationReviewRequest(BaseModel):
     risk_score: int = 0
@@ -153,6 +178,8 @@ scanned_projects: dict[str, str] = {}  # Maps project_name -> absolute_project_p
 # In-memory graph storage (works even without Neo4j)
 memory_nodes: list[dict] = []
 memory_edges: list[dict] = []
+rag_index: list[dict] = []
+rag_index_metadata: dict = {}
 
 # ──────────────────────────────────────────────
 # Neo4j Service
@@ -781,15 +808,108 @@ def parse_java(file_path: str, content: str, project_path: str) -> dict:
 
     entities = {"nodes": [], "relationships": []}
 
-    # Collect imports for cloud blocker detection
+    # Collect imports for cloud blocker detection + owner/type hints
     imports = []
+    imported_simple_names: dict[str, str] = {}
     for child in root.children:
         if child.type == "import_declaration":
             import_text = child.text.decode("utf-8").replace("import ", "").replace(";", "").strip()
             imports.append(import_text)
+            simple = import_text.split(".")[-1].strip()
+            if simple and simple != "*":
+                imported_simple_names[simple] = simple
 
     # Detect cloud blockers and hardcoded secrets at file level
     cloud_blocker = _detect_cloud_blocker(content, imports)
+
+    def _simple_java_type(t: str | None) -> str | None:
+        if not t:
+            return None
+        cleaned = t.strip()
+        if not cleaned:
+            return None
+        cleaned = re.sub(r"<[^>]*>", "", cleaned)  # generics
+        cleaned = cleaned.replace("[]", "").strip()
+        cleaned = cleaned.split("|", 1)[0].strip()
+        cleaned = cleaned.split(".", 1)[-1].strip() if "." in cleaned else cleaned
+        if not cleaned:
+            return None
+        return imported_simple_names.get(cleaned, cleaned)
+
+    def _infer_java_field_hints(class_body_node) -> dict[str, str]:
+        txt = class_body_node.text.decode("utf-8")
+        hints: dict[str, str] = {}
+        # Examples:
+        # private UserService userService;
+        # @Autowired private UserService userService;
+        # private final com.foo.UserService userService;
+        for m in re.finditer(
+            r"(?:private|protected|public)\s+(?:static\s+)?(?:final\s+)?([A-Za-z_][\w\.$<>\[\]]*)\s+([A-Za-z_][\w]*)\s*(?:=|;)",
+            txt,
+        ):
+            typ = _simple_java_type(m.group(1))
+            var_name = m.group(2)
+            if typ and var_name:
+                hints[var_name] = typ
+        return hints
+
+    def _extract_java_field_names(class_body_node) -> set[str]:
+        txt = class_body_node.text.decode("utf-8")
+        names: set[str] = set()
+        for m in re.finditer(
+            r"(?:private|protected|public)\s+(?:static\s+)?(?:final\s+)?[A-Za-z_][\w\.$<>\[\]]*\s+([A-Za-z_][\w]*)\s*(?:=|;)",
+            txt,
+        ):
+            names.add(m.group(1))
+        return names
+
+    def _extract_method_field_refs(method_node, class_fields: set[str]) -> list[str]:
+        if not class_fields:
+            return []
+        txt = method_node.text.decode("utf-8")
+        refs: set[str] = set()
+        for field_name in class_fields:
+            if re.search(rf"\bthis\.{re.escape(field_name)}\b", txt):
+                refs.add(field_name)
+                continue
+            if re.search(rf"\b{re.escape(field_name)}\b", txt):
+                refs.add(field_name)
+        return sorted(list(refs))
+
+    def _infer_java_local_hints(method_node, base_hints: dict[str, str]) -> dict[str, str]:
+        txt = method_node.text.decode("utf-8")
+        hints = dict(base_hints)
+
+        # Parameters in method signature: save(UserRequest request, String tenantId)
+        signature = txt.split("{", 1)[0]
+        for m in re.finditer(r"([A-Za-z_][\w\.$<>\[\]]*)\s+([A-Za-z_][\w]*)", signature):
+            typ = _simple_java_type(m.group(1))
+            var_name = m.group(2)
+            if typ and var_name and var_name not in hints:
+                hints[var_name] = typ
+
+        # Local variables:
+        # UserService svc = ...
+        # var svc = new UserService(...)
+        for m in re.finditer(
+            r"([A-Za-z_][\w\.$<>\[\]]*)\s+([A-Za-z_][\w]*)\s*=\s*new\s+([A-Za-z_][\w\.$]*)",
+            txt,
+        ):
+            declared = _simple_java_type(m.group(1))
+            var_name = m.group(2)
+            ctor = _simple_java_type(m.group(3))
+            hints[var_name] = ctor or declared or m.group(3)
+
+        for m in re.finditer(
+            r"([A-Za-z_][\w\.$<>\[\]]*)\s+([A-Za-z_][\w]*)\s*=",
+            txt,
+        ):
+            typ = _simple_java_type(m.group(1))
+            var_name = m.group(2)
+            if typ and var_name and var_name not in hints:
+                hints[var_name] = typ
+
+        return hints
 
     # Find class declarations
     def find_classes(node):
@@ -807,6 +927,19 @@ def parse_java(file_path: str, content: str, project_path: str) -> dict:
                             decorators.append(child.text.decode("utf-8"))
 
                 metrics = calculate_metrics(node)
+                class_text = node.text.decode("utf-8")
+                implements_interfaces: list[str] = []
+                extends_class: str | None = None
+                impl_match = re.search(r"\bimplements\s+([^{]+)\{", class_text)
+                if impl_match:
+                    raw_impls = impl_match.group(1)
+                    for part in raw_impls.split(","):
+                        iface = _simple_java_type(part.strip())
+                        if iface:
+                            implements_interfaces.append(iface)
+                ext_match = re.search(r"\bextends\s+([A-Za-z_][\w\.$<>\[\]]*)", class_text)
+                if ext_match:
+                    extends_class = _simple_java_type(ext_match.group(1))
                 
                 # Build node with intelligence properties
                 node_data = {
@@ -819,6 +952,10 @@ def parse_java(file_path: str, content: str, project_path: str) -> dict:
                     "decorators": ", ".join(decorators),
                     **metrics,
                 }
+                if implements_interfaces:
+                    node_data["implements_interfaces"] = implements_interfaces
+                if extends_class:
+                    node_data["extends_class"] = extends_class
                 
                 # Add cloud blocker flag
                 if cloud_blocker:
@@ -833,6 +970,10 @@ def parse_java(file_path: str, content: str, project_path: str) -> dict:
                 # Find methods within this class
                 for child in node.children:
                     if child.type == "class_body":
+                        class_field_hints = _infer_java_field_hints(child)
+                        class_field_names = _extract_java_field_names(child)
+                        if class_field_names:
+                            node_data["class_fields"] = sorted(list(class_field_names))
                         for body_child in child.children:
                             if body_child.type == "method_declaration":
                                 method_name_node = body_child.child_by_field_name("name")
@@ -865,6 +1006,9 @@ def parse_java(file_path: str, content: str, project_path: str) -> dict:
                                         "called_routes": [],
                                         **m_metrics,
                                     }
+                                    refs = _extract_method_field_refs(body_child, class_field_names)
+                                    if refs:
+                                        method_data["field_refs"] = refs
 
                                     if route_path:
                                         method_data["route_path"] = route_path
@@ -888,6 +1032,7 @@ def parse_java(file_path: str, content: str, project_path: str) -> dict:
                                     # Performance / Security scans
                                     n_plus_one_risk = False
                                     sql_injection_risk = False
+                                    local_type_hints = _infer_java_local_hints(body_child, class_field_hints)
 
                                     def _collect_method_calls(n, called_routes: list[str], in_loop=False):
                                         nonlocal n_plus_one_risk, sql_injection_risk
@@ -898,14 +1043,26 @@ def parse_java(file_path: str, content: str, project_path: str) -> dict:
 
                                         if n.type == "method_invocation":
                                             called = None
+                                            owner_hint = None
                                             name_node = n.child_by_field_name("name") or n.child_by_field_name("identifier")
                                             if name_node:
                                                 called = name_node.text.decode("utf-8")
                                             else:
-                                                import re
                                                 m = re.search(r"([A-Za-z_][A-Za-z0-9_]*)\s*\(", n.text.decode("utf-8"))
                                                 if m:
                                                     called = m.group(1)
+
+                                            invoke_text = n.text.decode("utf-8")
+                                            # owner.method(...)
+                                            om = re.search(r"(?:(?:this|super)\.)?([A-Za-z_][A-Za-z0-9_]*)\s*\.\s*([A-Za-z_][A-Za-z0-9_]*)\s*\(", invoke_text)
+                                            if om:
+                                                owner_var = om.group(1)
+                                                owner_hint = _simple_java_type(local_type_hints.get(owner_var) or owner_var)
+                                            else:
+                                                # Static call ClassName.method(...)
+                                                sm = re.search(r"\b([A-Z][A-Za-z0-9_]*)\s*\.\s*([A-Za-z_][A-Za-z0-9_]*)\s*\(", invoke_text)
+                                                if sm:
+                                                    owner_hint = _simple_java_type(sm.group(1))
 
                                             if called:
                                                 lower_called = called.lower()
@@ -921,21 +1078,31 @@ def parse_java(file_path: str, content: str, project_path: str) -> dict:
 
                                                 # HTTP call route extraction (Android/Java clients)
                                                 try:
-                                                    text = n.text.decode("utf-8")
-                                                    import re
-                                                    m = re.search(r"['\"](/[^'\"]+)['\"]", text)
+                                                    m = re.search(r"['\"](/[^'\"]+)['\"]", invoke_text)
                                                     if m:
                                                         called_routes.append(m.group(1))
                                                 except Exception:
                                                     pass
 
-                                                if called != method_name:
-                                                    called_ns = f"{project_name}:{rel_path}:{called}"
-                                                    entities["relationships"].append({
+                                                is_probably_self_call = (
+                                                    called == method_name and
+                                                    (owner_hint is None or owner_hint == class_name)
+                                                )
+                                                if not is_probably_self_call:
+                                                    called_ns = (
+                                                        f"{project_name}:{rel_path}:{owner_hint}.{called}"
+                                                        if owner_hint else
+                                                        f"{project_name}:{rel_path}:{called}"
+                                                    )
+                                                    rel_data = {
                                                         "from": method_ns_key,
                                                         "to": called_ns,
                                                         "type": "CALLS",
-                                                    })
+                                                        "target_method_hint": called,
+                                                    }
+                                                    if owner_hint:
+                                                        rel_data["target_owner_hint"] = owner_hint
+                                                    entities["relationships"].append(rel_data)
 
                                         for c in n.children:
                                             _collect_method_calls(c, called_routes, in_loop)
@@ -1002,14 +1169,42 @@ def parse_typescript(file_path: str, content: str, project_path: str) -> dict:
 
     entities = {"nodes": [], "relationships": []}
 
-    # Collect imports for cloud blocker detection
+    # Collect imports for cloud blocker detection + symbol alias resolution
     imports = []
+    import_alias_map: dict[str, str] = {}
     for child in root.children:
         if child.type == "import_statement":
+            stmt_text = child.text.decode("utf-8")
             source_node = child.child_by_field_name("source")
             if source_node:
                 import_path = source_node.text.decode("utf-8").strip("'\"")
                 imports.append(import_path)
+            # Default import: import Foo from '...'
+            m_default = re.search(r"import\s+([A-Za-z_$][\w$]*)\s*(?:,|\s+from)", stmt_text)
+            if m_default:
+                alias = m_default.group(1).strip()
+                if alias:
+                    import_alias_map[alias] = alias
+            # Namespace import: import * as NS from '...'
+            m_ns = re.search(r"import\s+\*\s+as\s+([A-Za-z_$][\w$]*)\s+from", stmt_text)
+            if m_ns:
+                alias = m_ns.group(1).strip()
+                if alias:
+                    import_alias_map[alias] = alias
+            # Named imports: import { A, B as C } from '...'
+            m_named = re.search(r"\{([^}]*)\}", stmt_text)
+            if m_named:
+                body = m_named.group(1)
+                for raw_part in body.split(","):
+                    part = raw_part.strip().replace("type ", "")
+                    if not part:
+                        continue
+                    if " as " in part:
+                        original, alias = [p.strip() for p in part.split(" as ", 1)]
+                        if alias:
+                            import_alias_map[alias] = original or alias
+                    else:
+                        import_alias_map[part] = part
 
     # Detect cloud blockers and hardcoded secrets at file level
     cloud_blocker = _detect_cloud_blocker(content, imports)
@@ -1017,7 +1212,87 @@ def parse_typescript(file_path: str, content: str, project_path: str) -> dict:
     def _get_decorators(n):
         return [c.text.decode("utf-8") for c in n.children if c.type == "decorator"]
 
-    def _collect_call_relationships(owner_ns: str, n, called_routes: list[str], in_loop: bool = False):
+    def _normalize_symbol(sym: str | None) -> str | None:
+        if not sym:
+            return None
+        cleaned = sym.strip()
+        if not cleaned:
+            return None
+        cleaned = cleaned.split("<", 1)[0].split("|", 1)[0].split("[", 1)[0].strip()
+        if not cleaned:
+            return None
+        return import_alias_map.get(cleaned, cleaned)
+
+    def _infer_local_type_hints(scope_node) -> dict[str, str]:
+        txt = scope_node.text.decode("utf-8")
+        hints: dict[str, str] = {}
+
+        # const x = new Foo(...)
+        for m in re.finditer(
+            r"(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*(?::\s*([A-Za-z_$][\w$<>\[\]\|]*))?\s*=\s*new\s+([A-Za-z_$][\w$]*)",
+            txt,
+        ):
+            var_name = m.group(1)
+            declared_type = _normalize_symbol(m.group(2))
+            ctor_type = _normalize_symbol(m.group(3))
+            hints[var_name] = ctor_type or declared_type or m.group(3)
+
+        # Typed declarations: const svc: UserService = ...
+        for m in re.finditer(
+            r"(?:const|let|var)\s+([A-Za-z_$][\w$]*)\s*:\s*([A-Za-z_$][\w$<>\[\]\|]*)",
+            txt,
+        ):
+            var_name = m.group(1)
+            typ = _normalize_symbol(m.group(2))
+            if var_name and typ and var_name not in hints:
+                hints[var_name] = typ
+
+        # Parameter hints from signature only (avoid object-literal noise in body)
+        signature = txt.split("{", 1)[0]
+        for m in re.finditer(r"([A-Za-z_$][\w$]*)\s*:\s*([A-Za-z_$][\w$<>\[\]\|]*)", signature):
+            var_name = m.group(1)
+            typ = _normalize_symbol(m.group(2))
+            if var_name and typ and var_name not in hints:
+                hints[var_name] = typ
+
+        return hints
+
+    def _extract_ts_class_field_names(class_node) -> set[str]:
+        txt = class_node.text.decode("utf-8")
+        names: set[str] = set()
+        # Examples:
+        # private userService: UserService;
+        # readonly repo = new Repo();
+        for m in re.finditer(
+            r"(?:private|protected|public|readonly|static|\s)+\s*([A-Za-z_$][\w$]*)\s*(?::|=|;)",
+            txt,
+        ):
+            n = m.group(1).strip()
+            if n and n not in {"constructor"}:
+                names.add(n)
+        return names
+
+    def _extract_ts_method_field_refs(method_node, class_fields: set[str]) -> list[str]:
+        if not class_fields:
+            return []
+        txt = method_node.text.decode("utf-8")
+        refs: set[str] = set()
+        for field_name in class_fields:
+            if re.search(rf"\bthis\.{re.escape(field_name)}\b", txt):
+                refs.add(field_name)
+                continue
+            if re.search(rf"\b{re.escape(field_name)}\b", txt):
+                refs.add(field_name)
+        return sorted(list(refs))
+
+    def _collect_call_relationships(
+        owner_ns: str,
+        n,
+        called_routes: list[str],
+        in_loop: bool = False,
+        local_type_hints: dict[str, str] | None = None,
+        current_owner: str | None = None,
+    ):
         """Traverse the AST subtree and record CALLS edges for call expressions.
 
         Returns:
@@ -1035,6 +1310,7 @@ def parse_typescript(file_path: str, content: str, project_path: str) -> dict:
             func_node = n.child_by_field_name("function") or n.child_by_field_name("callee") or (n.children[0] if n.children else None)
             called_name = None
             func_text = ""
+            owner_hint = None
             if func_node:
                 func_text = func_node.text.decode("utf-8")
                 if func_node.type in ("identifier", "property_identifier"):
@@ -1045,6 +1321,23 @@ def parse_typescript(file_path: str, content: str, project_path: str) -> dict:
                         if c.type in ("identifier", "property_identifier"):
                             called_name = c.text.decode("utf-8")
                             break
+                # Infer owner hint from member expression roots like svc.findById(...)
+                root_expr = func_text.replace("?.", ".")
+                parts = [p.strip() for p in root_expr.split(".") if p.strip()]
+                root = None
+                if len(parts) >= 2:
+                    if parts[0] == "this" and len(parts) >= 3:
+                        root = parts[1]
+                    elif parts[0] != "this":
+                        root = parts[0]
+                if root:
+                    local_hints = local_type_hints or {}
+                    if root in local_hints:
+                        owner_hint = _normalize_symbol(local_hints.get(root))
+                    else:
+                        owner_hint = _normalize_symbol(import_alias_map.get(root) or (root if root[:1].isupper() else None))
+                elif root_expr.startswith("this.") and current_owner:
+                    owner_hint = _normalize_symbol(current_owner)
 
             if called_name:
                 lower = called_name.lower()
@@ -1069,15 +1362,30 @@ def parse_typescript(file_path: str, content: str, project_path: str) -> dict:
                     if m:
                         called_routes.append(m.group(1))
 
-                called_ns = f"{project_name}:{rel_path}:{called_name}"
-                entities["relationships"].append({
+                called_ns = (
+                    f"{project_name}:{rel_path}:{owner_hint}.{called_name}"
+                    if owner_hint else
+                    f"{project_name}:{rel_path}:{called_name}"
+                )
+                rel_data = {
                     "from": owner_ns,
                     "to": called_ns,
                     "type": "CALLS",
-                })
+                    "target_method_hint": called_name,
+                }
+                if owner_hint:
+                    rel_data["target_owner_hint"] = owner_hint
+                entities["relationships"].append(rel_data)
 
         for c in n.children:
-            child_n_plus_one, child_sql_injection = _collect_call_relationships(owner_ns, c, called_routes, in_loop)
+            child_n_plus_one, child_sql_injection = _collect_call_relationships(
+                owner_ns,
+                c,
+                called_routes,
+                in_loop,
+                local_type_hints=local_type_hints,
+                current_owner=current_owner,
+            )
             n_plus_one_risk = n_plus_one_risk or child_n_plus_one
             sql_injection_risk = sql_injection_risk or child_sql_injection
 
@@ -1090,6 +1398,7 @@ def parse_typescript(file_path: str, content: str, project_path: str) -> dict:
             if name_node:
                 name = name_node.text.decode("utf-8")
                 ns_key = f"{project_name}:{rel_path}:{name}"
+                class_field_names = _extract_ts_class_field_names(node)
                 
                 node_data = {
                     "label": "TS_Component",
@@ -1100,6 +1409,8 @@ def parse_typescript(file_path: str, content: str, project_path: str) -> dict:
                     "layer": layer,
                     **calculate_metrics(node)
                 }
+                if class_field_names:
+                    node_data["class_fields"] = sorted(list(class_field_names))
                 
                 # Add intelligence properties
                 if cloud_blocker:
@@ -1135,10 +1446,14 @@ def parse_typescript(file_path: str, content: str, project_path: str) -> dict:
                             "file": rel_path,
                             "project": project_name,
                             "layer": layer,
+                            "parent_class": name,
                             "route_path": route_path,
                             "called_routes": [],
                             **calculate_metrics(method),
                         }
+                        m_refs = _extract_ts_method_field_refs(method, class_field_names)
+                        if m_refs:
+                            method_data["field_refs"] = m_refs
 
                         if cloud_blocker:
                             method_data["cloud_blocker"] = True
@@ -1154,7 +1469,11 @@ def parse_typescript(file_path: str, content: str, project_path: str) -> dict:
 
                         # Track method calls inside this class method to create CALLS relationships
                         n_plus_one, sql_injection = _collect_call_relationships(
-                            method_ns, method, method_data["called_routes"]
+                            method_ns,
+                            method,
+                            method_data["called_routes"],
+                            local_type_hints=_infer_local_type_hints(method),
+                            current_owner=name,
                         )
                         if n_plus_one:
                             method_data["n_plus_one_risk"] = True
@@ -1203,7 +1522,12 @@ def parse_typescript(file_path: str, content: str, project_path: str) -> dict:
                     node_data["swallowed_exception"] = True
 
                 entities["nodes"].append(node_data)
-                n_plus_one, sql_injection = _collect_call_relationships(ns_key, node, node_data["called_routes"])
+                n_plus_one, sql_injection = _collect_call_relationships(
+                    ns_key,
+                    node,
+                    node_data["called_routes"],
+                    local_type_hints=_infer_local_type_hints(node),
+                )
                 if n_plus_one:
                     node_data["n_plus_one_risk"] = True
                 if sql_injection:
@@ -1246,7 +1570,12 @@ def parse_typescript(file_path: str, content: str, project_path: str) -> dict:
                             node_data["hardcoded_secret"] = True
                         
                         entities["nodes"].append(node_data)
-                        n_plus_one, sql_injection = _collect_call_relationships(ns_key, value_node, node_data["called_routes"])
+                        n_plus_one, sql_injection = _collect_call_relationships(
+                            ns_key,
+                            value_node,
+                            node_data["called_routes"],
+                            local_type_hints=_infer_local_type_hints(value_node),
+                        )
                         if n_plus_one:
                             node_data["n_plus_one_risk"] = True
                         if sql_injection:
@@ -1296,7 +1625,12 @@ def parse_typescript(file_path: str, content: str, project_path: str) -> dict:
                             node_data["swallowed_exception"] = True
 
                         entities["nodes"].append(node_data)
-                        n_plus_one, sql_injection = _collect_call_relationships(ns_key, child, node_data["called_routes"])
+                        n_plus_one, sql_injection = _collect_call_relationships(
+                            ns_key,
+                            child,
+                            node_data["called_routes"],
+                            local_type_hints=_infer_local_type_hints(child),
+                        )
                         if n_plus_one:
                             node_data["n_plus_one_risk"] = True
                         if sql_injection:
@@ -1568,8 +1902,8 @@ Pergunta do usuário:
             logger.info("Attempting AI response with primary model: %s (10s timeout)", OLLAMA_CHAT_MODEL)
             content = await _call_ollama(OLLAMA_CHAT_MODEL, 10.0)
             return {"raw_text": content, "model": OLLAMA_CHAT_MODEL}
-        except (httpx.ReadTimeout, httpx.ConnectError) as e:
-            logger.warning("Primary model %s failed or timed out. Retrying with %s...", OLLAMA_CHAT_MODEL, OLLAMA_FAST_MODEL)
+        except (httpx.ReadTimeout, httpx.ConnectError, httpx.HTTPStatusError, ValueError) as e:
+            logger.warning("Primary model %s failed (%s). Retrying with %s...", OLLAMA_CHAT_MODEL, e, OLLAMA_FAST_MODEL)
             # Try fast model as fallback
             content = await _call_ollama(OLLAMA_FAST_MODEL, 60.0)
             return {"raw_text": content, "model": f"{OLLAMA_FAST_MODEL} (fallback)"}
@@ -1778,6 +2112,435 @@ def _link_cross_project_apis(entities: dict) -> None:
                 existing.add(key)
 
 
+def _extract_class_key_from_method(node: dict) -> str | None:
+    """Infer parent class namespace key from a method node."""
+    ns_key = node.get("namespace_key", "")
+    parent_class = node.get("parent_class")
+    if not ns_key:
+        return None
+
+    if parent_class:
+        parts = ns_key.split(":")
+        if len(parts) >= 3:
+            return f"{parts[0]}:{parts[1]}:{parent_class}"
+
+    if "." in ns_key.split(":")[-1]:
+        prefix, tail = ns_key.rsplit(":", 1)
+        cls = tail.split(".", 1)[0]
+        return f"{prefix}:{cls}"
+    return None
+
+
+def _extract_owner_name_from_callable(node: dict) -> str | None:
+    """Return owning class/component name for method-like call targets when available."""
+    parent_class = node.get("parent_class")
+    if isinstance(parent_class, str) and parent_class.strip():
+        return parent_class.strip()
+    ns_key = str(node.get("namespace_key", ""))
+    tail = ns_key.split(":")[-1] if ns_key else ""
+    if "." in tail:
+        return tail.split(".", 1)[0].strip() or None
+    return None
+
+
+def _class_declares_interface(node_by_key: dict[str, dict], candidate: dict, owner_hint: str) -> bool:
+    """Check if candidate's owning class declares implements owner_hint."""
+    cls_key = _extract_class_key_from_method(candidate)
+    if not cls_key:
+        return False
+    cls_node = node_by_key.get(cls_key) or {}
+    impls = cls_node.get("implements_interfaces") or []
+    if isinstance(impls, str):
+        impls = [impls]
+    owner_norm = owner_hint.strip().lower()
+    for iface in impls:
+        if str(iface).strip().lower() == owner_norm:
+            return True
+    return False
+
+
+def _build_class_name_index(nodes: list[dict]) -> dict[tuple[str, str], dict]:
+    """Index class nodes by (project, class_name_lower)."""
+    index: dict[tuple[str, str], dict] = {}
+    for n in nodes:
+        if n.get("label") != "Java_Class":
+            continue
+        project = str(n.get("project") or "")
+        name = str(n.get("name") or "").strip().lower()
+        if not project or not name:
+            continue
+        index[(project, name)] = n
+    return index
+
+
+def _class_extends_hint(
+    node_by_key: dict[str, dict],
+    class_index: dict[tuple[str, str], dict],
+    candidate: dict,
+    owner_hint: str,
+    max_depth: int = 8,
+) -> bool:
+    """Check whether candidate's owning class extends owner_hint (directly or transitively)."""
+    cls_key = _extract_class_key_from_method(candidate)
+    if not cls_key:
+        return False
+    cls_node = node_by_key.get(cls_key) or {}
+    project = str(cls_node.get("project") or "")
+    target = owner_hint.strip().lower()
+    if not project or not target:
+        return False
+
+    current = cls_node
+    visited: set[str] = set()
+    depth = 0
+    while current and depth < max_depth:
+        current_name = str(current.get("name") or "").strip().lower()
+        if current_name and current_name == target:
+            return True
+        parent_name = str(current.get("extends_class") or "").strip().lower()
+        if not parent_name or parent_name in visited:
+            return False
+        if parent_name == target:
+            return True
+        visited.add(parent_name)
+        current = class_index.get((project, parent_name))
+        depth += 1
+    return False
+
+
+def _resolve_internal_calls(entities: dict, max_hops: int = 4) -> None:
+    """Resolve CALLS edges to concrete method/function nodes and derive transitive calls."""
+    nodes = entities.get("nodes", [])
+    rels = entities.get("relationships", [])
+    node_by_key = {n.get("namespace_key"): n for n in nodes if n.get("namespace_key")}
+    method_like_labels = {"Java_Method", "TS_Function", "API_Endpoint"}
+
+    method_nodes = [
+        n for n in nodes
+        if (n.get("label") in method_like_labels) and n.get("namespace_key")
+    ]
+    class_index = _build_class_name_index(nodes)
+    by_method_name: dict[str, list[dict]] = defaultdict(list)
+    for n in method_nodes:
+        by_method_name[str(n.get("name", "")).strip()].append(n)
+
+    existing = {
+        (r.get("from"), r.get("to"), r.get("type"))
+        for r in rels
+        if r.get("from") and r.get("to") and r.get("type")
+    }
+
+    direct_adjacency: dict[str, set[str]] = defaultdict(set)
+
+    for rel in list(rels):
+        if rel.get("type") != "CALLS":
+            continue
+        src = rel.get("from")
+        raw_to = rel.get("to", "")
+        if not src or not raw_to:
+            continue
+        src_node = node_by_key.get(src)
+        if not src_node:
+            continue
+
+        called_name = rel.get("target_method_hint") or raw_to.split(":")[-1].split(".")[-1]
+        owner_hint = str(rel.get("target_owner_hint") or "").strip() or None
+        candidates = by_method_name.get(called_name, [])
+        if not candidates:
+            continue
+
+        src_project = src_node.get("project")
+        src_file = src_node.get("file")
+        src_class_key = _extract_class_key_from_method(src_node)
+        if owner_hint:
+            hinted_candidates = [
+                cand for cand in candidates
+                if (_extract_owner_name_from_callable(cand) or "").lower() == owner_hint.lower()
+            ]
+            impl_candidates = [
+                cand for cand in candidates
+                if _class_declares_interface(node_by_key, cand, owner_hint)
+            ]
+            extends_candidates = [
+                cand for cand in candidates
+                if _class_extends_hint(node_by_key, class_index, cand, owner_hint)
+            ]
+            if hinted_candidates:
+                candidates = hinted_candidates
+            elif impl_candidates:
+                candidates = impl_candidates
+            elif extends_candidates:
+                candidates = extends_candidates
+
+        def _score(candidate: dict) -> tuple[int, int]:
+            score = 0
+            if candidate.get("project") == src_project:
+                score += 40
+            if candidate.get("file") == src_file:
+                score += 30
+            cand_class_key = _extract_class_key_from_method(candidate)
+            if src_class_key and cand_class_key and src_class_key == cand_class_key:
+                score += 30
+            cand_owner = _extract_owner_name_from_callable(candidate)
+            if owner_hint and cand_owner and cand_owner.lower() == owner_hint.lower():
+                score += 50
+            if owner_hint and _class_declares_interface(node_by_key, candidate, owner_hint):
+                score += 35
+            if owner_hint and _class_extends_hint(node_by_key, class_index, candidate, owner_hint):
+                score += 30
+            if owner_hint and cand_owner and (
+                cand_owner.lower() == f"{owner_hint.lower()}impl" or
+                cand_owner.lower().endswith(owner_hint.lower())
+            ):
+                score += 15
+            return score, -len(candidate.get("namespace_key", ""))
+
+        ranked = sorted(candidates, key=_score, reverse=True)
+        best = ranked[0]
+        dst = best.get("namespace_key")
+        if not dst or src == dst:
+            continue
+
+        confidence = min(100, _score(best)[0])
+        method = "exact_key" if confidence >= 90 else ("qualified_name" if confidence >= 70 else "heuristic")
+
+        key = (src, dst, "CALLS_RESOLVED")
+        if key not in existing:
+            rels.append({
+                "from": src,
+                "to": dst,
+                "type": "CALLS_RESOLVED",
+                "confidence_score": confidence,
+                "resolution_method": method,
+            })
+            existing.add(key)
+        direct_adjacency[src].add(dst)
+
+    # N-hop derived edges for impact propagation
+    for origin in list(direct_adjacency.keys()):
+        visited = {origin}
+        frontier = [(origin, 0)]
+        while frontier:
+            current, depth = frontier.pop(0)
+            if depth >= max_hops:
+                continue
+            for nxt in direct_adjacency.get(current, set()):
+                if nxt in visited:
+                    continue
+                visited.add(nxt)
+                frontier.append((nxt, depth + 1))
+                if depth + 1 >= 2:
+                    key = (origin, nxt, "CALLS_NHOP")
+                    if key not in existing:
+                        rels.append({
+                            "from": origin,
+                            "to": nxt,
+                            "type": "CALLS_NHOP",
+                            "hop_distance": depth + 1,
+                        })
+                        existing.add(key)
+
+
+def _apply_ck_metrics(entities: dict) -> None:
+    """Compute CK-style class metrics (WMC, CBO, RFC, LCOM proxy)."""
+    nodes = entities.get("nodes", [])
+    rels = entities.get("relationships", [])
+    node_by_key = {n.get("namespace_key"): n for n in nodes if n.get("namespace_key")}
+    class_nodes = [n for n in nodes if n.get("label") in ("Java_Class", "TS_Component")]
+    has_method = [r for r in rels if r.get("type") == "HAS_METHOD" and r.get("to") in node_by_key]
+    calls = [r for r in rels if r.get("type") in ("CALLS_RESOLVED", "CALLS")]
+
+    methods_by_class: dict[str, list[dict]] = defaultdict(list)
+    for rel in has_method:
+        cls_key = rel.get("from")
+        method = node_by_key.get(rel.get("to"))
+        if cls_key and method:
+            methods_by_class[cls_key].append(method)
+
+    call_targets_by_method: dict[str, set[str]] = defaultdict(set)
+    for rel in calls:
+        src = rel.get("from")
+        dst = rel.get("to")
+        if src and dst:
+            call_targets_by_method[src].add(dst)
+
+    outgoing_by_class: dict[str, set[str]] = defaultdict(set)
+    for rel in rels:
+        if rel.get("type") in ("IMPORTS", "DEPENDS_ON") and rel.get("from"):
+            outgoing_by_class[rel["from"]].add(rel.get("to") or rel.get("to_import"))
+
+    for cls in class_nodes:
+        cls_key = cls.get("namespace_key")
+        if not cls_key:
+            continue
+        methods = methods_by_class.get(cls_key, [])
+        if not methods:
+            cls["wmc"] = 0
+            cls["cbo"] = 0
+            cls["rfc"] = 0
+            cls["lcom"] = 0.0
+            continue
+
+        method_keys = {m.get("namespace_key") for m in methods if m.get("namespace_key")}
+        # WMC: sum of method complexities
+        wmc = sum(int(m.get("complexity", 1) or 1) for m in methods)
+
+        # CBO: unique external class dependencies via calls/imports
+        dep_classes = set(outgoing_by_class.get(cls_key, set()))
+        external_called_classes = set()
+        for m in methods:
+            mkey = m.get("namespace_key")
+            if not mkey:
+                continue
+            for dst in call_targets_by_method.get(mkey, set()):
+                dst_node = node_by_key.get(dst)
+                if not dst_node:
+                    continue
+                dst_class = _extract_class_key_from_method(dst_node) or dst
+                if dst_class != cls_key:
+                    external_called_classes.add(dst_class)
+        cbo = len({d for d in dep_classes if d}) + len(external_called_classes)
+
+        # RFC: own methods + distinct callable methods reached directly
+        callable_set = set()
+        for m in methods:
+            mkey = m.get("namespace_key")
+            if not mkey:
+                continue
+            callable_set.update(call_targets_by_method.get(mkey, set()))
+        rfc = len(methods) + len(callable_set)
+
+        # LCOM (field-sharing based): percentage of method pairs that do not share any class field
+        method_field_refs: dict[str, set[str]] = {}
+        for m in methods:
+            mkey = m.get("namespace_key")
+            refs = m.get("field_refs") or []
+            if mkey and isinstance(refs, list):
+                method_field_refs[mkey] = {str(r) for r in refs if str(r).strip()}
+
+        total_pairs = 0
+        non_cohesive_pairs = 0
+        cohesive_pairs = 0
+        method_key_list = [mk for mk in method_keys if mk]
+        for i in range(len(method_key_list)):
+            for j in range(i + 1, len(method_key_list)):
+                total_pairs += 1
+                a = method_key_list[i]
+                b = method_key_list[j]
+                shared = method_field_refs.get(a, set()) & method_field_refs.get(b, set())
+                if shared:
+                    cohesive_pairs += 1
+                else:
+                    non_cohesive_pairs += 1
+
+        if total_pairs > 0:
+            # LCOM normalized between 0..1
+            lcom = max(0.0, float(non_cohesive_pairs - cohesive_pairs) / float(total_pairs))
+        else:
+            lcom = 0.0
+
+        cls["wmc"] = int(wmc)
+        cls["cbo"] = int(cbo)
+        cls["rfc"] = int(rfc)
+        cls["lcom"] = round(float(lcom), 4)
+
+
+def _compute_git_churn(project_path: str, days: int | None = None) -> dict[str, int]:
+    """Compute per-file churn from git log --name-only."""
+    try:
+        cmd = ["git", "-C", project_path, "log", "--name-only", "--pretty=format:"]
+        if days is not None and days > 0:
+            cmd = ["git", "-C", project_path, "log", f"--since={days}.days", "--name-only", "--pretty=format:"]
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=False,
+            encoding="utf-8",
+            errors="ignore",
+        )
+        if proc.returncode != 0:
+            return {}
+        churn: dict[str, int] = defaultdict(int)
+        for line in proc.stdout.splitlines():
+            rel = line.strip().replace("\\", "/")
+            if not rel:
+                continue
+            churn[rel] += 1
+        return dict(churn)
+    except Exception:
+        return {}
+
+
+def _compute_git_cochange_pairs(project_path: str, days: int = 90, top_n: int = 30) -> list[dict]:
+    """Compute top co-change file pairs from git history."""
+    try:
+        cmd = [
+            "git",
+            "-C",
+            project_path,
+            "log",
+            f"--since={max(1, days)}.days",
+            "--name-only",
+            "--pretty=format:__COMMIT__",
+        ]
+        proc = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            check=False,
+            encoding="utf-8",
+            errors="ignore",
+        )
+        if proc.returncode != 0:
+            return []
+
+        pair_count: dict[tuple[str, str], int] = defaultdict(int)
+        current_files: set[str] = set()
+
+        def flush_commit():
+            files = sorted(list(current_files))
+            if len(files) < 2:
+                return
+            for i in range(len(files)):
+                for j in range(i + 1, len(files)):
+                    pair_count[(files[i], files[j])] += 1
+
+        for line in proc.stdout.splitlines():
+            text = line.strip().replace("\\", "/")
+            if not text:
+                continue
+            if text == "__COMMIT__":
+                flush_commit()
+                current_files = set()
+                continue
+            current_files.add(text)
+        flush_commit()
+
+        ranked = sorted(pair_count.items(), key=lambda x: x[1], reverse=True)
+        return [
+            {"file_a": a, "file_b": b, "cochange_count": cnt}
+            for (a, b), cnt in ranked[: max(1, min(top_n, 200))]
+        ]
+    except Exception:
+        return []
+
+
+def _apply_git_hotspots(entities: dict, project_path: str) -> None:
+    """Apply Adam Tornhill-style hotspot proxy = complexity * churn."""
+    churn_by_file = _compute_git_churn(project_path)
+    if not churn_by_file:
+        return
+
+    for node in entities.get("nodes", []):
+        rel_file = str(node.get("file", "")).replace("\\", "/")
+        churn = int(churn_by_file.get(rel_file, 0))
+        complexity = int(node.get("complexity", 1) or 1)
+        hotspot_score = min(100.0, float(complexity * max(1, churn)))
+        node["git_churn"] = churn
+        node["hotspot_score"] = round(hotspot_score, 2)
+
+
 async def scan_project(project_path: str) -> dict:
     """Walk a project directory and parse all supported files."""
     global scan_state, scanned_projects
@@ -1870,6 +2633,12 @@ async def scan_project(project_path: str) -> dict:
 
     # Cross-project API linking (frontend/mobile -> backend endpoints)
     _link_cross_project_apis(all_entities)
+    # Resolve method/function calls to concrete targets and derive N-hop links
+    _resolve_internal_calls(all_entities, max_hops=4)
+    # Compute CK-style class metrics
+    _apply_ck_metrics(all_entities)
+    # Apply Git churn + hotspot score
+    _apply_git_hotspots(all_entities, project_path)
 
     return all_entities
 
@@ -1914,13 +2683,24 @@ async def ingest_to_neo4j(entities: dict) -> None:
                     logger.error("Failed to process import relationship: %s", e)
             continue
 
+        rel_props = {
+            k: v
+            for k, v in rel.items()
+            if k not in ("from", "to", "type", "to_import")
+        }
+
         # Always store in memory
-        memory_edges.append({"source": rel["from"], "target": rel["to"], "type": rel["type"]})
+        memory_edges.append({
+            "source": rel["from"],
+            "target": rel["to"],
+            "type": rel["type"],
+            **rel_props,
+        })
 
         # Try Neo4j if connected
         if neo4j_service.is_connected:
             try:
-                neo4j_service.merge_relationship(rel["from"], rel["to"], rel["type"])
+                neo4j_service.merge_relationship(rel["from"], rel["to"], rel["type"], rel_props or None)
             except Exception as e:
                 logger.error("Failed to merge relationship: %s", e)
         scan_state.total_relationships += 1
@@ -1948,6 +2728,10 @@ async def run_scan(paths: list[str]):
         scan_state.status = "completed"
         scan_state.progress_percent = 100.0
         scan_state.current_file = ""
+        try:
+            _rebuild_rag_index(include_embeddings=False, persist=True)
+        except Exception as reidx_err:
+            logger.warning("Post-scan RAG index refresh failed: %s", reidx_err)
         logger.info(
             "Scan complete: %d files, %d nodes, %d relationships",
             scan_state.scanned_files,
@@ -1957,13 +2741,18 @@ async def run_scan(paths: list[str]):
 
         try:
             anti = await get_antipatterns()
+            call_res = _compute_call_resolution_summary(top_n=10)
             snapshot = {
                 "timestamp": datetime.datetime.now().isoformat(),
                 "total_nodes": scan_state.total_nodes,
                 "total_edges": scan_state.total_relationships,
                 "god_classes": len(anti.get("god_classes", [])),
                 "circular_deps": len(anti.get("circular_dependencies", [])),
-                "dead_code": len(anti.get("dead_code", []))
+                "dead_code": len(anti.get("dead_code", [])),
+                "call_resolution_rate": float(call_res.get("resolution_rate", 0.0) or 0.0),
+                "call_total": int(call_res.get("total_calls", 0) or 0),
+                "call_resolved": int(call_res.get("resolved_calls", 0) or 0),
+                "call_unresolved": int(call_res.get("unresolved_calls", 0) or 0),
             }
             history_file = Path("history.json")
             history = []
@@ -2054,6 +2843,933 @@ async def get_impact(node_key: str):
             n = node_map[edge["target"]]
             downstream.append({"key": n["namespace_key"], "name": n["name"], "labels": n.get("labels", []), "rel_type": edge["type"]})
     return {"upstream": upstream[:100], "downstream": downstream[:100]}
+
+
+def _ensure_memory_graph_loaded() -> None:
+    """Populate in-memory graph from Neo4j when empty."""
+    global memory_nodes, memory_edges
+    if memory_nodes:
+        return
+    if not neo4j_service.is_connected:
+        return
+    try:
+        data = neo4j_service.get_full_graph()
+        memory_nodes = [dict(n) for n in data.get("nodes", [])]
+        memory_edges = [dict(e) for e in data.get("edges", [])]
+    except Exception as e:
+        logger.warning("Failed to lazy-load memory graph: %s", e)
+
+
+def _memory_nodes_index() -> dict[str, dict]:
+    """Build a dict-shaped memory index expected by semantic analyzers."""
+    _ensure_memory_graph_loaded()
+    index: dict[str, dict] = {}
+    for node in memory_nodes:
+        key = node.get("namespace_key")
+        if not key:
+            continue
+        index[key] = {
+            "labels": list(node.get("labels", [])),
+            "properties": dict(node),
+        }
+    return index
+
+
+def _normalized_memory_edges() -> list[dict]:
+    """Normalize edge keys so analyzers can consume both source/target and from/to."""
+    _ensure_memory_graph_loaded()
+    normalized: list[dict] = []
+    for edge in memory_edges:
+        src = edge.get("source") or edge.get("from")
+        tgt = edge.get("target") or edge.get("to")
+        if not src or not tgt:
+            continue
+        normalized.append({
+            "source": src,
+            "target": tgt,
+            "from": src,
+            "to": tgt,
+            "type": edge.get("type", ""),
+        })
+    return normalized
+
+
+def _build_analysis_runtime() -> dict[str, object]:
+    """Create analyzer instances wired with current graph state."""
+    memory_index = _memory_nodes_index()
+    normalized_edges = _normalized_memory_edges()
+    deep_parser = DeepParser()
+    semantic_analyzer = SemanticAnalyzer(ollama_url=OLLAMA_URL, model=OLLAMA_COMPLEX_MODEL)
+    impact_engine = ImpactEngine(neo4j_service, memory_nodes, normalized_edges)
+    taint_propagator = TaintPropagator(neo4j_service, memory_index, normalized_edges)
+    symbol_resolver = SymbolResolver(neo4j_service, memory_index, deep_parser)
+    side_effect_detector = SideEffectDetector(
+        neo4j_service,
+        memory_index,
+        normalized_edges,
+        semantic_analyzer,
+    )
+    fragility_calculator = FragilityCalculator(
+        neo4j_service,
+        memory_index,
+        normalized_edges,
+        semantic_analyzer,
+    )
+    bidirectional_analyzer = BidirectionalAnalyzer(
+        taint_propagator,
+        symbol_resolver,
+        side_effect_detector,
+        fragility_calculator,
+        impact_engine,
+    )
+    contract_break_detector = ContractBreakDetector(neo4j_service, memory_nodes)
+    data_flow_tracker = DataFlowTracker(neo4j_service, memory_nodes, normalized_edges)
+
+    return {
+        "memory_index": memory_index,
+        "semantic_analyzer": semantic_analyzer,
+        "impact_engine": impact_engine,
+        "taint_propagator": taint_propagator,
+        "symbol_resolver": symbol_resolver,
+        "side_effect_detector": side_effect_detector,
+        "fragility_calculator": fragility_calculator,
+        "bidirectional_analyzer": bidirectional_analyzer,
+        "contract_break_detector": contract_break_detector,
+        "data_flow_tracker": data_flow_tracker,
+    }
+
+
+def _compute_call_resolution_summary(project: str | None = None, top_n: int = 20) -> dict:
+    """Compute CALLS resolution quality summary for current in-memory graph."""
+    _ensure_memory_graph_loaded()
+    node_by_key = {n.get("namespace_key"): n for n in memory_nodes if n.get("namespace_key")}
+
+    def _method_hint_from_call(edge: dict) -> str:
+        hint = str(edge.get("target_method_hint") or "").strip()
+        if hint:
+            return hint
+        raw = str(edge.get("target") or edge.get("to") or "")
+        tail = raw.split(":")[-1] if raw else ""
+        return (tail.split(".")[-1] if tail else "").strip()
+
+    calls = [e for e in memory_edges if e.get("type") == "CALLS"]
+    resolved = [e for e in memory_edges if e.get("type") == "CALLS_RESOLVED"]
+
+    if project:
+        calls = [
+            e for e in calls
+            if (node_by_key.get(e.get("source"), {}) or {}).get("project") == project
+        ]
+        resolved = [
+            e for e in resolved
+            if (node_by_key.get(e.get("source"), {}) or {}).get("project") == project
+        ]
+
+    resolved_hints_by_src: dict[str, set[str]] = defaultdict(set)
+    for e in resolved:
+        src = e.get("source") or e.get("from")
+        dst = e.get("target") or e.get("to")
+        if not src or not dst:
+            continue
+        dst_node = node_by_key.get(dst) or {}
+        name = str(dst_node.get("name") or "").strip()
+        if name:
+            resolved_hints_by_src[src].add(name)
+
+    unresolved_items: list[dict] = []
+    unresolved_groups: dict[tuple[str, str], dict] = {}
+    by_project: dict[str, dict] = {}
+
+    resolved_count = 0
+    for call in calls:
+        src = call.get("source") or call.get("from")
+        if not src:
+            continue
+        src_node = node_by_key.get(src) or {}
+        src_project = str(src_node.get("project") or "unknown")
+        method_hint = _method_hint_from_call(call)
+        owner_hint = str(call.get("target_owner_hint") or "").strip()
+
+        proj = by_project.setdefault(src_project, {"total_calls": 0, "resolved_calls": 0})
+        proj["total_calls"] += 1
+
+        is_resolved = bool(method_hint and method_hint in resolved_hints_by_src.get(src, set()))
+        if is_resolved:
+            resolved_count += 1
+            proj["resolved_calls"] += 1
+            continue
+
+        unresolved_items.append(call)
+        key = (owner_hint or "-", method_hint or "<unknown>")
+        bucket = unresolved_groups.setdefault(
+            key,
+            {"owner_hint": owner_hint or None, "method_hint": method_hint or "<unknown>", "count": 0, "examples": []},
+        )
+        bucket["count"] += 1
+        if len(bucket["examples"]) < 5:
+            bucket["examples"].append({
+                "source": src,
+                "source_name": src_node.get("name"),
+                "source_file": src_node.get("file"),
+                "source_project": src_project,
+            })
+
+    total_calls = len(calls)
+    unresolved_count = total_calls - resolved_count
+    rate = (resolved_count / total_calls * 100.0) if total_calls else 0.0
+
+    by_project_rows = []
+    for project_name, vals in by_project.items():
+        p_total = int(vals.get("total_calls", 0))
+        p_res = int(vals.get("resolved_calls", 0))
+        p_unres = max(0, p_total - p_res)
+        p_rate = (p_res / p_total * 100.0) if p_total else 0.0
+        by_project_rows.append({
+            "project": project_name,
+            "total_calls": p_total,
+            "resolved_calls": p_res,
+            "unresolved_calls": p_unres,
+            "resolution_rate": round(p_rate, 2),
+        })
+    by_project_rows.sort(key=lambda x: x["resolution_rate"])
+
+    top_unresolved = sorted(unresolved_groups.values(), key=lambda x: x["count"], reverse=True)[: max(1, min(top_n, 100))]
+
+    return {
+        "total_calls": total_calls,
+        "resolved_calls": resolved_count,
+        "unresolved_calls": unresolved_count,
+        "resolution_rate": round(rate, 2),
+        "by_project": by_project_rows,
+        "top_unresolved": top_unresolved,
+    }
+
+
+def _source_snippets_for_keys(keys: list[str], memory_index: dict[str, dict]) -> dict[str, str]:
+    """Collect source snippets by node key for semantic impact analysis."""
+    snippets: dict[str, str] = {}
+    for key in keys:
+        node = memory_index.get(key, {})
+        props = node.get("properties", {})
+        source = props.get("source_code") or props.get("source") or ""
+        if source:
+            snippets[key] = source
+    return snippets
+
+
+def _node_text_blob(node: dict) -> str:
+    parts = [
+        str(node.get("namespace_key", "")),
+        str(node.get("name", "")),
+        " ".join(node.get("labels", []) if isinstance(node.get("labels"), list) else []),
+        str(node.get("layer", "")),
+        str(node.get("file", "")),
+        str(node.get("decorators", "")),
+        str(node.get("route_path", "")),
+    ]
+    return " ".join(parts).lower()
+
+
+def _save_rag_index() -> None:
+    """Persist current in-memory RAG index to disk."""
+    global rag_index_metadata
+    try:
+        payload = {
+            "model": OLLAMA_EMBED_MODEL,
+            "generated_at": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+            "entries": rag_index,
+            "node_count": len(memory_nodes),
+            "edge_count": len(memory_edges),
+        }
+        RAG_INDEX_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with open(RAG_INDEX_FILE, "w", encoding="utf-8") as f:
+            json.dump(payload, f, ensure_ascii=False)
+        rag_index_metadata = {
+            "loaded": True,
+            "model": OLLAMA_EMBED_MODEL,
+            "generated_at": payload["generated_at"],
+            "entries": len(rag_index),
+            "path": str(RAG_INDEX_FILE),
+        }
+    except Exception as e:
+        logger.warning("Failed to persist RAG index: %s", e)
+
+
+def _load_rag_index() -> int:
+    """Load RAG index from disk if available."""
+    global rag_index, rag_index_metadata
+    if not RAG_INDEX_FILE.exists():
+        rag_index_metadata = {"loaded": False, "reason": "not_found", "path": str(RAG_INDEX_FILE)}
+        return 0
+    try:
+        with open(RAG_INDEX_FILE, "r", encoding="utf-8") as f:
+            payload = json.load(f)
+        entries = payload.get("entries") if isinstance(payload, dict) else payload
+        if not isinstance(entries, list):
+            rag_index = []
+            rag_index_metadata = {"loaded": False, "reason": "invalid_format", "path": str(RAG_INDEX_FILE)}
+            return 0
+        rag_index = [e for e in entries if isinstance(e, dict) and e.get("key") and e.get("blob") is not None]
+        rag_index_metadata = {
+            "loaded": True,
+            "path": str(RAG_INDEX_FILE),
+            "model": payload.get("model") if isinstance(payload, dict) else None,
+            "generated_at": payload.get("generated_at") if isinstance(payload, dict) else None,
+            "entries": len(rag_index),
+        }
+        return len(rag_index)
+    except Exception as e:
+        rag_index = []
+        rag_index_metadata = {"loaded": False, "reason": str(e), "path": str(RAG_INDEX_FILE)}
+        logger.warning("Failed to load RAG index: %s", e)
+        return 0
+
+
+def _is_rag_index_stale() -> bool:
+    """Detect if RAG index likely mismatches current in-memory graph."""
+    if not rag_index:
+        return True
+    node_keys = {n.get("namespace_key") for n in memory_nodes if n.get("namespace_key")}
+    index_keys = {e.get("key") for e in rag_index if e.get("key")}
+    if not node_keys:
+        return False
+    if not index_keys:
+        return True
+    missing_ratio = len(node_keys - index_keys) / max(1, len(node_keys))
+    return missing_ratio > 0.15
+
+
+def _vector_dot(a: list[float], b: list[float]) -> float:
+    return sum(x * y for x, y in zip(a, b))
+
+
+def _vector_norm(a: list[float]) -> float:
+    return (_vector_dot(a, a) ** 0.5) or 1.0
+
+
+def _cosine_similarity(a: list[float], b: list[float]) -> float:
+    if not a or not b or len(a) != len(b):
+        return 0.0
+    return _vector_dot(a, b) / (_vector_norm(a) * _vector_norm(b))
+
+
+def _embed_text(text: str) -> Optional[list[float]]:
+    """Get embedding from Ollama local API; returns None on any failure."""
+    if not text.strip():
+        return None
+    try:
+        payload = {"model": OLLAMA_EMBED_MODEL, "prompt": text}
+        with httpx.Client(timeout=8.0) as client:
+            res = client.post(f"{OLLAMA_URL}/api/embeddings", json=payload)
+            if res.status_code != 200:
+                return None
+            data = res.json()
+            emb = data.get("embedding")
+            if isinstance(emb, list) and emb:
+                return [float(x) for x in emb]
+    except Exception:
+        return None
+    return None
+
+
+def _rag_search_nodes(
+    question: str,
+    node_key: str | None = None,
+    limit: int = 20,
+    use_semantic: bool = True,
+) -> list[dict]:
+    """Hybrid RAG retrieval (lexical + optional embedding similarity)."""
+    _ensure_memory_graph_loaded()
+    q_tokens = [t for t in question.lower().split() if len(t) >= 3]
+    if not q_tokens and not question.strip():
+        return []
+
+    neighborhood = set()
+    if node_key:
+        neighborhood.add(node_key)
+        for e in memory_edges:
+            if e.get("source") == node_key:
+                neighborhood.add(e.get("target"))
+            if e.get("target") == node_key:
+                neighborhood.add(e.get("source"))
+
+    if not rag_index:
+        _load_rag_index()
+    if not rag_index or _is_rag_index_stale():
+        _rebuild_rag_index(include_embeddings=False, persist=True)
+    blob_by_key = {entry["key"]: entry["blob"] for entry in rag_index}
+    entry_by_key = {entry["key"]: entry for entry in rag_index}
+
+    q_emb = _embed_text(question) if use_semantic else None
+    scored: list[tuple[float, dict]] = []
+    for node in memory_nodes:
+        key = node.get("namespace_key")
+        if not key:
+            continue
+        index_entry = entry_by_key.get(key)
+        blob = blob_by_key.get(key, "")
+        if not blob:
+            continue
+        lexical_score = 0.0
+        for tok in q_tokens:
+            if tok in blob:
+                lexical_score += 1.0
+        semantic_score = 0.0
+        if q_emb and index_entry and isinstance(index_entry.get("embedding"), list):
+            semantic_score = max(0.0, _cosine_similarity(q_emb, index_entry["embedding"]))
+
+        score = lexical_score + (semantic_score * 3.0)
+        if score <= 0:
+            continue
+        if node_key and node.get("namespace_key") in neighborhood:
+            score += 1.5
+        if node.get("hotspot_score"):
+            score += min(2.0, float(node.get("hotspot_score", 0.0)) / 50.0)
+        scored.append((score, node))
+
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return [dict(n) for _, n in scored[:limit]]
+
+
+def _format_rag_context(nodes: list[dict]) -> str:
+    lines = []
+    for n in nodes:
+        lines.append(
+            f"[{n.get('label', '')}] {n.get('name', '')} | key={n.get('namespace_key', '')} | "
+            f"layer={n.get('layer', '')} | file={n.get('file', '')} | "
+            f"complexity={n.get('complexity', 0)} | hotspot={n.get('hotspot_score', 0)}"
+        )
+    return "\n".join(lines)
+
+
+def _rebuild_rag_index(include_embeddings: bool = False, persist: bool = True) -> int:
+    """Rebuild in-memory RAG index with optional embeddings."""
+    global rag_index
+    _ensure_memory_graph_loaded()
+    rag_index = []
+    for n in memory_nodes:
+        key = n.get("namespace_key")
+        if not key:
+            continue
+        blob = _node_text_blob(n)
+        rag_index.append({
+            "key": key,
+            "blob": blob,
+            "embedding": _embed_text(blob) if include_embeddings else None,
+        })
+    if persist:
+        _save_rag_index()
+    return len(rag_index)
+
+
+def _ck_risk_score(node: dict) -> float:
+    """Compute a normalized CK risk score from stored CK metrics."""
+    wmc = float(node.get("wmc", 0) or 0)
+    cbo = float(node.get("cbo", 0) or 0)
+    rfc = float(node.get("rfc", 0) or 0)
+    lcom = float(node.get("lcom", 0.0) or 0.0)
+    raw = (wmc * 1.6) + (cbo * 2.2) + (rfc * 0.5) + (lcom * 20.0)
+    return round(min(100.0, max(0.0, raw / 3.0)), 2)
+
+
+@app.post("/api/impact/analyze")
+async def analyze_impact(request: dict):
+    """Run structured impact analysis and optional semantic summary."""
+    runtime = _build_analysis_runtime()
+    impact_engine = runtime["impact_engine"]
+    semantic_analyzer = runtime["semantic_analyzer"]
+    memory_index = runtime["memory_index"]
+
+    try:
+        change = ChangeDescriptor(
+            change_type=request.get("change_type", ""),
+            target_key=request.get("target_key", ""),
+            parameter_name=request.get("parameter_name"),
+            old_type=request.get("old_type"),
+            new_type=request.get("new_type"),
+            max_depth=int(request.get("max_depth", 5) or 5),
+        )
+        if not change.target_key:
+            raise HTTPException(status_code=400, detail="target_key is required")
+
+        affected_set = impact_engine.analyze(change)
+        snippets = _source_snippets_for_keys(
+            [item.namespace_key for item in affected_set.items[:50]],
+            memory_index,
+        )
+        semantic = await semantic_analyzer.analyze_impact(change, affected_set, snippets)
+
+        payload = asdict(affected_set)
+        payload["semantic_analysis"] = asdict(semantic) if semantic else None
+        return payload
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Impact analysis failed: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/dataflow/{node_key:path}")
+async def get_data_flow(node_key: str):
+    """Trace field/column propagation toward frontend layers."""
+    runtime = _build_analysis_runtime()
+    tracker = runtime["data_flow_tracker"]
+    try:
+        return asdict(tracker.trace_column_to_frontend(node_key))
+    except Exception as e:
+        logger.error("DataFlow tracking failed for %s: %s", node_key, e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/contracts/broken")
+async def get_contract_breaks():
+    """Return all contract breaks detected by signature hash changes."""
+    runtime = _build_analysis_runtime()
+    detector = runtime["contract_break_detector"]
+    try:
+        return {"broken_contracts": detector.get_all_broken()}
+    except Exception as e:
+        logger.error("Contract break listing failed: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/method/{node_key:path}/usages")
+async def get_method_usages(node_key: str):
+    """Return callers/callees and nearby chain details for a method/function node."""
+    _ensure_memory_graph_loaded()
+    node_map = {n.get("namespace_key"): n for n in memory_nodes if n.get("namespace_key")}
+    callers = []
+    callees = []
+    rel_types = {"CALLS_RESOLVED", "CALLS", "CALLS_NHOP"}
+    for e in memory_edges:
+        if e.get("type") not in rel_types:
+            continue
+        src = e.get("source")
+        tgt = e.get("target")
+        if tgt == node_key and src in node_map:
+            src_node = node_map[src]
+            callers.append({
+                "key": src,
+                "name": src_node.get("name"),
+                "file": src_node.get("file"),
+                "layer": src_node.get("layer"),
+                "type": e.get("type"),
+                "confidence_score": e.get("confidence_score"),
+                "hop_distance": e.get("hop_distance"),
+            })
+        if src == node_key and tgt in node_map:
+            tgt_node = node_map[tgt]
+            callees.append({
+                "key": tgt,
+                "name": tgt_node.get("name"),
+                "file": tgt_node.get("file"),
+                "layer": tgt_node.get("layer"),
+                "type": e.get("type"),
+                "confidence_score": e.get("confidence_score"),
+                "hop_distance": e.get("hop_distance"),
+            })
+    return {
+        "node_key": node_key,
+        "callers": callers[:500],
+        "callees": callees[:500],
+        "total_callers": len(callers),
+        "total_callees": len(callees),
+    }
+
+
+@app.get("/api/hotspots")
+async def get_hotspots(top_n: int = 50, days: int | None = None):
+    """Return nodes ranked by hotspot score (complexity * churn)."""
+    _ensure_memory_graph_loaded()
+    # Fast path: use stored score from latest scan
+    if not days or days <= 0:
+        scored = [
+            n for n in memory_nodes
+            if (n.get("hotspot_score") is not None) and float(n.get("hotspot_score", 0)) > 0
+        ]
+        scored.sort(key=lambda n: float(n.get("hotspot_score", 0)), reverse=True)
+        return {"hotspots": scored[: max(1, min(top_n, 500))], "window_days": None}
+
+    # Temporal window: recompute churn from git history by project
+    churn_cache: dict[str, dict[str, int]] = {}
+    hotspots = []
+    for node in memory_nodes:
+        project = str(node.get("project", "") or "")
+        rel_file = str(node.get("file", "") or "").replace("\\", "/")
+        if not project or not rel_file:
+            continue
+        if project not in churn_cache:
+            project_path = scanned_projects.get(project, "")
+            churn_cache[project] = _compute_git_churn(project_path, days=days) if project_path else {}
+        churn = int(churn_cache[project].get(rel_file, 0))
+        complexity = int(node.get("complexity", 1) or 1)
+        hotspot_score = min(100.0, float(complexity * max(1, churn)))
+        category = "critical" if hotspot_score >= 80 else ("danger" if hotspot_score >= 50 else ("watch" if hotspot_score >= 25 else "low"))
+        hotspots.append({
+            **node,
+            "git_churn": churn,
+            "hotspot_score": round(hotspot_score, 2),
+            "category": category,
+        })
+
+    hotspots.sort(key=lambda n: float(n.get("hotspot_score", 0) or 0), reverse=True)
+    return {"hotspots": hotspots[: max(1, min(top_n, 500))], "window_days": days}
+
+
+@app.get("/api/hotspots/cochange")
+async def get_hotspots_cochange(days: int = 90, top_n: int = 30):
+    """Return most frequent co-change file pairs per scanned project."""
+    result = {}
+    for project, path in scanned_projects.items():
+        if not path:
+            continue
+        result[project] = _compute_git_cochange_pairs(path, days=days, top_n=top_n)
+    return {"projects": result, "window_days": days}
+
+
+@app.get("/api/calls/resolution")
+async def get_call_resolution(project: str | None = None, top_n: int = 20):
+    """Return diagnostics for CALLS -> CALLS_RESOLVED quality."""
+    try:
+        return _compute_call_resolution_summary(project=project, top_n=top_n)
+    except Exception as e:
+        logger.error("Call resolution summary failed: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/metrics/ck")
+async def get_ck_metrics(project: str | None = None, min_risk: float = 0.0):
+    """Return CK metrics for class-like nodes with optional filters."""
+    _ensure_memory_graph_loaded()
+    class_nodes = [
+        dict(n) for n in memory_nodes
+        if n.get("label") in ("Java_Class", "TS_Component")
+    ]
+    if project:
+        class_nodes = [n for n in class_nodes if n.get("project") == project]
+
+    results = []
+    for n in class_nodes:
+        risk = _ck_risk_score(n)
+        if risk < float(min_risk):
+            continue
+        results.append({
+            "namespace_key": n.get("namespace_key"),
+            "class_name": n.get("name"),
+            "project": n.get("project"),
+            "file": n.get("file"),
+            "layer": n.get("layer"),
+            "wmc": int(n.get("wmc", 0) or 0),
+            "cbo": int(n.get("cbo", 0) or 0),
+            "rfc": int(n.get("rfc", 0) or 0),
+            "lcom": float(n.get("lcom", 0.0) or 0.0),
+            "risk_score": risk,
+            "is_god_class": bool((n.get("wmc", 0) or 0) > 20 and (n.get("cbo", 0) or 0) > 10),
+            "hotspot_score": float(n.get("hotspot_score", 0) or 0),
+        })
+
+    results.sort(key=lambda r: r["risk_score"], reverse=True)
+    return {"metrics": results, "total": len(results)}
+
+
+@app.get("/api/rag/search")
+async def rag_search(q: str, node_key: str | None = None, limit: int = 20, semantic: bool = True):
+    """Search relevant graph nodes for a free-text query (hybrid lexical/semantic)."""
+    return {
+        "nodes": _rag_search_nodes(
+            q,
+            node_key=node_key,
+            limit=max(1, min(limit, 100)),
+            use_semantic=semantic,
+        )
+    }
+
+
+@app.post("/api/rag/index")
+async def rag_reindex(request: dict | None = None):
+    """Force rebuild of in-memory RAG index with optional embeddings."""
+    request = request or {}
+    include_embeddings = bool(request.get("include_embeddings", False))
+    count = _rebuild_rag_index(include_embeddings=include_embeddings)
+    return {
+        "indexed_nodes": count,
+        "status": "ok",
+        "include_embeddings": include_embeddings,
+        "embedding_model": OLLAMA_EMBED_MODEL if include_embeddings else None,
+    }
+
+
+@app.get("/api/rag/status")
+async def rag_status():
+    """Return runtime and persisted status for local RAG index."""
+    _ensure_memory_graph_loaded()
+    if not rag_index:
+        _load_rag_index()
+    has_embeddings = sum(1 for e in rag_index if isinstance(e.get("embedding"), list) and e.get("embedding"))
+    return {
+        "entries": len(rag_index),
+        "with_embeddings": has_embeddings,
+        "embedding_coverage": round((has_embeddings / max(1, len(rag_index))) * 100.0, 2),
+        "stale": _is_rag_index_stale(),
+        "embed_model": OLLAMA_EMBED_MODEL,
+        "index_file": str(RAG_INDEX_FILE),
+        "metadata": rag_index_metadata,
+    }
+
+
+@app.get("/api/graph/search")
+async def semantic_graph_search(
+    q: str,
+    top_k: int = 20,
+    node_key: str | None = None,
+    semantic: bool = True,
+):
+    """Semantic graph search endpoint compatible with roadmap naming."""
+    nodes = _rag_search_nodes(
+        q,
+        node_key=node_key,
+        limit=max(1, min(top_k, 100)),
+        use_semantic=semantic,
+    )
+    results = []
+    for n in nodes:
+        results.append({
+            "key": n.get("namespace_key"),
+            "name": n.get("name"),
+            "layer": n.get("layer"),
+            "project": n.get("project"),
+            "file": n.get("file"),
+            "labels": n.get("labels", []),
+            "hotspot_score": n.get("hotspot_score", 0),
+        })
+    return {"results": results, "query": q}
+
+
+@app.get("/api/fields/{node_key:path}")
+async def get_field_nodes(node_key: str):
+    """Return HAS_FIELD/HAS_PARAMETER children for a node."""
+    if neo4j_service.is_connected:
+        try:
+            query = """
+            MATCH (p:Entity {namespace_key: $key})-[r:HAS_FIELD|HAS_PARAMETER]->(f:Entity)
+            RETURN f, type(r) AS rel_type
+            LIMIT 500
+            """
+            rows = neo4j_service.graph.run(query, key=node_key).data()
+            field_nodes = []
+            for row in rows:
+                node = dict(row["f"])
+                node["labels"] = list(row["f"].labels)
+                node["relationship_type"] = row["rel_type"]
+                field_nodes.append(node)
+            return {"field_nodes": field_nodes}
+        except Exception as e:
+            logger.warning("Neo4j field node query failed, using memory: %s", e)
+
+    _ensure_memory_graph_loaded()
+    node_map = {n.get("namespace_key"): n for n in memory_nodes if n.get("namespace_key")}
+    field_nodes = []
+    for edge in _normalized_memory_edges():
+        if edge["source"] != node_key:
+            continue
+        if edge["type"] not in {"HAS_FIELD", "HAS_PARAMETER"}:
+            continue
+        target = node_map.get(edge["target"])
+        if target:
+            node = dict(target)
+            node["relationship_type"] = edge["type"]
+            field_nodes.append(node)
+    return {"field_nodes": field_nodes}
+
+
+@app.get("/api/fragility/{node_key:path}")
+async def get_fragility(node_key: str):
+    """Calculate and return fragility detail for a node."""
+    runtime = _build_analysis_runtime()
+    calculator = runtime["fragility_calculator"]
+    try:
+        detail = await calculator.calculate(node_key)
+        return asdict(detail)
+    except Exception as e:
+        logger.error("Fragility calculation failed for %s: %s", node_key, e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/fragility/ranking")
+async def get_fragility_ranking(top_n: int = 20):
+    """Return top-N fragility ranking."""
+    runtime = _build_analysis_runtime()
+    calculator = runtime["fragility_calculator"]
+    try:
+        ranking = calculator.get_ranking(top_n=top_n)
+        if not ranking:
+            await calculator.calculate_all()
+            ranking = calculator.get_ranking(top_n=top_n)
+        return [asdict(item) for item in ranking]
+    except Exception as e:
+        logger.error("Fragility ranking failed: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/taint/propagate")
+async def propagate_taint(request: dict):
+    """Run taint propagation from an origin key."""
+    runtime = _build_analysis_runtime()
+    propagator = runtime["taint_propagator"]
+    try:
+        origin_key = request.get("origin_key", "")
+        if not origin_key:
+            raise HTTPException(status_code=400, detail="origin_key is required")
+        taint_path = propagator.propagate(
+            origin_key=origin_key,
+            change_type=request.get("change_type", ""),
+            old_type=request.get("old_type", "") or "",
+            new_type=request.get("new_type", "") or "",
+        )
+        return asdict(taint_path)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Taint propagation failed: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/symbol/resolve")
+async def resolve_symbol(name: str, context_key: str = ""):
+    """Resolve symbols by name with optional context key prioritization."""
+    runtime = _build_analysis_runtime()
+    resolver = runtime["symbol_resolver"]
+    try:
+        return [asdict(item) for item in resolver.resolve(name=name, context_key=context_key)]
+    except Exception as e:
+        logger.error("Symbol resolution failed for %s: %s", name, e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/side-effects/detect")
+async def detect_side_effects(request: dict):
+    """Detect side effects for a change over an affected set."""
+    runtime = _build_analysis_runtime()
+    detector = runtime["side_effect_detector"]
+    impact_engine = runtime["impact_engine"]
+    try:
+        change = dict(request.get("change") or request)
+        target_key = change.get("target_key") or change.get("artifact_key")
+        if target_key and not change.get("artifact_key"):
+            change["artifact_key"] = target_key
+
+        affected_set = list(request.get("affected_set") or [])
+        if not affected_set and target_key:
+            descriptor = ChangeDescriptor(
+                change_type=change.get("change_type", "change_method_signature"),
+                target_key=target_key,
+                parameter_name=change.get("parameter_name"),
+                old_type=change.get("old_type"),
+                new_type=change.get("new_type"),
+                max_depth=int(change.get("max_depth", 5) or 5),
+            )
+            impact = impact_engine.analyze(descriptor)
+            affected_set = [item.namespace_key for item in impact.items]
+
+        results = await detector.detect(change=change, affected_set=affected_set)
+        return [asdict(item) for item in results]
+    except Exception as e:
+        logger.error("Side effect detection failed: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/bidirectional/analyze")
+async def analyze_bidirectional(request: dict):
+    """Run bidirectional propagation analysis."""
+    runtime = _build_analysis_runtime()
+    analyzer = runtime["bidirectional_analyzer"]
+    try:
+        origin_key = request.get("origin_key", "")
+        if not origin_key:
+            raise HTTPException(status_code=400, detail="origin_key is required")
+        direction = str(request.get("direction", "BOTTOM_UP")).upper()
+        if direction not in {"BOTTOM_UP", "TOP_DOWN"}:
+            raise HTTPException(status_code=400, detail="direction must be BOTTOM_UP or TOP_DOWN")
+        result = await analyzer.analyze(
+            origin_key=origin_key,
+            direction=direction,
+            change=request.get("change"),
+        )
+        return asdict(result)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Bidirectional analysis failed: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/security/node/{node_key:path}/vulnerabilities")
+async def get_node_vulnerabilities(node_key: str):
+    """Return CodeQL vulnerabilities linked to a node."""
+    if neo4j_service.is_connected:
+        try:
+            direct_query = """
+            MATCH (e:Entity {namespace_key: $key})-[:HAS_VULNERABILITY]->(s:SecurityIssue)
+            RETURN
+              s.rule_id AS rule_id,
+              coalesce(s.severity, 'note') AS severity,
+              coalesce(s.message, '') AS message,
+              coalesce(s.file, '') AS file_path,
+              coalesce(s.start_line, 0) AS start_line,
+              coalesce(s.end_line, 0) AS end_line
+            LIMIT 200
+            """
+            rows = neo4j_service.graph.run(direct_query, key=node_key).data()
+            if rows:
+                return [{**row, "entity_key": node_key} for row in rows]
+
+            fallback_query = """
+            MATCH (e:Entity {namespace_key: $key})
+            WHERE e.file IS NOT NULL
+            MATCH (s:SecurityIssue)
+            WHERE s.file = e.file
+            RETURN
+              s.rule_id AS rule_id,
+              coalesce(s.severity, 'note') AS severity,
+              coalesce(s.message, '') AS message,
+              coalesce(s.file, '') AS file_path,
+              coalesce(s.start_line, 0) AS start_line,
+              coalesce(s.end_line, 0) AS end_line
+            LIMIT 200
+            """
+            rows = neo4j_service.graph.run(fallback_query, key=node_key).data()
+            return [{**row, "entity_key": node_key} for row in rows]
+        except Exception as e:
+            logger.warning("Security vulnerability query failed: %s", e)
+
+    # Memory fallback (best effort from heuristic flags)
+    _ensure_memory_graph_loaded()
+    node = next((n for n in memory_nodes if n.get("namespace_key") == node_key), None)
+    if not node:
+        return []
+
+    issues = []
+    if node.get("hardcoded_secret"):
+        issues.append({
+            "rule_id": "hardcoded-secret",
+            "severity": "error",
+            "message": "Potential hardcoded secret detected.",
+            "file_path": node.get("file", ""),
+            "start_line": int(node.get("start_line", 0) or 0),
+            "end_line": int(node.get("end_line", 0) or 0),
+            "entity_key": node_key,
+        })
+    if node.get("sql_injection_risk"):
+        issues.append({
+            "rule_id": "sql-injection-risk",
+            "severity": "warning",
+            "message": "Potential SQL injection risk inferred.",
+            "file_path": node.get("file", ""),
+            "start_line": int(node.get("start_line", 0) or 0),
+            "end_line": int(node.get("end_line", 0) or 0),
+            "entity_key": node_key,
+        })
+    return issues
 
 
 @app.get("/api/projects")
@@ -2567,18 +4283,28 @@ async def ask_question(request: AskRequest):
         )
 
     try:
-        logger.info("Fetching graph context for question...")
+        logger.info("Fetching graph context for question with RAG retrieval...")
         if neo4j_service.is_connected:
-            context = neo4j_service.get_graph_context(
-                node_key=request.context_node,
-                limit=15, 
-            )
-        else:
-            logger.info("Neo4j offline, using in-memory context fallback.")
-            context = get_memory_graph_context(
+            base_context = neo4j_service.get_graph_context(
                 node_key=request.context_node,
                 limit=15,
             )
+        else:
+            logger.info("Neo4j offline, using in-memory context fallback.")
+            base_context = get_memory_graph_context(
+                node_key=request.context_node,
+                limit=15,
+            )
+
+        rag_nodes = _rag_search_nodes(
+            request.question,
+            node_key=request.context_node,
+            limit=20,
+        )
+        rag_context = _format_rag_context(rag_nodes)
+        context = base_context
+        if rag_context.strip():
+            context = f"{base_context}\n\n=== RAG Context (Top Relevant Nodes) ===\n{rag_context}"
         context_lines = len(context.split("\n"))
             
         ai_res = await ask_ai(request.question, context)
@@ -2907,6 +4633,84 @@ async def get_history():
     return []
 
 
+@app.get("/api/evolution/summary")
+async def get_evolution_summary(window: int = 20):
+    """Return aggregated evolution trends and current hotspot concentration."""
+    history_file = Path("history.json")
+    history: list[dict] = []
+    if history_file.exists():
+        try:
+            with open(history_file, "r", encoding="utf-8") as f:
+                raw = json.load(f)
+                if isinstance(raw, list):
+                    history = raw[-max(2, min(window, 200)):]
+        except Exception as e:
+            logger.warning("Failed to read history.json for evolution summary: %s", e)
+
+    risk_series = []
+    for item in history:
+        god = int(item.get("god_classes", 0) or 0)
+        circ = int(item.get("circular_deps", 0) or 0)
+        dead = int(item.get("dead_code", 0) or 0)
+        risk = min(100, god * 5 + circ * 10 + dead)
+        risk_series.append({
+            "timestamp": item.get("timestamp"),
+            "risk_score": risk,
+            "total_nodes": int(item.get("total_nodes", 0) or 0),
+            "total_edges": int(item.get("total_edges", 0) or 0),
+            "god_classes": god,
+            "circular_deps": circ,
+            "dead_code": dead,
+            "call_resolution_rate": float(item.get("call_resolution_rate", 0.0) or 0.0),
+        })
+
+    def _trend(values: list[float]) -> float:
+        if len(values) < 2:
+            return 0.0
+        return round(values[-1] - values[0], 2)
+
+    risk_values = [float(x["risk_score"]) for x in risk_series]
+    node_values = [float(x["total_nodes"]) for x in risk_series]
+    edge_values = [float(x["total_edges"]) for x in risk_series]
+    call_res_values = [float(x.get("call_resolution_rate", 0.0) or 0.0) for x in risk_series]
+
+    _ensure_memory_graph_loaded()
+    project_hotspots: dict[str, list[dict]] = defaultdict(list)
+    for node in memory_nodes:
+        hs = float(node.get("hotspot_score", 0) or 0)
+        if hs <= 0:
+            continue
+        project = str(node.get("project", "unknown") or "unknown")
+        project_hotspots[project].append(node)
+
+    top_hotspots_by_project = {}
+    for project, arr in project_hotspots.items():
+        arr_sorted = sorted(arr, key=lambda n: float(n.get("hotspot_score", 0) or 0), reverse=True)
+        top_hotspots_by_project[project] = [
+            {
+                "namespace_key": n.get("namespace_key"),
+                "name": n.get("name"),
+                "file": n.get("file"),
+                "complexity": int(n.get("complexity", 0) or 0),
+                "git_churn": int(n.get("git_churn", 0) or 0),
+                "hotspot_score": float(n.get("hotspot_score", 0) or 0),
+            }
+            for n in arr_sorted[:10]
+        ]
+
+    return {
+        "series": risk_series,
+        "trend": {
+            "risk_delta": _trend(risk_values),
+            "nodes_delta": _trend(node_values),
+            "edges_delta": _trend(edge_values),
+            "call_resolution_delta": _trend(call_res_values),
+        },
+        "top_hotspots_by_project": top_hotspots_by_project,
+        "window_size": len(risk_series),
+    }
+
+
 @app.get("/api/file/content", response_model=FileContentResponse)
 async def get_file_content(file_path: str, project: str = None):
     """
@@ -3122,6 +4926,7 @@ async def get_health():
                 models = [m["name"] for m in resp.json().get("models", [])]
                 status.ollama_scanner = "available" if OLLAMA_FAST_MODEL in models else "model_not_found"
                 status.ollama_chat = "available" if OLLAMA_CHAT_MODEL in models else "model_not_found"
+                status.ollama_embed = "available" if OLLAMA_EMBED_MODEL in models else "model_not_found"
                 # Check complex model if explicitly listed in tags
                 if OLLAMA_COMPLEX_MODEL in models:
                     status.complex_model = "available"
@@ -3131,14 +4936,53 @@ async def get_health():
             else:
                 status.ollama_scanner = "error"
                 status.ollama_chat = "error"
+                status.ollama_embed = "error"
     except httpx.ConnectError:
         status.ollama_scanner = "offline"
         status.ollama_chat = "offline"
+        status.ollama_embed = "offline"
     except Exception:
         status.ollama_scanner = "error"
         status.ollama_chat = "error"
+        status.ollama_embed = "error"
+
+    if not rag_index:
+        _load_rag_index()
+    status.rag_index_nodes = len(rag_index)
 
     return status
+
+
+@app.get("/api/system/diagnostics")
+async def system_diagnostics():
+    """Consolidated runtime diagnostics for local CAST operation."""
+    health = await get_health()
+    _ensure_memory_graph_loaded()
+    call_resolution = _compute_call_resolution_summary(top_n=10)
+    rag = await rag_status()
+    return {
+        "timestamp": datetime.datetime.now(datetime.timezone.utc).isoformat(),
+        "health": health.model_dump() if hasattr(health, "model_dump") else dict(health),
+        "graph": {
+            "nodes": len(memory_nodes),
+            "edges": len(memory_edges),
+            "projects": sorted({str(n.get("project")) for n in memory_nodes if n.get("project")}),
+        },
+        "call_resolution": call_resolution,
+        "rag": rag,
+    }
+
+
+@app.post("/api/system/regression")
+async def run_regression():
+    """Run core regression suite for CAST-local behavior."""
+    try:
+        from regression_suite import run_regression_suite
+        result = run_regression_suite(verbosity=1)
+        return result
+    except Exception as e:
+        logger.error("Regression suite execution failed: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # ──────────────────────────────────────────────
@@ -3146,12 +4990,20 @@ async def get_health():
 # ──────────────────────────────────────────────
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="InsightGraph Backend & CI/CD CLI")
-    parser.add_argument("mode", nargs="?", default="serve", choices=["serve", "scan"], help="Mode to run: serve (API) or scan (CLI CI/CD)")
+    parser.add_argument("mode", nargs="?", default="serve", choices=["serve", "scan", "regression"], help="Mode to run: serve (API), scan (CLI CI/CD), or regression (core test suite)")
     parser.add_argument("--path", type=str, help="Path to project to scan (required for scan mode)")
     parser.add_argument("--fail-on-risk", type=int, default=0, help="Risk threshold (1-100) to fail the CI/CD pipeline")
     args = parser.parse_args()
 
-    if args.mode == "scan":
+    if args.mode == "regression":
+        from regression_suite import run_regression_suite
+        print("[InsightGraph] Running regression suite...")
+        outcome = run_regression_suite(verbosity=2)
+        print(f"[InsightGraph] Regression result: ran={outcome['ran']} failures={outcome['failures']} errors={outcome['errors']}")
+        if not outcome["successful"]:
+            sys.exit(1)
+        print("[InsightGraph] Regression suite passed.")
+    elif args.mode == "scan":
         if not args.path:
             print("[InsightGraph] ERROR: --path is required for scan mode.")
             sys.exit(1)
@@ -3322,6 +5174,27 @@ async def get_codeql_job_status(job_id: str):
         raise
     except Exception as e:
         logger.error(f"Error getting CodeQL job status: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/codeql/history")
+async def get_codeql_history(
+    project_id: Optional[str] = None,
+    start_date: Optional[str] = None,
+    end_date: Optional[str] = None,
+    limit: Optional[int] = None,
+):
+    """Get CodeQL analysis history with optional filters."""
+    try:
+        entries = codeql_orchestrator.analysis_history.list_entries(
+            project_id=project_id,
+            start_date=start_date,
+            end_date=end_date,
+            limit=limit,
+        )
+        return [_asdict(e) for e in entries]
+    except Exception as e:
+        logger.error(f"Error getting CodeQL history: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
 

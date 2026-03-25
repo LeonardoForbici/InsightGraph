@@ -68,12 +68,12 @@ class ChangeDescriptor:
 
 # Relationship types relevant per change_type
 _REL_TYPES_BY_CHANGE: dict[str, list[str]] = {
-    "rename_parameter":        ["HAS_PARAMETER", "CALLS", "HAS_METHOD"],
-    "change_column_type":      ["READS_COLUMN", "WRITES_COLUMN", "MAPS_TO_COLUMN", "HAS_FIELD", "CALLS_HTTP", "DISPLAYED_BY"],
-    "change_method_signature": ["CALLS", "HAS_METHOD", "CONSUMES_API"],
-    "change_procedure_param":  ["HAS_PARAMETER", "CALLS", "CONSUMES_API", "CALLS_HTTP"],
+    "rename_parameter":        ["HAS_PARAMETER", "CALLS", "CALLS_RESOLVED", "CALLS_NHOP", "HAS_METHOD"],
+    "change_column_type":      ["READS_COLUMN", "WRITES_COLUMN", "MAPS_TO_COLUMN", "HAS_FIELD", "CALLS_HTTP", "DISPLAYED_BY", "CALLS_NHOP"],
+    "change_method_signature": ["CALLS", "CALLS_RESOLVED", "CALLS_NHOP", "HAS_METHOD", "CONSUMES_API"],
+    "change_procedure_param":  ["HAS_PARAMETER", "CALLS", "CALLS_RESOLVED", "CALLS_NHOP", "CONSUMES_API", "CALLS_HTTP"],
 }
-_DEFAULT_REL_TYPES = ["CALLS", "HAS_METHOD", "HAS_PARAMETER", "CONSUMES_API"]
+_DEFAULT_REL_TYPES = ["CALLS", "CALLS_RESOLVED", "CALLS_NHOP", "HAS_METHOD", "HAS_PARAMETER", "CONSUMES_API"]
 
 MAX_NODES = 50_000
 
