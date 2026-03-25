@@ -8,6 +8,7 @@ interface NodeDetailProps {
     blastRadius?: BlastRadiusData | null;
     onClose: () => void;
     onViewUsages?: (nodeKey: string, nodeName: string) => void;
+    onQuickImpactScenario?: (scenario: 'delete' | 'signature' | 'data_type', node: GraphNode) => void;
 }
 
 function getTypeIcon(labels: string[]): { icon: string; bg: string; color: string } {
@@ -21,7 +22,7 @@ function getTypeIcon(labels: string[]): { icon: string; bg: string; color: strin
     return { icon: '◇', bg: 'rgba(139,147,176,0.08)', color: '#8b93b0' };
 }
 
-export default function NodeDetail({ node, impact, blastRadius, onClose, onViewUsages }: NodeDetailProps) {
+export default function NodeDetail({ node, impact, blastRadius, onClose, onViewUsages, onQuickImpactScenario }: NodeDetailProps) {
     // Todos os hooks DEVEM ser chamados ANTES de qualquer condicional
     const [activeTab, setActiveTab] = useState<'details' | 'code'>('details');
     const [fileContent, setFileContent] = useState<string>('');
@@ -70,6 +71,10 @@ export default function NodeDetail({ node, impact, blastRadius, onClose, onViewU
         !node.namespace_key.startsWith('cluster:') &&
         node.labels?.some((l) => methodLikeLabels.has(l)),
     );
+    const upstreamCount = impact?.upstream?.length || 0;
+    const downstreamCount = impact?.downstream?.length || 0;
+    const blastNodeCount = blastRadius?.nodes?.length || 0;
+    const quickImpact = upstreamCount + downstreamCount + blastNodeCount;
 
     return (
         <div className="node-detail">
@@ -236,6 +241,51 @@ export default function NodeDetail({ node, impact, blastRadius, onClose, onViewU
                             </span>
                         </div>
                     )}
+
+                    <div style={{
+                        marginTop: 10,
+                        padding: '10px 12px',
+                        border: '1px solid rgba(148,163,184,0.22)',
+                        borderRadius: 8,
+                        background: 'rgba(15,23,42,0.38)',
+                    }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 6 }}>Leitura Rápida de Impacto</div>
+                        <div style={{ fontSize: 11, opacity: 0.9, lineHeight: 1.45 }}>
+                            Se você apagar este nó, a alteração pode atingir cerca de <b>{quickImpact}</b> dependências
+                            (upstream: {upstreamCount}, downstream: {downstreamCount}, multihop: {blastNodeCount}).
+                        </div>
+                        <div style={{ fontSize: 11, opacity: 0.75, marginTop: 6 }}>
+                            Se você alterar assinatura/parâmetro aqui, priorize revisar primeiro os nós downstream.
+                        </div>
+                        {onQuickImpactScenario && (
+                            <div style={{ display: 'flex', gap: 6, marginTop: 10, flexWrap: 'wrap' }}>
+                                <button
+                                    className="btn btn-secondary"
+                                    style={{ fontSize: 11, padding: '5px 8px' }}
+                                    onClick={() => onQuickImpactScenario('delete', node)}
+                                    title="Destaca o impacto típico de remoção deste nó"
+                                >
+                                    Se apagar
+                                </button>
+                                <button
+                                    className="btn btn-secondary"
+                                    style={{ fontSize: 11, padding: '5px 8px' }}
+                                    onClick={() => onQuickImpactScenario('signature', node)}
+                                    title="Destaca impacto em contratos/chamadas"
+                                >
+                                    Se mudar assinatura
+                                </button>
+                                <button
+                                    className="btn btn-secondary"
+                                    style={{ fontSize: 11, padding: '5px 8px' }}
+                                    onClick={() => onQuickImpactScenario('data_type', node)}
+                                    title="Destaca impacto em tipos e fluxo de dados"
+                                >
+                                    Se mudar tipo
+                                </button>
+                            </div>
+                        )}
+                    </div>
 
                     {impact && (
                         <>

@@ -92,7 +92,7 @@ export default function TopBar({
                 </button>
             </div>
 
-            <div style={{ display: 'flex', gap: '8px' }}>
+            <div className="topbar-actions">
                 <button
                     className={`btn ${simulationOpen ? 'btn-accent' : 'btn-secondary'}`}
                     onClick={onToggleSimulation}

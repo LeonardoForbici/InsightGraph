@@ -296,6 +296,42 @@ export default function App() {
     }
   }, [selectedNodeKey, graphNodes, semanticSearchEnabled]);
 
+  const handleQuickImpactScenario = useCallback((
+    scenario: 'delete' | 'signature' | 'data_type',
+    node: GraphNode
+  ) => {
+    const keys = new Set<string>();
+    keys.add(node.namespace_key);
+
+    const ups = impactData?.upstream || [];
+    const downs = impactData?.downstream || [];
+    const blast = blastRadius?.nodes || [];
+
+    if (scenario === 'delete') {
+      ups.forEach((n) => keys.add(n.key));
+      downs.forEach((n) => keys.add(n.key));
+      blast.forEach((n) => {
+        if (n.namespace_key) keys.add(n.namespace_key);
+      });
+    } else if (scenario === 'signature') {
+      downs.forEach((n) => keys.add(n.key));
+      blast.forEach((n) => {
+        if ((n.labels || []).includes('Java_Method') || (n.labels || []).includes('TS_Function') || (n.labels || []).includes('API_Endpoint')) {
+          keys.add(n.namespace_key);
+        }
+      });
+    } else if (scenario === 'data_type') {
+      downs.forEach((n) => keys.add(n.key));
+      blast.forEach((n) => {
+        if ((n.labels || []).includes('SQL_Table') || (n.labels || []).includes('SQL_Procedure') || (n.labels || []).includes('API_Endpoint')) {
+          keys.add(n.namespace_key);
+        }
+      });
+    }
+
+    setAiHighlightedNodes(Array.from(keys));
+  }, [impactData, blastRadius]);
+
   const handleRebuildRag = useCallback(async () => {
     try {
       setRagReindexing(true);
@@ -447,6 +483,7 @@ export default function App() {
         blastRadius={blastRadius}
         onClose={handleCloseDetail}
         onViewUsages={handleViewUsages}
+        onQuickImpactScenario={handleQuickImpactScenario}
       />
 
       {methodUsageOpen && methodUsageNode && (

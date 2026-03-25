@@ -22,22 +22,26 @@ import GraphCanvas3D from './GraphCanvas3D';
 function getNodeClass(labels: string[]): string {
     if (labels.includes('Java_Class')) return 'java-class';
     if (labels.includes('Java_Method')) return 'java-method';
+    if (labels.includes('API_Endpoint')) return 'api-endpoint';
     if (labels.includes('TS_Component')) return 'ts-component';
     if (labels.includes('TS_Function')) return 'ts-function';
     if (labels.includes('SQL_Table')) return 'sql-table';
     if (labels.includes('SQL_Procedure')) return 'sql-procedure';
     if (labels.includes('Mobile_Component')) return 'mobile-component';
+    if (labels.includes('External_Dependency')) return 'external-dependency';
     return 'ts-function';
 }
 
 function getNodeIcon(labels: string[]): string {
     if (labels.includes('Java_Class')) return '☕';
     if (labels.includes('Java_Method')) return 'ƒ';
+    if (labels.includes('API_Endpoint')) return '🌐';
     if (labels.includes('TS_Component')) return '⚛';
     if (labels.includes('TS_Function')) return 'λ';
     if (labels.includes('SQL_Table')) return '🗄';
     if (labels.includes('SQL_Procedure')) return '⚙';
     if (labels.includes('Mobile_Component')) return '📱';
+    if (labels.includes('External_Dependency')) return '📦';
     return '◇';
 }
 
@@ -50,6 +54,20 @@ function getEdgeColor(type: string): string {
         case 'HAS_METHOD': return '#5a6380';
         case 'IMPORTS': return '#5a6380';
         default: return '#3d4560';
+    }
+}
+
+function edgeTypeRank(type: string): number {
+    switch (type) {
+        case 'CALLS': return 0;
+        case 'CALLS_RESOLVED': return 1;
+        case 'CALLS_NHOP': return 2;
+        case 'DEPENDS_ON': return 3;
+        case 'HAS_METHOD': return 4;
+        case 'READS_FROM': return 5;
+        case 'WRITES_TO': return 6;
+        case 'IMPORTS': return 7;
+        default: return 10;
     }
 }
 
@@ -376,8 +394,8 @@ function GraphCanvasInner({
         clusterMap.forEach(v => nsNodes.push(v));
 
         // Maps edges down safely mapping intra-cluster to themselves (which we drop)
-        const builtEdges = new Set<string>();
-        graphEdges.forEach((ge, i) => {
+        const dedupByType = new Map<string, { source: string; target: string; relType: string }>();
+        graphEdges.forEach((ge) => {
             const srcNode = filteredNodes.find(n => n.namespace_key === ge.source);
             const tgtNode = filteredNodes.find(n => n.namespace_key === ge.target);
             if (!srcNode || !tgtNode) return;
@@ -390,23 +408,51 @@ function GraphCanvasInner({
 
             if (srcId === tgtId) return; // Drop self-loops
 
-            const edgeKey = `${srcId}-${tgtId}-${ge.type}`;
-            if (!builtEdges.has(edgeKey)) {
-                builtEdges.add(edgeKey);
-
-                nsEdges.push({
-                    id: `e-${i}`,
-                    source: srcId,
-                    target: tgtId,
-                    label: ge.type,
-                    animated: ge.type === 'CALLS',
-                    style: { stroke: getEdgeColor(ge.type), strokeWidth: 1.5, opacity: 1 },
-                    labelStyle: { fontSize: 9, fill: '#8b93b0' },
-                    labelBgStyle: { fill: '#0c1024', fillOpacity: 0.9 },
-                    markerEnd: { type: MarkerType.ArrowClosed, color: getEdgeColor(ge.type), width: 16, height: 16 },
-                });
+            const edgeKey = `${srcId}::${tgtId}::${ge.type}`;
+            if (!dedupByType.has(edgeKey)) {
+                dedupByType.set(edgeKey, { source: srcId, target: tgtId, relType: ge.type });
             }
         });
+
+        // Spread parallel edges between same (source,target) so they don't overlap.
+        const byPair = new Map<string, Array<{ source: string; target: string; relType: string }>>();
+        for (const edge of dedupByType.values()) {
+            const pair = `${edge.source}::${edge.target}`;
+            if (!byPair.has(pair)) byPair.set(pair, []);
+            byPair.get(pair)!.push(edge);
+        }
+
+        let edgeCounter = 0;
+        for (const list of byPair.values()) {
+            const ordered = [...list].sort((a, b) => edgeTypeRank(a.relType) - edgeTypeRank(b.relType));
+            const total = ordered.length;
+            ordered.forEach((e, idx) => {
+                const centered = idx - (total - 1) / 2;
+                const offset = 22 + Math.abs(centered) * 14;
+                nsEdges.push({
+                    id: `e-${edgeCounter++}`,
+                    source: e.source,
+                    target: e.target,
+                    type: 'smoothstep',
+                    label: e.relType,
+                    animated: e.relType === 'CALLS' || e.relType === 'CALLS_RESOLVED',
+                    pathOptions: {
+                        offset,
+                        borderRadius: 16,
+                    } as any,
+                    style: {
+                        stroke: getEdgeColor(e.relType),
+                        strokeWidth: e.relType === 'CALLS' || e.relType === 'CALLS_RESOLVED' ? 2.0 : 1.4,
+                        opacity: 0.95,
+                        strokeDasharray: e.relType === 'IMPORTS' ? '4 4' : undefined,
+                    },
+                    labelStyle: { fontSize: 9, fill: '#8b93b0' },
+                    labelBgStyle: { fill: '#0c1024', fillOpacity: 0.88 },
+                    labelBgPadding: [4, 2] as [number, number],
+                    markerEnd: { type: MarkerType.ArrowClosed, color: getEdgeColor(e.relType), width: 14, height: 14 },
+                } as Edge);
+            });
+        }
 
         if (nsNodes.length > 0) {
             const laid = layoutGraph(nsNodes, nsEdges);
@@ -576,7 +622,7 @@ function GraphCanvasInner({
             )}
 
             {/* Overlays */}
-            <div style={{ position: 'absolute', top: 16, right: 16, zIndex: 5, display: 'flex', gap: '8px' }}>
+            <div className="canvas-controls">
                 <button
                   className={`btn ${viewMode === '3d' ? 'btn-accent' : 'btn-secondary'}`}
                   onClick={() => {
@@ -679,6 +725,34 @@ function GraphCanvasInner({
                 ].map((e) => (
                     <div key={e.type} className="legend-item">
                         <div style={{ width: 18, height: 2, background: e.color, borderRadius: 1 }} />
+                        {e.type}
+                    </div>
+                ))}
+                <div className="legend-title" style={{ marginTop: 8 }}>Tipos de Nó</div>
+                {[
+                    { type: 'Classe Java', color: '#fb923c' },
+                    { type: 'Método Java', color: '#fdba74' },
+                    { type: 'API Endpoint', color: '#67e8f9' },
+                    { type: 'Componente TS', color: '#60a5fa' },
+                    { type: 'Função TS', color: '#93c5fd' },
+                    { type: 'Tabela SQL', color: '#34d399' },
+                    { type: 'Procedure SQL', color: '#6ee7b7' },
+                ].map((e) => (
+                    <div key={e.type} className="legend-item">
+                        <div style={{ width: 10, height: 10, background: e.color, borderRadius: 999 }} />
+                        {e.type}
+                    </div>
+                ))}
+                <div className="legend-title" style={{ marginTop: 8 }}>Cores de Impacto</div>
+                {[
+                    { type: 'Selecionado', color: '#facc15' },
+                    { type: 'Upstream', color: '#22c55e' },
+                    { type: 'Downstream', color: '#f97316' },
+                    { type: 'Destaque IA/Simulação', color: '#f472b6' },
+                    { type: 'Deletado', color: '#ef4444' },
+                ].map((e) => (
+                    <div key={e.type} className="legend-item">
+                        <div style={{ width: 10, height: 10, background: e.color, borderRadius: 999 }} />
                         {e.type}
                     </div>
                 ))}

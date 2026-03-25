@@ -71,6 +71,8 @@ OLLAMA_CHAT_MODEL = os.getenv("OLLAMA_CHAT_MODEL", "qwen3.5:4b")
 OLLAMA_COMPLEX_MODEL = os.getenv("OLLAMA_COMPLEX_MODEL", "qwen3-coder-next:q4_K_M")
 OLLAMA_EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "nomic-embed-text")
 RAG_INDEX_FILE = Path(os.getenv("RAG_INDEX_FILE", "rag_index.json"))
+OLLAMA_FORCE_GPU = os.getenv("OLLAMA_FORCE_GPU", "0").lower() in ("1", "true", "yes", "on")
+OLLAMA_NUM_GPU = int(os.getenv("OLLAMA_NUM_GPU", "999") or "999")
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("insightgraph")
@@ -161,6 +163,8 @@ class HealthStatus(BaseModel):
     complex_model: str = OLLAMA_COMPLEX_MODEL
     embed_model: str = OLLAMA_EMBED_MODEL
     rag_index_nodes: int = 0
+    force_gpu: bool = OLLAMA_FORCE_GPU
+    num_gpu: int = OLLAMA_NUM_GPU
 
 class SimulationReviewRequest(BaseModel):
     risk_score: int = 0
@@ -1687,6 +1691,14 @@ def parse_typescript(file_path: str, content: str, project_path: str) -> dict:
 # ──────────────────────────────────────────────
 # Ollama SQL Parser (Motor: Coder-Next)
 # ──────────────────────────────────────────────
+def _ollama_options(base: dict | None = None) -> dict:
+    """Compose Ollama options, optionally forcing GPU usage."""
+    opts = dict(base or {})
+    if OLLAMA_FORCE_GPU:
+        opts["num_gpu"] = max(0, int(OLLAMA_NUM_GPU))
+    return opts
+
+
 async def parse_sql_with_ollama(file_path: str, content: str, project_path: str) -> dict:
     """Send SQL content to Ollama Coder-Next for analysis.
     Waits if Qwen Q&A is currently processing to avoid loading both models."""
@@ -1739,7 +1751,7 @@ SQL Code:
                     "model": OLLAMA_FAST_MODEL,
                     "prompt": prompt,
                     "stream": False,
-                    "options": {"temperature": 0.1, "num_predict": 2000},
+                    "options": _ollama_options({"temperature": 0.1, "num_predict": 2000}),
                 },
             )
             response.raise_for_status()
@@ -1862,12 +1874,12 @@ Pergunta do usuário:
                     {"role": "user", "content": prompt}
                 ],
                 "stream": False,
-                "options": {
+                "options": _ollama_options({
                     "temperature": 0.2,
                     "num_predict": 400,
                     "top_k": 20,
                     "top_p": 0.9
-                },
+                }),
                 "keep_alive": "5m"
             }
             resp = await client.post(f"{OLLAMA_URL}/api/chat", json=chat_payload)
@@ -1879,12 +1891,12 @@ Pergunta do usuário:
                     "model": model_name,
                     "prompt": f"{system_prompt}\n\n{prompt}",
                     "stream": False,
-                    "options": {
+                    "options": _ollama_options({
                         "temperature": 0.2,
                         "num_predict": 400,
                         "top_k": 20,
                         "top_p": 0.9
-                    },
+                    }),
                     "keep_alive": "5m"
                 }
                 resp = await client.post(f"{OLLAMA_URL}/api/generate", json=generate_payload)
@@ -1936,10 +1948,10 @@ async def ask_complex_ai(prompt_text: str) -> str:
                     "model": model,
                     "prompt": prompt_text,
                     "stream": False,
-                    "options": {
+                    "options": _ollama_options({
                         "temperature": 0.3,
                         "num_predict": 1024
-                    },
+                    }),
                     "keep_alive": "5m"
                 },
             )

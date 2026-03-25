@@ -43,6 +43,19 @@ function getHeatmapColor(complexity: number): string {
     return '#64748b';
 }
 
+function getTypeColor(labels: string[]): string {
+    if (labels.includes('Java_Class')) return '#fb923c';
+    if (labels.includes('Java_Method')) return '#fdba74';
+    if (labels.includes('API_Endpoint')) return '#67e8f9';
+    if (labels.includes('TS_Component')) return '#60a5fa';
+    if (labels.includes('TS_Function')) return '#93c5fd';
+    if (labels.includes('SQL_Table')) return '#34d399';
+    if (labels.includes('SQL_Procedure')) return '#6ee7b7';
+    if (labels.includes('Mobile_Component')) return '#a78bfa';
+    if (labels.includes('External_Dependency')) return '#cbd5e1';
+    return '#60a5fa';
+}
+
 export default function GraphCanvas3D({
     graphNodes,
     graphEdges,
@@ -123,7 +136,7 @@ export default function GraphCanvas3D({
         }
 
         const nodes: FgNode[] = filteredNodes.map((n) => {
-            let color = '#60a5fa';
+            let color = getTypeColor(n.labels || []);
             if (heatmapEnabled) color = getHeatmapColor(n.complexity || 0);
             if (highlightedUpstream.has(n.namespace_key)) color = '#22c55e';
             if (highlightedDownstream.has(n.namespace_key)) color = '#f97316';
