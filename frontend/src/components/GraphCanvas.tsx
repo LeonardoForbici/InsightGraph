@@ -1104,47 +1104,59 @@ const GraphCanvasInnerImpl = (props: GraphCanvasProps, ref: ForwardedRef<GraphCa
             )}
 
             <div className="legend">
-                <div className="legend-title">Tipos de Conexão</div>
-                {[
-                    { type: 'CALLS', color: '#a78bfa' },
-                    { type: 'DEPENDS_ON', color: '#4f8ff7' },
-                    { type: 'READS_FROM', color: '#34d399' },
-                    { type: 'WRITES_TO', color: '#fb7185' },
-                    { type: 'HAS_METHOD', color: '#5a6380' },
-                ].map((e) => (
-                    <div key={e.type} className="legend-item">
-                        <div style={{ width: 18, height: 2, background: e.color, borderRadius: 1 }} />
-                        {e.type}
+                <div className="legend-group">
+                    <div className="legend-title">Tipos de Conexão</div>
+                    <div className="legend-body">
+                        {[
+                            { type: 'CALLS', color: '#a78bfa' },
+                            { type: 'DEPENDS_ON', color: '#4f8ff7' },
+                            { type: 'READS_FROM', color: '#34d399' },
+                            { type: 'WRITES_TO', color: '#fb7185' },
+                            { type: 'HAS_METHOD', color: '#5a6380' },
+                        ].map((e) => (
+                            <div key={e.type} className="legend-item">
+                                <div className="legend-line" style={{ background: e.color }} />
+                                {e.type}
+                            </div>
+                        ))}
                     </div>
-                ))}
-                <div className="legend-title" style={{ marginTop: 8 }}>Tipos de Nó</div>
-                {[
-                    { type: 'Classe Java', color: '#fb923c' },
-                    { type: 'Método Java', color: '#fdba74' },
-                    { type: 'API Endpoint', color: '#67e8f9' },
-                    { type: 'Componente TS', color: '#60a5fa' },
-                    { type: 'Função TS', color: '#93c5fd' },
-                    { type: 'Tabela SQL', color: '#34d399' },
-                    { type: 'Procedure SQL', color: '#6ee7b7' },
-                ].map((e) => (
-                    <div key={e.type} className="legend-item">
-                        <div style={{ width: 10, height: 10, background: e.color, borderRadius: 999 }} />
-                        {e.type}
+                </div>
+                <div className="legend-group">
+                    <div className="legend-title">Tipos de Nó</div>
+                    <div className="legend-body">
+                        {[
+                            { type: 'Classe Java', color: '#fb923c' },
+                            { type: 'Método Java', color: '#fdba74' },
+                            { type: 'API Endpoint', color: '#67e8f9' },
+                            { type: 'Componente TS', color: '#60a5fa' },
+                            { type: 'Função TS', color: '#93c5fd' },
+                            { type: 'Tabela SQL', color: '#34d399' },
+                            { type: 'Procedure SQL', color: '#6ee7b7' },
+                        ].map((e) => (
+                            <div key={e.type} className="legend-item">
+                                <div className="legend-dot" style={{ background: e.color }} />
+                                {e.type}
+                            </div>
+                        ))}
                     </div>
-                ))}
-                <div className="legend-title" style={{ marginTop: 8 }}>Cores de Impacto</div>
-                {[
-                    { type: 'Selecionado', color: '#facc15' },
-                    { type: 'Upstream', color: '#22c55e' },
-                    { type: 'Downstream', color: '#f97316' },
-                    { type: 'Destaque IA/Simulação', color: '#f472b6' },
-                    { type: 'Deletado', color: '#ef4444' },
-                ].map((e) => (
-                    <div key={e.type} className="legend-item">
-                        <div style={{ width: 10, height: 10, background: e.color, borderRadius: 999 }} />
-                        {e.type}
+                </div>
+                <div className="legend-group">
+                    <div className="legend-title">Cores de Impacto</div>
+                    <div className="legend-body">
+                        {[
+                            { type: 'Selecionado', color: '#facc15' },
+                            { type: 'Upstream', color: '#22c55e' },
+                            { type: 'Downstream', color: '#f97316' },
+                            { type: 'Destaque IA/Simulação', color: '#f472b6' },
+                            { type: 'Deletado', color: '#ef4444' },
+                        ].map((e) => (
+                            <div key={e.type} className="legend-item">
+                                <div className="legend-dot" style={{ background: e.color }} />
+                                {e.type}
+                            </div>
+                        ))}
                     </div>
-                ))}
+                </div>
             </div>
         </div>
     );

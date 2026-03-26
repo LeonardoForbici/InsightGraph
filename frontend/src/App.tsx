@@ -38,6 +38,12 @@ import type {
   AnnotationRecord,
 } from './api';
 import './index.css';
+
+const ensureArray = <T,>(value: T[] | Record<string, T> | null | undefined): T[] => {
+  if (Array.isArray(value)) return value;
+  if (!value) return [];
+  return Object.values(value) as T[];
+};
 import APIInventoryPanel from './components/APIInventoryPanel';
 
 export default function App() {
@@ -116,8 +122,8 @@ export default function App() {
       const projectFilter =
         selectedProjects.length === 1 ? selectedProjects[0] : undefined;
       const data = await fetchGraph(projectFilter, selectedLayer || undefined);
-      setGraphNodes(data.nodes);
-      setGraphEdges(data.edges);
+      setGraphNodes(ensureArray<GraphNode>(data.nodes));
+      setGraphEdges(ensureArray(data.edges));
 
       const projectList = await fetchProjects();
       setProjects(projectList);
