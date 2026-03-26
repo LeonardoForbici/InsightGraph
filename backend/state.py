@@ -21,7 +21,7 @@ class AppState:
     _instance: Optional["AppState"] = None
 
     def __init__(self):
-        self.nodes: dict[str, dict] = {}
+        self.nodes: list[dict] = []
         self.edges: list[dict] = []
         self.rag_index: list[dict] = []
         self.rag_index_metadata: dict = {}
@@ -50,7 +50,4 @@ class AppState:
         return self.nodes.get(key)
 
     def add_nodes(self, nodes: list[dict]) -> None:
-        for n in nodes:
-            k = n.get("namespace_key")
-            if k:
-                self.nodes[k] = n
+        self.nodes.extend(nodes)
