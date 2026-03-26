@@ -21,10 +21,11 @@ import io
 import threading
 from dataclasses import asdict
 from pathlib import Path
-from typing import Optional
+from typing import Iterable, List, Literal, Optional, Set
 from contextlib import asynccontextmanager
 from collections import Counter, defaultdict, deque
 import xml.etree.ElementTree as ET
+import numpy as np
 
 import httpx
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Query
@@ -63,6 +64,7 @@ from symbol_resolver import SymbolResolver
 from taint_propagator import TaintPropagator
 from state import AppState
 from state_store import LocalStateStore
+from rag_store import RagStore
 
 # ──────────────────────────────────────────────
 # Configuration
@@ -78,7 +80,12 @@ OLLAMA_CHAT_MODEL = os.getenv("OLLAMA_CHAT_MODEL", "qwen3.5:4b")
 # Tier 3: Complex Analysis (Inteligência máxima, mas lento)
 OLLAMA_COMPLEX_MODEL = os.getenv("OLLAMA_COMPLEX_MODEL", "qwen3-coder-next:q4_K_M")
 OLLAMA_EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "nomic-embed-text")
+PROJECT_NAME = os.getenv("REPORT_PROJECT_NAME", "InsightGraph")
+PROJECT_LOGO_TEXT = os.getenv("REPORT_LOGO_TEXT", "InsightGraph")
 RAG_INDEX_FILE = Path(os.getenv("RAG_INDEX_FILE", "rag_index.json"))
+RAG_STORE_FILE = Path(os.getenv("RAG_STORE_FILE", "rag_store.db"))
+QUALITY_HISTORY_FILE = Path(os.getenv("QUALITY_HISTORY_FILE", "quality_gate_history.json"))
+QUALITY_HISTORY_LIMIT = int(os.getenv("QUALITY_HISTORY_LIMIT", "20"))
 STATE_DB_FILE = Path(os.getenv("STATE_DB_FILE", "insightgraph_state.db"))
 OLLAMA_FORCE_GPU = os.getenv("OLLAMA_FORCE_GPU", "0").lower() in ("1", "true", "yes", "on")
 OLLAMA_NUM_GPU = int(os.getenv("OLLAMA_NUM_GPU", "999") or "999")
@@ -86,6 +93,7 @@ OLLAMA_NUM_GPU = int(os.getenv("OLLAMA_NUM_GPU", "999") or "999")
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("insightgraph")
 state_store = LocalStateStore(str(STATE_DB_FILE))
+rag_store = RagStore(RAG_STORE_FILE)
 TEMPLATES_DIR = Path(__file__).resolve().parent / "templates" / "reports"
 REPORT_ENV = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)))
 
@@ -100,6 +108,12 @@ async def lifespan(application):
         logger.info("SQLite state store initialized at %s", STATE_DB_FILE)
     except Exception as e:
         logger.warning("SQLite state store initialization failed: %s", e)
+
+    try:
+        rag_store.initialize()
+        logger.info("RAG store initialized at %s", RAG_STORE_FILE)
+    except Exception as e:
+        logger.warning("RAG store initialization failed: %s", e)
 
     try:
         if neo4j_service.connect():
@@ -168,6 +182,22 @@ class AskResponse(BaseModel):
     relevant_nodes: list[str] = []
     model: str
     context_used: int = 0
+
+class QualityThresholds(BaseModel):
+    max_god_classes: int = Field(..., ge=0, description="Máximo permitido de God Classes")
+    min_call_resolution: float = Field(..., ge=0.0, le=1.0, description="Taxa mínima de Call Resolution (0-1)")
+    max_hotspot_score: float = Field(..., ge=0.0, le=100.0, description="Maior hotspot aceito")
+    min_iso5055: float = Field(..., ge=0.0, le=100.0, description="Percentual mínimo ISO 5055")
+
+class QualityGateRequest(BaseModel):
+    thresholds: QualityThresholds
+
+class QualityGateResponse(BaseModel):
+    passed: bool
+    violations: list[str]
+    score: float
+    metrics: dict
+    timestamp: str
 
 class SimulateRequest(BaseModel):
     deleted_nodes: list[str] = []
@@ -2847,6 +2877,11 @@ async def run_scan(paths: list[str]):
             except Exception as he:
                 logger.warning("Failed to save history snapshot: %s", he)
 
+            try:
+                _persist_node_embeddings(memory_nodes)
+            except Exception as embed_err:
+                logger.warning("Failed to persist RAG embeddings: %s", embed_err)
+
         except Exception as e:
             scan_state.status = "error"
             scan_state.errors.append(str(e))
@@ -3608,6 +3643,198 @@ def _node_text_blob(node: dict) -> str:
     return " ".join(parts).lower()
 
 
+TRANSACTION_KEYWORDS = {"transação", "transaction", "pagamento", "checkout", "transacao", "transacoes"}
+IMPACT_KEYWORDS = {"impacto", "impactar", "impactados", "afeta", "blast", "blast radius", "modificação"}
+SECURITY_KEYWORDS = {"segurança", "seguranca", "vulnerabilidade", "vulnerabilidades", "codeql", "cve", "ataque"}
+
+
+def _persist_node_embeddings(nodes: Iterable[dict]) -> None:
+    for node in nodes:
+        key = node.get("namespace_key")
+        if not key:
+            continue
+        try:
+            summary = _node_text_blob(node)
+            embedding = _embed_text(summary)
+            rag_store.upsert(
+                node_key=key,
+                summary=summary,
+                embedding=embedding,
+                model=OLLAMA_EMBED_MODEL if embedding else None,
+            )
+        except Exception as exc:
+            logger.warning("Failed to persist embedding for %s: %s", key, exc)
+
+
+def _detect_question_intent(question: str, context_node: str | None = None) -> dict:
+    clean = question.lower()
+    return {
+        "node_specific": bool(context_node),
+        "transaction": any(keyword in clean for keyword in TRANSACTION_KEYWORDS),
+        "impact": any(keyword in clean for keyword in IMPACT_KEYWORDS),
+        "security": any(keyword in clean for keyword in SECURITY_KEYWORDS),
+    }
+
+
+def _collect_impact_neighbors(node_key: str, graph) -> Set[str]:
+    neighbors: Set[str] = set()
+    for edge in graph.incoming_edges(node_key):
+        if edge.get("source"):
+            neighbors.add(edge["source"])
+    for edge in graph.outgoing_edges(node_key):
+        if edge.get("target"):
+            neighbors.add(edge["target"])
+    return neighbors
+
+
+def _collect_transaction_nodes(node_key: str) -> Set[str]:
+    keys: Set[str] = set()
+    try:
+        data = _build_transaction_data(node_key, max_depth=5)
+        for lane in data.get("lanes", []):
+            for node in lane.get("nodes", []):
+                if node.get("namespace_key"):
+                    keys.add(node["namespace_key"])
+        for terminal in data.get("terminal_paths", []):
+            if terminal.get("target_key"):
+                keys.add(terminal["target_key"])
+    except Exception:
+        pass
+    return keys
+
+
+def _select_security_nodes(limit: int = 6) -> Set[str]:
+    candidates = sorted(
+        (node for node in memory_nodes if node.get("namespace_key")),
+        key=lambda n: float(n.get("hotspot_score") or 0.0),
+        reverse=True,
+    )
+    return {node["namespace_key"] for node in candidates[:limit]}
+
+
+def _collect_context_nodes(question: str, context_node: str | None, graph) -> Set[str]:
+    nodes: Set[str] = set()
+    intent = _detect_question_intent(question, context_node)
+    if context_node:
+        nodes.add(context_node)
+        nodes.update(_collect_impact_neighbors(context_node, graph))
+    if intent["transaction"] and context_node:
+        nodes.update(_collect_transaction_nodes(context_node))
+    if intent["impact"] and context_node:
+        nodes.update(_collect_impact_neighbors(context_node, graph))
+    if intent["security"]:
+        nodes.update(_select_security_nodes())
+    return nodes
+
+
+def _render_context_summary(node_keys: Iterable[str], graph, max_items: int = 12) -> str:
+    lines = []
+    count = 0
+    for key in node_keys:
+        if count >= max_items:
+            break
+        node = graph.node_by_key.get(key)
+        if not node:
+            continue
+        summary = _node_text_blob(node)
+        lines.append(f"- {node.get('name') or key} [{key}]: {summary[:120]}")
+        count += 1
+    return "\n".join(lines)
+
+
+def _render_report_chart(entries: list[dict]) -> str:
+    if not entries:
+        return ""
+    values = []
+    for entry in entries:
+        total_nodes = entry.get("total_nodes", 0) or 0
+        total_edges = entry.get("total_edges", 0) or 0
+        risk = int((entry.get("god_classes", 0) or 0) * 5 + (entry.get("circular_deps", 0) or 0) * 5 + (entry.get("dead_code", 0) or 0))
+        values.append({"nodes": total_nodes, "edges": total_edges, "risk": risk})
+    width = 520
+    height = 220
+    padding = 28
+    max_nodes = max(val["nodes"] for val in values) or 1
+    max_edges = max(val["edges"] for val in values) or 1
+    max_risk = max(val["risk"] for val in values) or 1
+    step = (width - padding * 2) / max(len(values) - 1, 1)
+    def to_point(idx, value, max_value):
+        x = padding + idx * step
+        ratio = min(1.0, value / max_value) if max_value > 0 else 0.0
+        y = height - padding - ratio * (height - padding * 2)
+        return x, y
+    max_map = {"nodes": max_nodes, "edges": max_edges, "risk": max_risk}
+    def build_path(key):
+        path = []
+        for idx, val in enumerate(values):
+            max_value = max_map[key]
+            x, y = to_point(idx, val[key], max_value)
+            path.append(f"{'M' if idx == 0 else 'L'} {x} {y}")
+        return " ".join(path)
+    nodes_path = build_path("nodes")
+    edges_path = build_path("edges")
+    risk_path = build_path("risk")
+    svg = f"""
+    <svg width="{width}" height="{height}" viewBox="0 0 {width} {height}" aria-hidden="true">
+      <rect x="0" y="0" width="{width}" height="{height}" fill="transparent" />
+      <path d="{nodes_path}" fill="none" stroke="#60a5fa" stroke-width="3" />
+      <path d="{edges_path}" fill="none" stroke="#a78bfa" stroke-width="2" stroke-dasharray="6 4" />
+      <path d="{risk_path}" fill="none" stroke="#ef4444" stroke-width="2.2" stroke-dasharray="4 3" />
+      <text x="{padding}" y="{padding - 8}" fill="#0f172a" font-size="12">Evolução (últimos scans)</text>
+    </svg>
+    """
+    return svg
+
+
+def _debt_risk_value(snapshot: dict) -> int:
+    return int(
+        (snapshot.get("god_classes", 0) or 0) * 5 +
+        (snapshot.get("circular_deps", 0) or 0) * 4 +
+        (snapshot.get("dead_code", 0) or 0) * 3
+    )
+
+
+def _build_debt_history(entries: list[dict]) -> list[dict]:
+    history = []
+    for entry in entries[-10:]:
+        history.append(
+            {
+                "timestamp": entry.get("timestamp"),
+                "risk": _debt_risk_value(entry),
+                "nodes": entry.get("total_nodes", 0),
+                "edges": entry.get("total_edges", 0),
+            }
+        )
+    return history
+
+
+def _quick_win_candidates(limit: int = 10) -> list[dict]:
+    dependents = defaultdict(int)
+    for edge in memory_edges:
+        dependents[edge["target"]] += 1
+    candidates = []
+    for node in memory_nodes:
+        key = node.get("namespace_key")
+        if not key:
+            continue
+        hotspot = float(node.get("hotspot_score") or 0)
+        if hotspot < 40:
+            continue
+        deps = dependents.get(key, 0)
+        score = hotspot / (deps + 1)
+        candidates.append({
+            "namespace_key": key,
+            "name": node.get("name"),
+            "project": node.get("project"),
+            "file": node.get("file"),
+            "hotspot_score": hotspot,
+            "dependents": deps,
+            "score": score,
+        })
+    candidates.sort(key=lambda item: -item["score"])
+    return candidates[:limit]
+
+
 def _save_rag_index() -> None:
     """Persist current in-memory RAG index to disk."""
     global rag_index_metadata
@@ -3672,6 +3899,40 @@ def _load_rag_index() -> int:
         return 0
 
 
+def _load_history_entries() -> list[dict]:
+    history_file = Path("history.json")
+    if not history_file.exists():
+        return []
+    try:
+        with open(history_file, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, list) else []
+    except Exception as exc:
+        logger.warning("Failed to read history.json: %s", exc)
+        return []
+
+
+def _read_quality_history() -> list[dict]:
+    if not QUALITY_HISTORY_FILE.exists():
+        return []
+    try:
+        with open(QUALITY_HISTORY_FILE, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        return data if isinstance(data, list) else []
+    except Exception as exc:
+        logger.warning("Failed to read quality gate history: %s", exc)
+        return []
+
+
+def _write_quality_history(entries: list[dict]) -> None:
+    try:
+        QUALITY_HISTORY_FILE.parent.mkdir(parents=True, exist_ok=True)
+        with open(QUALITY_HISTORY_FILE, "w", encoding="utf-8") as f:
+            json.dump(entries[-QUALITY_HISTORY_LIMIT:], f, ensure_ascii=False, indent=2)
+    except Exception as exc:
+        logger.warning("Failed to persist quality gate history: %s", exc)
+
+
 def _is_rag_index_stale() -> bool:
     """Detect if RAG index likely mismatches current in-memory graph."""
     if not rag_index:
@@ -3724,58 +3985,67 @@ def _rag_search_nodes(
     node_key: str | None = None,
     limit: int = 20,
     use_semantic: bool = True,
+    focus_keys: Iterable[str] | None = None,
 ) -> list[dict]:
-    """Hybrid RAG retrieval (lexical + optional embedding similarity)."""
+    """Hybrid retrieval that mixes persisted embeddings with lexical ranking."""
     _ensure_memory_graph_loaded()
-    q_tokens = [t for t in question.lower().split() if len(t) >= 3]
-    if not q_tokens and not question.strip():
-        return []
-
     graph = _ensure_graph_index()
+    q_tokens = [t for t in question.lower().split() if len(t) >= 3]
     candidate_scores: dict[str, float] = defaultdict(float)
+
     for token in q_tokens:
         postings = graph.lexical_index.get(token, {})
         for key, count in postings.items():
             candidate_scores[key] += float(count)
 
-    neighborhood = set()
+    neighborhood: Set[str] = set()
     if node_key:
         neighborhood = graph.neighbor_keys(node_key)
         candidate_scores.setdefault(node_key, 0.0)
         for neighbor in neighborhood:
             candidate_scores.setdefault(neighbor, 0.0)
 
+    focus_keys_set = {key for key in (focus_keys or []) if key}
+    for key in focus_keys_set:
+        candidate_scores.setdefault(key, 0.0)
+        candidate_scores[key] += 2.5
+
     if not candidate_scores:
         for key in graph.priority_keys[:100]:
             candidate_scores.setdefault(key, 0.0)
 
     query_emb = _embed_text(question) if use_semantic else None
-    query_norm = _vector_norm(query_emb) if query_emb else 0.0
-    if query_emb and query_norm:
-        base_keys = list(candidate_scores.keys())
-        extras = 0
-        for key in graph.priority_keys:
-            if key in candidate_scores or extras >= 100:
-                continue
-            candidate_scores[key] = 0.0
-            base_keys.append(key)
-            extras += 1
-        semantic_limit = 400
-        semantic_targets = base_keys[: semantic_limit]
-        for key in semantic_targets:
-            entry = graph.embedding_index.get(key)
-            if not entry:
-                continue
-            denom = query_norm * entry.get("norm", 0.0)
-            if not denom:
-                continue
-            score = max(0.0, _vector_dot(query_emb, entry["vector"]) / denom)
-            if score > 0:
-                candidate_scores[key] += score * 3.0
+    rag_entries: list[dict] = []
+    try:
+        rag_entries = rag_store.query(query_emb, question, limit=max(limit, 40))
+    except Exception as exc:  # pragma: no cover - best effort
+        logger.warning("RAG store query failed: %s", exc)
+
+    for entry in rag_entries:
+        key = entry.get("node_key")
+        if not key:
+            continue
+        candidate_scores[key] += float(entry.get("score", 0.0)) * 3.5
+        if entry.get("model"):
+            candidate_scores[key] += 0.5
+
+    if query_emb and rag_entries:
+        query_norm = float(np.linalg.norm(list(query_emb))) if list(query_emb) else 0.0
+        if query_norm:
+            for key in list(candidate_scores.keys())[:200]:
+                node_entry = graph.embedding_index.get(key)
+                if not node_entry:
+                    continue
+                denom = query_norm * node_entry.get("norm", 0.0)
+                if not denom:
+                    continue
+                score = max(0.0, _vector_dot(list(query_emb), node_entry["vector"]) / denom)
+                if score > 0:
+                    candidate_scores[key] += score * 1.5
 
     for key in list(candidate_scores.keys()):
         if key in neighborhood:
-            candidate_scores[key] += 1.5
+            candidate_scores[key] += 1.75
         node = graph.node_by_key.get(key)
         hotspot = float(node.get("hotspot_score") or 0.0) if node else 0.0
         candidate_scores[key] += min(2.0, hotspot / 50.0)
@@ -3786,7 +4056,7 @@ def _rag_search_nodes(
         reverse=True,
     )
     results = []
-    added_keys = set()
+    added_keys: Set[str] = set()
     for score, key in scored:
         if len(results) >= limit:
             break
@@ -3795,7 +4065,13 @@ def _rag_search_nodes(
         node = graph.node_by_key.get(key)
         if not node:
             continue
-        results.append(dict(node))
+        entry = next((item for item in rag_entries if item.get("node_key") == key), {})
+        results.append({
+            **node,
+            "rag_summary": entry.get("summary"),
+            "rag_model": entry.get("model"),
+            "rag_score": entry.get("score"),
+        })
         added_keys.add(key)
     return results
 
@@ -3809,6 +4085,61 @@ def _format_rag_context(nodes: list[dict]) -> str:
             f"complexity={n.get('complexity', 0)} | hotspot={n.get('hotspot_score', 0)}"
         )
     return "\n".join(lines)
+
+
+SemanticSearchMode = Literal["code", "arch", "impact"]
+
+
+def _render_semantic_preview(node: dict, max_lines: int = 3) -> str:
+    source = ""
+    props = node.get("properties") if isinstance(node.get("properties"), dict) else {}
+    source = node.get("source_code") or props.get("source_code") or props.get("source") or node.get("description") or node.get("summary") or ""
+    if isinstance(source, str) and source.strip():
+        lines = [ln.strip() for ln in source.splitlines() if ln.strip()]
+        if lines:
+            return "\n".join(lines[:max_lines])
+    file_part = node.get("file")
+    layer_part = node.get("layer")
+    project_part = node.get("project")
+    metadata_parts = [
+        f"File: {file_part}" if file_part else None,
+        f"Layer: {layer_part}" if layer_part else None,
+        f"Project: {project_part}" if project_part else None,
+    ]
+    metadata = " · ".join(part for part in metadata_parts if part)
+    return metadata or "Sem snippet disponível"
+
+
+def _rank_semantic_entries(entries: list[dict], mode: SemanticSearchMode) -> list[dict]:
+    def mode_score(entry: dict) -> float:
+        base_score = float(entry.get("rag_score") or 0.0)
+        hotspot = float(entry.get("hotspot_score") or 0.0)
+        score = base_score + hotspot / 120.0
+
+        layer = (entry.get("layer") or "").lower()
+        status = (entry.get("status") or "").lower()
+        impact_distance = entry.get("impact_distance")
+
+        if mode == "code":
+            if entry.get("file"):
+                score += 1.3
+            if entry.get("project"):
+                score += 0.25
+        elif mode == "arch":
+            if layer in {"frontend", "api", "service", "database", "mobile"}:
+                score += 1.1
+            if entry.get("project"):
+                score += 0.2
+        elif mode == "impact":
+            if impact_distance and isinstance(impact_distance, (int, float)) and impact_distance > 0:
+                score += min(2.0, float(impact_distance) / 3.0)
+            if status == "impacted":
+                score += 0.8
+            score += min(1.0, hotspot / 150.0)
+
+        return score
+
+    return sorted(entries, key=mode_score, reverse=True)
 
 
 def _rebuild_rag_index(include_embeddings: bool = False, persist: bool = True) -> int:
@@ -4195,6 +4526,62 @@ async def semantic_graph_search(
             "hotspot_score": n.get("hotspot_score", 0),
         })
     return {"results": results, "query": q}
+
+
+@app.get("/api/search/semantic")
+async def semantic_search_endpoint(
+    q: str = Query(..., min_length=3),
+    mode: SemanticSearchMode = Query("code"),
+    top_k: int = Query(20, ge=1, le=60),
+    node_key: str | None = Query(None),
+    semantic: bool = Query(True),
+):
+    """Context-aware semantic search with mode hints for code/architecture/impact."""
+    _ensure_memory_graph_loaded()
+    graph = _ensure_graph_index()
+
+    context_nodes = _collect_context_nodes(q, node_key, graph)
+    entries = _rag_search_nodes(
+        q,
+        node_key=node_key,
+        limit=max(1, min(top_k * 3, 120)),
+        use_semantic=semantic,
+        focus_keys=context_nodes,
+    )
+    ranked = _rank_semantic_entries(entries, mode)
+    highlight_terms = [token for token in re.findall(r"[a-z0-9]+", q.lower()) if len(token) >= 2]
+
+    context_summary = _render_context_summary(context_nodes, graph)
+    context_sources = []
+    for key in list(context_nodes)[:6]:
+        node = graph.node_by_key.get(key)
+        if node:
+            context_sources.append(f"{node.get('name') or key} [{key}]")
+
+    results = []
+    for entry in ranked[:top_k]:
+        results.append({
+            "namespace_key": entry.get("namespace_key"),
+            "name": entry.get("name"),
+            "layer": entry.get("layer"),
+            "project": entry.get("project"),
+            "file": entry.get("file"),
+            "preview": _render_semantic_preview(entry),
+            "summary": entry.get("rag_summary", ""),
+            "rag_score": entry.get("rag_score"),
+            "hotspot_score": entry.get("hotspot_score"),
+            "model": entry.get("rag_model"),
+            "highlight_terms": highlight_terms,
+        })
+
+    return {
+        "results": results,
+        "query": q,
+        "mode": mode,
+        "count": len(results),
+        "context_nodes": context_sources,
+        "context_summary": context_summary,
+    }
 
 
 @app.get("/api/fields/{node_key:path}")
@@ -4936,6 +5323,10 @@ async def ask_question(request: AskRequest):
 
     try:
         logger.info("Fetching graph context for question with RAG retrieval...")
+        graph = _ensure_graph_index()
+        context_nodes = _collect_context_nodes(request.question, request.context_node, graph)
+        context_nodes = {node for node in context_nodes if isinstance(node, str)}
+
         if neo4j_service.is_connected:
             base_context = neo4j_service.get_graph_context(
                 node_key=request.context_node,
@@ -4948,15 +5339,23 @@ async def ask_question(request: AskRequest):
                 limit=15,
             )
 
-        rag_nodes = _rag_search_nodes(
+        raw_rag = _rag_search_nodes(
             request.question,
             node_key=request.context_node,
             limit=20,
+            focus_keys=context_nodes,
         )
+        rag_nodes = [entry for entry in raw_rag if isinstance(entry, dict)]
         rag_context = _format_rag_context(rag_nodes)
-        context = base_context
+        context_parts = [base_context]
         if rag_context.strip():
-            context = f"{base_context}\n\n=== RAG Context (Top Relevant Nodes) ===\n{rag_context}"
+            context_parts.append("=== RAG Context (Top Relevant Nodes) ===")
+            context_parts.append(rag_context)
+        context_summary = _render_context_summary(context_nodes, graph)
+        if context_summary:
+            context_parts.append("=== Context Node Overview ===")
+            context_parts.append(context_summary)
+        context = "\n\n".join(part for part in context_parts if part.strip())
         context_lines = len(context.split("\n"))
             
         ai_res = await ask_ai(request.question, context)
@@ -4987,6 +5386,24 @@ async def ask_question(request: AskRequest):
             answer_text = answer_raw.replace("{", "").replace("}", "").replace("\"resposta_texto\":", "").strip()
             if not answer_text:
                 answer_text = "A IA não retornou nenhuma resposta. Tente fazer a pergunta de outra forma ou verifique se o modelo está carregado."
+
+        relevant_nodes = []
+        for entry in rag_nodes[:6]:
+            key = entry.get("namespace_key")
+            label = entry.get("name") or entry.get("label") or key
+            if key and label:
+                relevant_nodes.append(f"{label} [{key}]")
+        for key in [k for k in context_nodes if isinstance(k, str)][:6]:
+            node = graph.node_by_key.get(key)
+            name = node.get("name") if node else None
+            label = name or key
+            entry_label = f"{label} [{key}]"
+            if entry_label not in relevant_nodes:
+                relevant_nodes.append(entry_label)
+
+        if relevant_nodes and answer_text.strip():
+            citation = ", ".join(relevant_nodes[:6])
+            answer_text = f"{answer_text.strip()}\n\nEsta resposta usa contexto de: {citation}"
 
         return AskResponse(
             answer=answer_text,
@@ -5680,6 +6097,76 @@ async def get_iso5055_grade():
     }
 
 
+def _compute_quality_metrics() -> dict:
+    snapshot = _load_history_entries()
+    latest = snapshot[-1] if snapshot else {}
+    god_classes = int(latest.get("god_classes", 0) or 0)
+    call_resolution = float(latest.get("call_resolution_rate", 0.0) or 0.0)
+    hotspot_score = 0.0
+    for node in memory_nodes:
+        score = float(node.get("hotspot_score") or 0.0)
+        if score > hotspot_score:
+            hotspot_score = score
+    iso_rules = _iso_rule_checks()
+    max_score = sum(r["weight"] for r in iso_rules)
+    score_obtained = sum(r["score"] for r in iso_rules)
+    iso_pct = round(_safe_ratio(score_obtained, max_score) * 100.0, 2)
+    return {
+        "god_classes": god_classes,
+        "call_resolution_rate": round(call_resolution * 100.0, 2),
+        "max_hotspot_score": round(hotspot_score, 2),
+        "iso_score_percent": iso_pct,
+        "iso_grade": _iso_grade_from_score(iso_pct),
+        "rules": iso_rules,
+        "snapshot_timestamp": latest.get("timestamp"),
+    }
+
+
+def _assess_quality_gate(thresholds: QualityThresholds, metrics: dict) -> (bool, list[str], float):
+    violations = []
+    if metrics["god_classes"] > thresholds.max_god_classes:
+        violations.append(f"God Classes ({metrics['god_classes']}) exceed {thresholds.max_god_classes}")
+    if metrics["call_resolution_rate"] / 100.0 < thresholds.min_call_resolution:
+        violations.append(f"Call resolution ({metrics['call_resolution_rate']}%) below {thresholds.min_call_resolution * 100}%")
+    if metrics["max_hotspot_score"] > thresholds.max_hotspot_score:
+        violations.append(f"Hotspot score ({metrics['max_hotspot_score']}) above {thresholds.max_hotspot_score}")
+    if metrics["iso_score_percent"] < thresholds.min_iso5055:
+        violations.append(f"ISO 5055 ({metrics['iso_score_percent']}%) below {thresholds.min_iso5055}%")
+    passed = len(violations) == 0
+    score = max(0.0, 100.0 - len(violations) * 18.0)
+    return passed, violations, round(score, 2)
+
+
+def _record_quality_gate(entry: dict) -> None:
+    history = _read_quality_history()
+    history.append(entry)
+    _write_quality_history(history)
+
+
+@app.post("/api/quality/gate", response_model=QualityGateResponse)
+async def evaluate_quality_gate(request: QualityGateRequest):
+    metrics = _compute_quality_metrics()
+    if not metrics.get("snapshot_timestamp"):
+        raise HTTPException(status_code=409, detail="Nenhum scan registrado. Execute um scan antes de avaliar o quality gate.")
+    passed, violations, score = _assess_quality_gate(request.thresholds, metrics)
+    entry = {
+        "passed": passed,
+        "violations": violations,
+        "score": score,
+        "metrics": metrics,
+        "thresholds": request.thresholds.model_dump(),
+        "timestamp": datetime.datetime.utcnow().isoformat() + "Z",
+    }
+    _record_quality_gate(entry)
+    return entry
+
+
+@app.get("/api/quality/history")
+async def quality_history(limit: int = Query(8, ge=1, le=20)):
+    history = _read_quality_history()
+    return {"entries": history[-limit:]}
+
+
 @app.post("/api/views")
 async def create_saved_view(request: SavedViewCreateRequest):
     if not request.name.strip():
@@ -6290,9 +6777,45 @@ def _prepare_report_context(report_type: str):
     else:
         raise HTTPException(status_code=404, detail="report type not supported")
 
+    history = _load_history_entries()
+    latest_snapshot = history[-1] if history else {}
+    prev_snapshot = history[-2] if len(history) > 1 else None
+    hotspot_nodes = sorted(
+        ((n, float(n.get("hotspot_score") or 0)) for n in nodes),
+        key=lambda item: -item[1],
+    )
+    top_hotspot = hotspot_nodes[0][0].get("name") if hotspot_nodes else "n/a"
+    exec_summary = [
+        f"ISO 5055: {_iso_grade_from_score(score_percent)} ({score_percent}%) · {sum(1 for r in iso_rules if r['passed'])}/{len(iso_rules)} controles passados",
+        f"Último snapshot: {latest_snapshot.get('total_nodes', 0)} nós · {latest_snapshot.get('total_edges', 0)} arestas",
+        f"Hotspot mais crítico: {top_hotspot} ({hotspot_nodes[0][1] if hotspot_nodes else 0:.1f})",
+    ]
+    technical_details = [
+        f"God Classes: {latest_snapshot.get('god_classes', 0)}",
+        f"Taxa de resolução de chamadas: {(latest_snapshot.get('call_resolution_rate', 0.0) * 100):.1f}%",
+        f"Dependências rastreadas: {len(nodes)} nós · {len(edges)} arestas",
+    ]
+    comparison = ""
+    if prev_snapshot:
+        nodes_diff = latest_snapshot.get("total_nodes", 0) - prev_snapshot.get("total_nodes", 0)
+        edges_diff = latest_snapshot.get("total_edges", 0) - prev_snapshot.get("total_edges", 0)
+        risk_current = int(latest_snapshot.get("god_classes", 0) * 5 + latest_snapshot.get("circular_deps", 0) * 5 + latest_snapshot.get("dead_code", 0))
+        risk_prev = int(prev_snapshot.get("god_classes", 0) * 5 + prev_snapshot.get("circular_deps", 0) * 5 + prev_snapshot.get("dead_code", 0))
+        risk_diff = risk_current - risk_prev
+        comparison = (
+            f"Nós {nodes_diff:+}, Arestas {edges_diff:+}, risco {risk_diff:+} "
+            f"(último vs anterior: {prev_snapshot.get('timestamp')} → {latest_snapshot.get('timestamp')})"
+        )
+    chart_svg = _render_report_chart(history[-6:])
     return {
         "title": title,
         "subtitle": subtitle,
+        "executive_summary": exec_summary,
+        "technical_details": technical_details,
+        "comparison": comparison,
+        "chart_svg": chart_svg,
+        "project_name": PROJECT_NAME,
+        "project_logo": PROJECT_LOGO_TEXT,
         "sections": sections,
         "generated_at": datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC"),
     }
@@ -6357,6 +6880,28 @@ def _collect_dependency_packages() -> list[dict]:
         seen.add(key)
         unique.append(dep)
     return unique
+
+
+@app.get("/api/debt-tracker")
+async def get_debt_tracker():
+    history = _load_history_entries()
+    if not history:
+        raise HTTPException(status_code=404, detail="Nenhum registro de scan disponível.")
+    latest = history[-1]
+    risk = _debt_risk_value(latest)
+    past_entries = history[-4:]
+    diffs = []
+    for i in range(1, len(past_entries)):
+        diffs.append(_debt_risk_value(past_entries[i]) - _debt_risk_value(past_entries[i - 1]))
+    avg_diff = sum(diffs) / len(diffs) if diffs else 0
+    projection = max(0, risk + avg_diff * 2)
+    quick_wins = _quick_win_candidates(8)
+    return {
+        "score": risk,
+        "projection": round(projection, 2),
+        "history": _build_debt_history(history),
+        "quick_wins": quick_wins,
+    }
 
 
 async def _query_osv(dep: dict) -> list[dict]:

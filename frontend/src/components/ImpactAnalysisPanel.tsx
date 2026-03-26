@@ -31,14 +31,15 @@ import {
     fetchNodeVulnerabilities,
 } from '../api';
 
-interface ImpactAnalysisPanelProps {
+export interface ImpactAnalysisPanelProps {
     nodeKey: string;
     nodeName: string;
     onClose: () => void;
     onHighlightNodes: (keys: string[]) => void;
+    initialTab?: ImpactTab;
 }
 
-type Tab = 'analyze' | 'dataflow' | 'contracts' | 'fields' | 'taint' | 'symbols' | 'sideeffects' | 'fragility' | 'bidirectional' | 'security';
+export type ImpactTab = 'analyze' | 'dataflow' | 'contracts' | 'fields' | 'taint' | 'symbols' | 'sideeffects' | 'fragility' | 'bidirectional' | 'security';
 
 const CHANGE_TYPES: { value: ChangeDescriptor['change_type']; label: string }[] = [
     { value: 'rename_parameter', label: 'Renomear Parâmetro' },
@@ -65,8 +66,9 @@ export default function ImpactAnalysisPanel({
     nodeName,
     onClose,
     onHighlightNodes,
+    initialTab = 'analyze',
 }: ImpactAnalysisPanelProps) {
-    const [activeTab, setActiveTab] = useState<Tab>('analyze');
+    const [activeTab, setActiveTab] = useState<ImpactTab>(initialTab);
 
     // Analyze tab state
     const [changeType, setChangeType] = useState<ChangeDescriptor['change_type']>('rename_parameter');
@@ -136,6 +138,10 @@ export default function ImpactAnalysisPanel({
     const [vulnerabilities, setVulnerabilities] = useState<SecurityIssue[] | null>(null);
     const [securityError, setSecurityError] = useState('');
     const [vulnerabilityCount, setVulnerabilityCount] = useState<number>(0);
+
+    useEffect(() => {
+        setActiveTab(initialTab);
+    }, [initialTab]);
 
     const handleAnalyze = useCallback(async () => {
         setAnalyzing(true);

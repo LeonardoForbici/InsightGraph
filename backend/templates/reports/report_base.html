@@ -10,20 +10,58 @@
     table { width: 100%; border-collapse: collapse; margin-top: 8px; }
     th, td { border: 1px solid #cbd5f5; padding: 8px 10px; text-align: left; font-size: 12px; }
     th { background: #e0e7ff; }
-    .section { margin-top: 24px; }
+    .section, .executive-summary, .technical-details { margin-top: 24px; }
     .section-desc { color: #475569; font-size: 13px; margin: 8px 0; }
     .pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; background: #e0f2fe; border-radius: 999px; color: #0f172a; font-size: 12px; font-weight: 600; }
+    .report-title-group { display: flex; flex-direction: column; gap: 4px; }
+    .report-meta { color: #475569; font-size: 12px; margin-top: 6px; text-transform: uppercase; letter-spacing: 0.08em; }
+    .executive-summary ul,
+    .technical-details ul { list-style: none; padding: 0; margin: 12px 0 0; display: flex; flex-direction: column; gap: 6px; }
+    .executive-summary ul li,
+    .technical-details ul li { background: #fff; border-radius: 8px; padding: 8px 12px; box-shadow: 0 6px 16px rgba(15,23,42,0.08); font-size: 13px; }
+    .comparison { font-size: 12px; color: #0f172a; margin-top: 10px; font-weight: 600; }
+    .report-chart { margin-top: 18px; padding: 12px; background: #fff; border-radius: 16px; box-shadow: 0 12px 28px rgba(15,23,42,0.15); }
     .footer { margin-top: 48px; font-size: 11px; color: #475569; border-top: 1px solid #cbd5f5; padding-top: 12px; }
   </style>
 </head>
 <body>
   <header>
-    <div class="pill">InsightGraph</div>
-    <h1>{{ title }}</h1>
-    {% if subtitle %}
-      <p class="section-desc">{{ subtitle }}</p>
-    {% endif %}
+    <div class="pill">{{ project_logo }}</div>
+    <div class="report-title-group">
+      <h1>{{ title }}</h1>
+      {% if subtitle %}
+        <p class="section-desc">{{ subtitle }}</p>
+      {% endif %}
+      <p class="report-meta">Projeto: {{ project_name }} · Gerado em {{ generated_at }}</p>
+    </div>
   </header>
+
+  <section class="executive-summary">
+    <h2>Executive Summary</h2>
+    <ul>
+      {% for item in executive_summary %}
+        <li>{{ item }}</li>
+      {% endfor %}
+    </ul>
+    {% if comparison %}
+      <p class="comparison">{{ comparison }}</p>
+    {% endif %}
+  </section>
+
+  {% if chart_svg %}
+    <section class="report-chart">
+      {{ chart_svg | safe }}
+    </section>
+  {% endif %}
+
+  <section class="technical-details">
+    <h2>Technical Details</h2>
+    <ul>
+      {% for item in technical_details %}
+        <li>{{ item }}</li>
+      {% endfor %}
+    </ul>
+  </section>
   {% for section in sections %}
     <section class="section">
       <h2>{{ section.title }}</h2>

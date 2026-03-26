@@ -2,7 +2,6 @@ import { useState, useCallback, useMemo, useEffect, useRef, forwardRef, useImper
 import {
     ReactFlow,
     Controls,
-    MiniMap,
     Background,
     useNodesState,
     useEdgesState,
@@ -12,13 +11,14 @@ import {
     BackgroundVariant,
     ReactFlowProvider,
 } from '@xyflow/react';
-import type { Node, Edge, NodeProps } from '@xyflow/react';
+import type { Node, Edge, NodeProps, ReactFlowInstance } from '@xyflow/react';
 import type { Viewport } from '@xyflow/system';
 import '@xyflow/react/dist/style.css';
 import dagre from '@dagrejs/dagre';
 import type { GraphNode, GraphEdge } from '../api';
 import { fetchGraphPath, fetchInheritance } from '../api';
 import GraphCanvas3D from './GraphCanvas3D';
+import { getHeatmapColor, hotspotColorScale } from '../utils/graphColors';
 
 /* ─── Helpers ─── */
 function getNodeClass(labels: string[]): string {
@@ -114,19 +114,41 @@ function CustomNode({ data }: NodeProps) {
         return (
             <>
                 <Handle type="target" position={Position.Top} style={hiddenHandleStyle} isConnectable={false} />
-                <div 
-                  className="custom-node cluster-node" 
-                  style={{ 
-                    background: '#1e293b', color: '#cbd5e1', fontSize: '1rem', 
-                    padding: '16px', borderRadius: '12px', textAlign: 'center', 
-                    border: '2px dashed #475569', boxShadow: '0 8px 16px rgba(0,0,0,0.4)',
-                    minWidth: '150px',
+                <div
+                  className="custom-node cluster-node"
+                  style={{
+                    background: '#0f172a',
+                    color: '#e2e8f0',
+                    fontSize: '0.9rem',
+                    padding: '18px',
+                    borderRadius: '14px',
+                    textAlign: 'center',
+                    border: `2px dashed ${data.hotspotColor || '#475569'}`,
+                    boxShadow: '0 10px 28px rgba(0,0,0,0.45)',
+                    minWidth: '170px',
                     cursor: 'pointer',
+                    position: 'relative',
                   }}
                 >
-                    <div style={{ fontWeight: 'bold' }}>📦 {String(data.label)}</div>
-                    <div style={{ fontSize: '0.8rem', opacity: 0.7, marginTop: '4px' }}>{Number(data.count)} items inside</div>
-                    <div style={{ fontSize: '0.7rem', color: '#60a5fa', marginTop: '4px' }}>Double-click to expand</div>
+                    <div style={{ fontWeight: '700', letterSpacing: '0.04em' }}>
+                        {String(data.clusterLabel || data.label)}
+                    </div>
+                    <div style={{ marginTop: 6, fontSize: '0.75rem', opacity: 0.75 }}>
+                        {Number(data.count)} nós agrupados
+                    </div>
+                    <div style={{ marginTop: 6, display: 'flex', justifyContent: 'center', gap: 8, alignItems: 'center' }}>
+                        <span
+                          style={{
+                              width: 10,
+                              height: 10,
+                              borderRadius: 6,
+                              background: data.hotspotColor || '#475569',
+                              boxShadow: `0 0 10px ${data.hotspotColor || '#475569'}`,
+                          }}
+                        />
+                        <span style={{ fontSize: '0.7rem', opacity: 0.7 }}>hotspot médio</span>
+                    </div>
+                    <div style={{ fontSize: '0.7rem', color: '#60a5fa', marginTop: '6px' }}>Clique para expandir</div>
                 </div>
                 <Handle type="source" position={Position.Bottom} style={hiddenHandleStyle} isConnectable={false} />
             </>
@@ -138,16 +160,12 @@ function CustomNode({ data }: NodeProps) {
 
     let inlineStyle: React.CSSProperties = {};
     if (data.isHeatmap) {
-        if (typeof data.complexity === 'number') {
-            const c = data.complexity;
-            if (c > 20) inlineStyle = { background: 'rgba(239,68,68,0.2)', borderColor: '#ef4444', color: '#fff' };
-            else if (c >= 10) inlineStyle = { background: 'rgba(249,115,22,0.2)', borderColor: '#f97316', color: '#fff' };
-            else if (c >= 5) inlineStyle = { background: 'rgba(234,179,8,0.2)', borderColor: '#eab308', color: '#fff' };
-            else if (c >= 1) inlineStyle = { background: 'rgba(59,130,246,0.2)', borderColor: '#3b82f6', color: '#fff' };
-            else inlineStyle = { background: 'rgba(100,116,139,0.2)', borderColor: '#64748b', color: '#fff' };
-        } else {
-            inlineStyle = { background: 'rgba(100,116,139,0.2)', borderColor: '#64748b', color: '#fff' };
-        }
+        const color = getHeatmapColor(data.complexity);
+        inlineStyle = {
+            ...inlineStyle,
+            boxShadow: `0 0 18px ${color}80`,
+            borderColor: `${color}`,
+        };
     }
 
     // AI Highlight style overrides everything
@@ -242,12 +260,13 @@ interface GraphCanvasProps {
     highlightedDownstream: Set<string>;
     aiHighlightedNodes: string[];
     selectedNodeKey: string | null;
-    onNodeClick: (nodeKey: string, nodeData: GraphNode) => void;
+    onNodeClick: (nodeKey: string, nodeData: GraphNode, screenPosition?: { x: number; y: number }) => void;
     onClearAiHighlights?: () => void;
     searchTerm: string;
     nodeAnnotations?: Map<string, { tag?: string; color?: string | null }>;
     selectedTag?: string | null;
     tagFilterNodes?: Set<string>;
+    onCanvasClick?: () => void;
 }
 
 const GraphCanvasInnerImpl = (props: GraphCanvasProps, ref: ForwardedRef<GraphCanvasHandle>) => {
@@ -440,9 +459,9 @@ const GraphCanvasInnerImpl = (props: GraphCanvasProps, ref: ForwardedRef<GraphCa
     }, [inheritanceData, graphNodeMap]);
 
     // Build the graph payload dynamically observing expanded clusters
-    const { baseNodes, baseEdges } = useMemo(() => {
+    const { baseNodes, baseEdges, clusterSummaries, laneMeta } = useMemo(() => {
         if (viewMode === '3d') {
-            return { baseNodes: [], baseEdges: [] };
+            return { baseNodes: [], baseEdges: [], clusterSummaries: [], laneMeta: [] };
         }
 
         if (inheritanceMode && inheritancePayload) {
@@ -484,7 +503,7 @@ const GraphCanvasInnerImpl = (props: GraphCanvasProps, ref: ForwardedRef<GraphCa
                 }));
 
             const laid = layoutGraph(treeNodes, treeEdges, 'LR');
-            return { baseNodes: laid.nodes, baseEdges: laid.edges };
+            return { baseNodes: laid.nodes, baseEdges: laid.edges, clusterSummaries: [], laneMeta: [] };
         }
 
         const filteredNodes = searchTerm
@@ -505,19 +524,66 @@ const GraphCanvasInnerImpl = (props: GraphCanvasProps, ref: ForwardedRef<GraphCa
             return Math.max(min, Math.min(max, min + t * (max - min)));
         };
 
-        if (filteredNodes.length === 0) return { baseNodes: [], baseEdges: [] };
+        if (filteredNodes.length === 0) return { baseNodes: [], baseEdges: [], clusterSummaries: [], laneMeta: [] };
+
+        const layerBuckets = new Map<string, GraphNode[]>();
+        const nodeLayerLookup = new Map<string, string>();
+        filteredNodes.forEach((node) => {
+            const layerName = normalizeLayer(node.layer || node.labels?.[0]);
+            nodeLayerLookup.set(node.namespace_key, layerName);
+            if (!layerBuckets.has(layerName)) layerBuckets.set(layerName, []);
+            layerBuckets.get(layerName)!.push(node);
+        });
+
+        const orderedLayers = [
+            ...LAYER_ORDER_PRIORITIES.filter((layer) => layerBuckets.has(layer)),
+            ...[...layerBuckets.keys()].filter((layer) => !LAYER_ORDER_PRIORITIES.includes(layer)),
+        ];
+
+        const layerIndexLookup = new Map<string, number>();
+        orderedLayers.forEach((layerName, index) => layerIndexLookup.set(layerName, index));
+
+        const collapsibleLayers = new Set<string>();
+        layerBuckets.forEach((nodes, layerName) => {
+            if (nodes.length > CLUSTER_THRESHOLD) collapsibleLayers.add(layerName);
+        });
+
+        const forceExpandAll = expandedClusters.has('*ALL*');
+
+        const clusterSummaries = orderedLayers.map((layerName) => {
+            const nodes = layerBuckets.get(layerName) || [];
+            const sumHotspot = nodes.reduce((acc, node) => acc + (node.hotspot_score || 0), 0);
+            return {
+                layer: layerName,
+                count: nodes.length,
+                avgHotspot: nodes.length ? sumHotspot / nodes.length : 0,
+            };
+        });
+
+        const summaryLookup = new Map(clusterSummaries.map((summary) => [summary.layer, summary]));
+        const laneMeta = orderedLayers.map((layerName, index) => {
+            const nodes = layerBuckets.get(layerName) || [];
+            const summary = summaryLookup.get(layerName);
+            const isCollapsible = collapsibleLayers.has(layerName);
+            const isCollapsed = isCollapsible && !forceExpandAll && !expandedClusters.has(layerName);
+            return {
+                layer: layerName,
+                index,
+                count: nodes.length,
+                avgHotspot: summary?.avgHotspot ?? 0,
+                isCollapsible,
+                isCollapsed,
+            };
+        });
+        const laneMetaLookup = new Map(laneMeta.map((lane) => [lane.layer, lane]));
 
         const nsNodes: Node[] = [];
         const nsEdges: Edge[] = [];
         const clusterMap = new Map<string, Node>();
-        
-        const forceExpandAll = expandedClusters.has('*ALL*');
 
-        filteredNodes.forEach((gn) => {
-            const clusterId = gn.layer || gn.project || 'System';
+        const pushNode = (gn: GraphNode, layerName: string, layerIndex: number) => {
             const annotationMeta = nodeAnnotations?.get(gn.namespace_key);
             const matchesTagFilter = selectedTag ? (tagFilterNodes?.has(gn.namespace_key) ?? false) : false;
-            
             let highlightClass = '';
             if (aiHighlightedNodes.includes(gn.namespace_key)) highlightClass = 'highlighted-ai';
             else if (gn.namespace_key === selectedNodeKey) highlightClass = 'selected-node';
@@ -536,70 +602,80 @@ const GraphCanvasInnerImpl = (props: GraphCanvasProps, ref: ForwardedRef<GraphCa
             const dimmedValue = tagDim !== false ? tagDim : dimsOther;
             const highlightTagClass = selectedTag && matchesTagFilter ? 'highlighted-tag' : '';
 
-            if (forceExpandAll || expandedClusters.has(clusterId)) {
-                nsNodes.push({
-                    id: gn.namespace_key,
+            nsNodes.push({
+                id: gn.namespace_key,
+                type: 'custom',
+                position: { x: 0, y: layerIndex * LANE_SPACING },
+                data: {
+                    label: gn.name,
+                    icon: getNodeIcon(gn.labels),
+                    sublabel: gn.file || '',
+                    nodeClass: getNodeClass(gn.labels),
+                    highlightClass: [highlightClass, highlightTagClass].filter(Boolean).join(' '),
+                    isHeatmap: heatmapEnabled,
+                    complexity: gn.complexity,
+                    dimmed: dimmedValue,
+                    status: gn.status,
+                    impact_distance: gn.impact_distance,
+                    impactOpacity,
+                    annotationColor: annotationMeta ? (annotationMeta.color || '#60a5fa') : undefined,
+                    annotationTag: annotationMeta?.tag,
+                    hasAnnotation: Boolean(annotationMeta),
+                    matchesTagFilter,
+                    layerCanonical: layerName,
+                    clusterLayer: layerName,
+                },
+            });
+        };
+
+        orderedLayers.forEach((layerName) => {
+            const nodesInLayer = layerBuckets.get(layerName) || [];
+            const layerIndex = layerIndexLookup.get(layerName) ?? 0;
+            const laneInfo = laneMetaLookup.get(layerName);
+            const isCollapsed = laneInfo ? laneInfo.isCollapsed : false;
+
+            if (isCollapsed) {
+                const representative = nodesInLayer.reduce((prev, curr) => {
+                    if (!prev) return curr;
+                    return (curr.hotspot_score || 0) > (prev.hotspot_score || 0) ? curr : prev;
+                }, nodesInLayer[0]);
+                const summary = clusterSummaries.find((cs) => cs.layer === layerName);
+                clusterMap.set(`cluster:${layerName}`, {
+                    id: `cluster:${layerName}`,
                     type: 'custom',
-                    position: { x: 0, y: 0 },
+                    position: { x: 0, y: layerIndex * LANE_SPACING },
                     data: {
-                        label: gn.name,
-                        icon: getNodeIcon(gn.labels),
-                        sublabel: gn.file || '',
-                        nodeClass: getNodeClass(gn.labels),
-                        highlightClass: [highlightClass, highlightTagClass].filter(Boolean).join(' '),
-                        isHeatmap: heatmapEnabled,
-                        complexity: gn.complexity,
-                        dimmed: dimmedValue,
-                        status: gn.status,
-                        impact_distance: gn.impact_distance,
-                        impactOpacity,
-                        annotationColor: annotationMeta ? (annotationMeta.color || '#60a5fa') : undefined,
-                        annotationTag: annotationMeta?.tag,
-                        hasAnnotation: Boolean(annotationMeta),
-                        matchesTagFilter,
+                        label: representative?.name || layerName,
+                        clusterLabel: layerName,
+                        isCluster: true,
+                        count: nodesInLayer.length,
+                        clusterId: layerName,
+                        hotspotColor: hotspotColorScale(summary?.avgHotspot),
+                        layerCanonical: layerName,
+                        clusterLayer: layerName,
+                        status: representative?.status,
                     },
                 });
             } else {
-                if (!clusterMap.has(clusterId)) {
-                    clusterMap.set(clusterId, {
-                        id: `cluster:${clusterId}`,
-                        type: 'custom',
-                        position: { x: 0, y: 0 },
-                        data: {
-                            label: clusterId,
-                            isCluster: true,
-                            count: 1,
-                            clusterId: clusterId,
-                            status: gn.status
-                        }
-                    });
-                } else {
-                    const c = clusterMap.get(clusterId)!;
-                    c.data.count = (c.data.count as number) + 1;
-                    if (gn.status === 'deleted' || (gn.status === 'impacted' && c.data.status !== 'deleted')) {
-                        c.data.status = gn.status;
-                    }
-                }
+                nodesInLayer.forEach((node) => pushNode(node, layerName, layerIndex));
             }
         });
 
-        // Add cluster placeholders
-        clusterMap.forEach(v => nsNodes.push(v));
+        clusterMap.forEach((v) => nsNodes.push(v));
 
         // Maps edges down safely mapping intra-cluster to themselves (which we drop)
         const dedupByType = new Map<string, { source: string; target: string; relType: string }>();
         graphEdges.forEach((ge) => {
-            const srcNode = filteredNodes.find(n => n.namespace_key === ge.source);
-            const tgtNode = filteredNodes.find(n => n.namespace_key === ge.target);
-            if (!srcNode || !tgtNode) return;
+            if (!nodeLayerLookup.has(ge.source) || !nodeLayerLookup.has(ge.target)) return;
+            const srcLayer = nodeLayerLookup.get(ge.source) ?? 'Other';
+            const tgtLayer = nodeLayerLookup.get(ge.target) ?? 'Other';
+            const srcExpanded = forceExpandAll || !collapsibleLayers.has(srcLayer) || expandedClusters.has(srcLayer);
+            const tgtExpanded = forceExpandAll || !collapsibleLayers.has(tgtLayer) || expandedClusters.has(tgtLayer);
 
-            const srcCluster = srcNode.layer || srcNode.project || 'System';
-            const tgtCluster = tgtNode.layer || tgtNode.project || 'System';
+            const srcId = srcExpanded ? ge.source : `cluster:${srcLayer}`;
+            const tgtId = tgtExpanded ? ge.target : `cluster:${tgtLayer}`;
 
-            const srcId = forceExpandAll || expandedClusters.has(srcCluster) ? ge.source : `cluster:${srcCluster}`;
-            const tgtId = forceExpandAll || expandedClusters.has(tgtCluster) ? ge.target : `cluster:${tgtCluster}`;
-
-            if (srcId === tgtId) return; // Drop self-loops
+            if (srcId === tgtId) return;
 
             const edgeKey = `${srcId}::${tgtId}::${ge.type}`;
             if (!dedupByType.has(edgeKey)) {
@@ -649,9 +725,22 @@ const GraphCanvasInnerImpl = (props: GraphCanvasProps, ref: ForwardedRef<GraphCa
 
         if (nsNodes.length > 0) {
             const laid = layoutGraph(nsNodes, nsEdges);
-            return { baseNodes: laid.nodes, baseEdges: laid.edges };
+            const adjusted = laid.nodes.map((node) => {
+                const laneName = node.data.clusterLayer || node.data.layerCanonical || 'Other';
+                const laneIndex = layerIndexLookup.get(laneName) ?? 0;
+                return {
+                    ...node,
+                    position: { x: node.position.x, y: laneIndex * LANE_SPACING + node.position.y },
+                };
+            });
+            return {
+                baseNodes: adjusted,
+                baseEdges: laid.edges,
+                clusterSummaries,
+                laneMeta,
+            };
         }
-        return { baseNodes: nsNodes, baseEdges: nsEdges };
+        return { baseNodes: nsNodes, baseEdges: nsEdges, clusterSummaries, laneMeta };
 
     }, [
         graphNodes,
@@ -674,6 +763,7 @@ const GraphCanvasInnerImpl = (props: GraphCanvasProps, ref: ForwardedRef<GraphCa
     const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
     const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
     const reactFlowInstanceRef = useRef<ReactFlowInstance | null>(null);
+    const canvasRef = useRef<HTMLDivElement>(null);
     const [viewportState, setViewportState] = useState<Viewport>({ x: 0, y: 0, zoom: 1 });
 
     // Visually update nodes and edges when soft properties change (bypassing heavy layout computation)
@@ -745,7 +835,24 @@ const GraphCanvasInnerImpl = (props: GraphCanvasProps, ref: ForwardedRef<GraphCa
         });
     }, [baseNodes, baseEdges, selectedNodeKey, aiHighlightedNodes, highlightedUpstream, highlightedDownstream, heatmapEnabled, pathFinderNodeSet, pathFinderEdgeKeys, setNodes, setEdges]);
     
-    // NOTE: Removed auto-fit behavior to preserve user viewport context.
+// NOTE: Removed auto-fit behavior to preserve user viewport context.
+
+const LAYER_ORDER_PRIORITIES = ['Database', 'Service', 'API', 'Frontend', 'Mobile', 'External', 'Other'];
+const LANE_SPACING = 220;
+const CLUSTER_THRESHOLD = 30;
+const CLUSTER_OVERVIEW_LIMIT = 5;
+
+const normalizeLayer = (layer?: string): string => {
+    if (!layer) return 'Other';
+    const normalized = layer.toLowerCase();
+    if (normalized.includes('database') || normalized.includes('sql')) return 'Database';
+    if (normalized.includes('service')) return 'Service';
+    if (normalized.includes('api')) return 'API';
+    if (normalized.includes('frontend') || normalized.includes('ui') || normalized.includes('web')) return 'Frontend';
+    if (normalized.includes('mobile')) return 'Mobile';
+    if (normalized.includes('external') || normalized.includes('third')) return 'External';
+    return 'Other';
+};
 
     const captureViewState = useCallback((): SavedViewState => ({
         nodes: nodes.map((node) => ({
@@ -775,18 +882,37 @@ const GraphCanvasInnerImpl = (props: GraphCanvasProps, ref: ForwardedRef<GraphCa
         applyViewState,
     }), [captureViewState, applyViewState]);
 
+    const toggleClusterLayer = useCallback((layerName: string) => {
+        setExpandedClusters((prev) => {
+            const next = new Set(prev);
+            next.delete('*ALL*');
+            if (next.has(layerName)) {
+                next.delete(layerName);
+            } else {
+                next.add(layerName);
+            }
+            return next;
+        });
+    }, []);
+
+    const expandAllClusters = useCallback(() => {
+        setExpandedClusters(new Set(['*ALL*']));
+    }, []);
+
+    const collapseAllClusters = useCallback(() => {
+        setExpandedClusters(new Set());
+    }, []);
+
     const handleNodeDoubleClick = useCallback(
         (_: React.MouseEvent, node: Node) => {
             if (node.id.startsWith('cluster:')) {
                 const clusterId = node.data.clusterId as string;
-                setExpandedClusters(prev => {
-                    const next = new Set(prev);
-                    next.add(clusterId);
-                    return next;
-                });
+                if (clusterId) {
+                    toggleClusterLayer(clusterId);
+                }
             }
         },
-        []
+        [toggleClusterLayer]
     );
 
     const handlePathFinderNode = useCallback(
@@ -833,17 +959,37 @@ const GraphCanvasInnerImpl = (props: GraphCanvasProps, ref: ForwardedRef<GraphCa
 
     const handleNodeClick = useCallback(
         (_: React.MouseEvent, node: Node) => {
-            if (!node.id.startsWith('cluster:')) {
-                if (pathFinderMode) {
-                    handlePathFinderNode(node.id);
-                    return;
+            if (node.id.startsWith('cluster:')) {
+                const clusterId = node.data.clusterId as string;
+                if (clusterId) {
+                    toggleClusterLayer(clusterId);
                 }
-                const gn = graphNodes.find((n) => n.namespace_key === node.id);
-                if (gn) onNodeClick(node.id, gn);
+                return;
+            }
+            if (pathFinderMode) {
+                handlePathFinderNode(node.id);
+                return;
+            }
+            const gn = graphNodes.find((n) => n.namespace_key === node.id);
+            if (gn) {
+                const screenPosition = reactFlowInstanceRef.current?.project(node.position);
+                const canvasRect = canvasRef.current?.getBoundingClientRect();
+                const absolutePosition = screenPosition && canvasRect
+                    ? { x: canvasRect.left + screenPosition.x, y: canvasRect.top + screenPosition.y }
+                    : screenPosition;
+                onNodeClick(node.id, gn, absolutePosition ? { x: absolutePosition.x, y: absolutePosition.y } : undefined);
             }
         },
-        [graphNodes, onNodeClick, pathFinderMode, handlePathFinderNode]
+        [graphNodes, onNodeClick, pathFinderMode, handlePathFinderNode, toggleClusterLayer]
     );
+
+    const topClusters = clusterSummaries.slice(0, CLUSTER_OVERVIEW_LIMIT);
+    const maxClusterSize = topClusters.length ? Math.max(1, ...topClusters.map((summary) => summary.count)) : 1;
+    const clusterableLanes = laneMeta.filter((lane) => lane.isCollapsible);
+    const collapsedLanes = clusterableLanes.filter((lane) => lane.isCollapsed);
+    const hasCollapsible = clusterableLanes.length > 0;
+    const hasCollapsed = collapsedLanes.length > 0;
+    const hasExpanded = clusterableLanes.some((lane) => !lane.isCollapsed);
 
     if (graphNodes.length === 0) {
         return (
@@ -862,7 +1008,84 @@ const GraphCanvasInnerImpl = (props: GraphCanvasProps, ref: ForwardedRef<GraphCa
     }
 
     return (
-        <div className="canvas-area">
+        <div className="canvas-area" ref={canvasRef}>
+            {clusterSummaries.length > 0 && (
+            <div className="cluster-overview">
+                <div className="cluster-map" aria-label="Mapa compacto de clusters">
+                    {topClusters.map((summary) => (
+                        <div key={`map-${summary.layer}`} className="cluster-map-row">
+                            <div className="cluster-map-bar">
+                                <div
+                                    className="cluster-map-fill"
+                                    style={{
+                                        width: `${Math.min(100, (summary.count / maxClusterSize) * 100)}%`,
+                                        background: hotspotColorScale(summary.avgHotspot),
+                                    }}
+                                />
+                            </div>
+                            <div className="cluster-map-meta">
+                                <span>{summary.layer}</span>
+                                <span>{summary.count} nós</span>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+                <div className="cluster-overview-cards">
+                    {topClusters.map((summary) => (
+                        <div key={summary.layer} className="cluster-overview-card">
+                            <div className="cluster-overview-label">{summary.layer}</div>
+                            <div className="cluster-overview-count">{summary.count} nós</div>
+                            <div className="cluster-overview-hotspot" style={{ background: hotspotColorScale(summary.avgHotspot) }} />
+                        </div>
+                    ))}
+                </div>
+            </div>
+
+            )}
+            {viewMode === '2d' && laneMeta.length > 0 && (
+                <div className="swimlane-overlay">
+                    <div className="swimlane-header">
+                        <span className="swimlane-title">Swimlanes</span>
+                        <div className="swimlane-actions">
+                            <button
+                                className="btn btn-secondary swimlane-action"
+                                onClick={collapseAllClusters}
+                                disabled={!hasCollapsible || !hasExpanded}
+                            >
+                                Colapsar todos
+                            </button>
+                            <button
+                                className="btn btn-accent swimlane-action"
+                                onClick={expandAllClusters}
+                                disabled={!hasCollapsible || !hasCollapsed}
+                            >
+                                Expandir todos
+                            </button>
+                        </div>
+                    </div>
+                    <div className="swimlane-rows">
+                        {laneMeta.map((lane) => (
+                            <div key={lane.layer} className="swimlane-row">
+                                <div className="swimlane-labels">
+                                    <span className="swimlane-name">{lane.layer}</span>
+                                    <span className="swimlane-count">{lane.count} nós</span>
+                                </div>
+                                <div className="swimlane-heat" style={{ background: hotspotColorScale(lane.avgHotspot) }} />
+                                {lane.isCollapsible ? (
+                                    <button
+                                        className={`btn swimlane-toggle ${lane.isCollapsed ? 'btn-secondary' : 'btn-accent'}`}
+                                        onClick={() => toggleClusterLayer(lane.layer)}
+                                    >
+                                        {lane.isCollapsed ? 'Expandir' : 'Detalhar'}
+                                    </button>
+                                ) : (
+                                    <span className="swimlane-detailed">Sempre detalhado</span>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
             {viewMode === '2d' ? (
                 <ReactFlow
                     nodes={nodes}
@@ -882,21 +1105,11 @@ const GraphCanvasInnerImpl = (props: GraphCanvasProps, ref: ForwardedRef<GraphCa
                         reactFlowInstanceRef.current = instance;
                         setViewportState(instance.getViewport());
                     }}
+                    onPaneClick={() => {
+                        props.onCanvasClick?.();
+                    }}
                 >
                     <Controls />
-                    <MiniMap
-                        nodeColor={(n) => {
-                            if (n.data.isCluster) return '#60a5fa';
-                            if (n.data.highlightClass === 'highlighted-ai') return '#f472b6';
-                            const cls = (n.data as Record<string, unknown>).nodeClass as string;
-                            if (cls?.includes('java')) return '#fb923c';
-                            if (cls?.includes('ts')) return '#60a5fa';
-                            if (cls?.includes('sql')) return '#34d399';
-                            if (cls?.includes('mobile')) return '#a78bfa';
-                            return '#5a6380';
-                        }}
-                        maskColor="rgba(6, 8, 26, 0.75)"
-                    />
                     <Background variant={BackgroundVariant.Dots} gap={28} size={1} color="rgba(139,147,176,0.04)" />
                 </ReactFlow>
             ) : (
@@ -1163,7 +1376,7 @@ const GraphCanvasInnerImpl = (props: GraphCanvasProps, ref: ForwardedRef<GraphCa
 }
 
 /* ─── Main Export Component with Provider ─── */
-const GraphCanvasInner = forwardRef(GraphCanvasInnerImpl);
+const GraphCanvasInner = forwardRef<GraphCanvasHandle, GraphCanvasProps>(GraphCanvasInnerImpl);
 
 const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>((props, ref) => (
     <ReactFlowProvider>

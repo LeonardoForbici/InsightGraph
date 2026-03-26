@@ -1,10 +1,11 @@
-import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type MouseEvent } from 'react';
 import TopBar from './components/TopBar';
 import Sidebar from './components/Sidebar';
 import GraphCanvas from './components/GraphCanvas';
 import type { GraphCanvasHandle, SavedViewState } from './components/GraphCanvas';
 import NodeDetail from './components/NodeDetail';
 import AskPanel from './components/AskPanel';
+import ImpactAnalysisPanel, { type ImpactTab } from './components/ImpactAnalysisPanel';
 import StatsBar from './components/StatsBar';
 import Dashboard from './components/Dashboard';
 import SimulationPanel from './components/SimulationPanel';
@@ -12,6 +13,11 @@ import CodeQLModal from './components/CodeQLModal';
 import MethodUsageView from './components/MethodUsageView';
 import TransactionPanel from './components/TransactionPanel';
 import SavedViewsPanel from './components/SavedViewsPanel';
+import QuickActionToolbar, { type QuickActionConfig } from './components/QuickActionToolbar';
+import CommandPalette, { type CommandItem } from './components/CommandPalette';
+import NodeQuickActions, { type NodeActionAnchor } from './components/NodeQuickActions';
+import SemanticSearchPanel from './components/SemanticSearchPanel';
+const NODE_QUICK_ACTION_IDS = new Set(['qa-impact', 'qa-taint', 'qa-fragility', 'qa-dataflow', 'qa-ask', 'qa-annotate']);
 import {
   scanProjects,
   getScanStatus,
@@ -21,7 +27,7 @@ import {
   fetchProjects,
   fetchGraphStats,
   requestSimulationReview,
-  semanticGraphSearch,
+  semanticSearch,
   rebuildRagIndex,
   listSavedViews,
   createSavedView,
@@ -36,6 +42,8 @@ import type {
   BlastRadiusData,
   Tag,
   AnnotationRecord,
+  SemanticSearchResult,
+  SemanticSearchMode,
 } from './api';
 import './index.css';
 
@@ -44,6 +52,15 @@ const ensureArray = <T,>(value: T[] | Record<string, T> | null | undefined): T[]
   if (!value) return [];
   return Object.values(value) as T[];
 };
+const NODE_TYPE_OPTIONS = [
+  { value: 'Java_Class', label: 'Classe Java' },
+  { value: 'Java_Method', label: 'Método Java' },
+  { value: 'API_Endpoint', label: 'API Endpoint' },
+  { value: 'TS_Component', label: 'Componente TS' },
+  { value: 'TS_Function', label: 'Função TS' },
+  { value: 'SQL_Table', label: 'Tabela SQL' },
+  { value: 'SQL_Procedure', label: 'Procedure SQL' },
+];
 import APIInventoryPanel from './components/APIInventoryPanel';
 
 export default function App() {
@@ -61,6 +78,11 @@ export default function App() {
   const [graphEdges, setGraphEdges] = useState<
     { source: string; target: string; type: string }[]
   >([]);
+  const [selectedNodeTypes, setSelectedNodeTypes] = useState<string[]>(NODE_TYPE_OPTIONS.map((opt) => opt.value));
+  const [fileFilter, setFileFilter] = useState('');
+  const [impactOnly, setImpactOnly] = useState(false);
+  const [hotspotRange, setHotspotRange] = useState<[number, number]>([0, 100]);
+  const [complexityRange, setComplexityRange] = useState<[number, number]>([0, 80]);
   const graphCanvasRef = useRef<GraphCanvasHandle>(null);
   const [savedViewsOpen, setSavedViewsOpen] = useState(false);
   const [savedViews, setSavedViews] = useState<SavedView[]>([]);
@@ -75,6 +97,7 @@ export default function App() {
   const [selectedProjects, setSelectedProjects] = useState<string[]>([]);
   const [selectedLayer, setSelectedLayer] = useState('');
   const [searchTerm, setSearchTerm] = useState('');
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   // ─── Selection & Impact State ───
   const [selectedNode, setSelectedNode] = useState<GraphNode | null>(null);
@@ -84,6 +107,16 @@ export default function App() {
   const [highlightedUpstream, setHighlightedUpstream] = useState<Set<string>>(new Set());
   const [highlightedDownstream, setHighlightedDownstream] = useState<Set<string>>(new Set());
   const [aiHighlightedNodes, setAiHighlightedNodes] = useState<string[]>([]);
+  const [impactAnalysisOpen, setImpactAnalysisOpen] = useState(false);
+  const [impactAnalysisNode, setImpactAnalysisNode] = useState<GraphNode | null>(null);
+  const [impactPanelTab, setImpactPanelTab] = useState<ImpactTab>('analyze');
+  const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
+  const [nodeActionAnchor, setNodeActionAnchor] = useState<NodeActionAnchor | null>(null);
+  const [commandHistory, setCommandHistory] = useState<string[]>([]);
+  const recordCommandHistory = useCallback((entry: string) => {
+    setCommandHistory((prev) => [entry, ...prev].slice(0, 10));
+  }, []);
+  const clearNodeActionAnchor = useCallback(() => setNodeActionAnchor(null), []);
 
   // ─── Stats & AI Panel State ───
   const [graphStats, setGraphStats] = useState<GraphStats | null>(null);
@@ -104,6 +137,14 @@ export default function App() {
   const [aiReport, setAiReport] = useState<string | null>(null);
   const [semanticSearchEnabled, setSemanticSearchEnabled] = useState(true);
   const [ragReindexing, setRagReindexing] = useState(false);
+  const [searchPanelOpen, setSearchPanelOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchMode, setSearchMode] = useState<SemanticSearchMode>('code');
+  const [searchResults, setSearchResults] = useState<SemanticSearchResult[]>([]);
+  const [searchLoading, setSearchLoading] = useState(false);
+  const [searchError, setSearchError] = useState<string | null>(null);
+  const [searchContextNodes, setSearchContextNodes] = useState<string[]>([]);
+  const [searchContextSummary, setSearchContextSummary] = useState('');
   
   // Create a ref for the full simulation data to pass to review
   const lastSimData = useRef<any>(null);
@@ -184,6 +225,90 @@ export default function App() {
       console.error('Failed to load tags for filter:', err);
     }
   }, []);
+
+  const availableFiles = useMemo(() => {
+    const files = new Set<string>();
+    graphNodes.forEach((node) => {
+      if (node.file) files.add(node.file);
+    });
+    return Array.from(files).sort();
+  }, [graphNodes]);
+
+  const filteredGraphNodes = useMemo(() => {
+    const [hotMin, hotMax] = hotspotRange;
+    const [compMin, compMax] = complexityRange;
+    const fileTerm = fileFilter.trim().toLowerCase();
+    const searchTermLower = searchTerm.trim().toLowerCase();
+    return graphNodes.filter((node) => {
+      const hotspot = node.hotspot_score ?? 0;
+      if (hotspot < hotMin || hotspot > hotMax) return false;
+      const complexity = node.complexity ?? 0;
+      if (complexity < compMin || complexity > compMax) return false;
+      const labels = node.labels ?? [];
+      if (selectedNodeTypes.length > 0 && !labels.some((label) => selectedNodeTypes.includes(label))) {
+        return false;
+      }
+      if (fileTerm && !(node.file || '').toLowerCase().includes(fileTerm)) {
+        return false;
+      }
+      if (searchTermLower && !node.name.toLowerCase().includes(searchTermLower)) {
+        return false;
+      }
+      if (impactOnly && !(typeof node.impact_distance === 'number' && node.impact_distance > 0)) {
+        return false;
+      }
+      return true;
+    });
+  }, [graphNodes, hotspotRange, complexityRange, selectedNodeTypes, fileFilter, impactOnly, searchTerm]);
+
+  const visibleNodeCount = filteredGraphNodes.length;
+  const totalNodeCount = graphNodes.length;
+
+  const filteredGraphEdges = useMemo(() => {
+    const visibleKeys = new Set(filteredGraphNodes.map((node) => node.namespace_key));
+    return graphEdges.filter((edge) => visibleKeys.has(edge.source) && visibleKeys.has(edge.target));
+  }, [graphEdges, filteredGraphNodes]);
+
+  const toggleNodeType = useCallback((type: string) => {
+    setSelectedNodeTypes((prev) => {
+      if (prev.includes(type)) {
+        return prev.filter((value) => value !== type);
+      }
+      return [...prev, type];
+    });
+  }, []);
+
+  const updateRange = (
+    setter: React.Dispatch<React.SetStateAction<[number, number]>>,
+    index: 0 | 1,
+    value: number
+  ) => {
+    setter((prev) => {
+      const next: [number, number] = [...prev];
+      if (index === 0) {
+        next[0] = Math.min(value, prev[1]);
+      } else {
+        next[1] = Math.max(prev[0], value);
+      }
+      return next;
+    });
+  };
+
+  const handleHotspotRangeChange = useCallback((index: 0 | 1, value: number) => {
+    updateRange(setHotspotRange, index, value);
+  }, [setHotspotRange]);
+
+  const handleComplexityRangeChange = useCallback((index: 0 | 1, value: number) => {
+    updateRange(setComplexityRange, index, value);
+  }, [setComplexityRange]);
+
+  const handleFileFilterChange = useCallback((value: string) => {
+    setFileFilter(value);
+  }, [setFileFilter]);
+
+  const handleImpactOnlyToggle = useCallback(() => {
+    setImpactOnly((prev) => !prev);
+  }, [setImpactOnly]);
 
   const loadAnnotations = useCallback(async () => {
     try {
@@ -272,11 +397,16 @@ export default function App() {
           name,
           description,
           project: selectedProjects.length === 1 ? selectedProjects[0] : undefined,
-          filters: {
-            searchTerm,
-            selectedLayer,
-            selectedProjects: [...selectedProjects],
-          },
+        filters: {
+          searchTerm,
+          selectedLayer,
+          selectedProjects: [...selectedProjects],
+          hotspotRange,
+          complexityRange,
+          selectedNodeTypes,
+          fileFilter,
+          impactOnly,
+        },
           reactflow_state: viewState,
         });
         await loadSavedViews();
@@ -284,7 +414,7 @@ export default function App() {
         setSaveViewLoading(false);
       }
     },
-    [selectedLayer, searchTerm, selectedProjects, loadSavedViews]
+    [selectedLayer, searchTerm, selectedProjects, hotspotRange, complexityRange, selectedNodeTypes, fileFilter, impactOnly, loadSavedViews]
   );
 
   const handleLoadSavedView = useCallback(
@@ -298,6 +428,27 @@ export default function App() {
       }
       if (Array.isArray(filters.selectedProjects)) {
         setSelectedProjects(filters.selectedProjects.filter((p): p is string => typeof p === 'string'));
+      }
+      if (Array.isArray(filters.hotspotRange) && filters.hotspotRange.length === 2) {
+        setHotspotRange([
+          Number(filters.hotspotRange[0]) || 0,
+          Number(filters.hotspotRange[1]) || 100,
+        ]);
+      }
+      if (Array.isArray(filters.complexityRange) && filters.complexityRange.length === 2) {
+        setComplexityRange([
+          Number(filters.complexityRange[0]) || 0,
+          Number(filters.complexityRange[1]) || 80,
+        ]);
+      }
+      if (Array.isArray(filters.selectedNodeTypes)) {
+        setSelectedNodeTypes(filters.selectedNodeTypes.filter((t): t is string => typeof t === 'string'));
+      }
+      if (typeof filters.fileFilter === 'string') {
+        setFileFilter(filters.fileFilter);
+      }
+      if (typeof filters.impactOnly === 'boolean') {
+        setImpactOnly(filters.impactOnly);
       }
 
       const rfState = view.reactflow_state as SavedViewState | undefined;
@@ -350,9 +501,14 @@ export default function App() {
   }, [workspaces, loadGraph]);
 
   const handleNodeClick = useCallback(
-    async (nodeKey: string, nodeData: GraphNode) => {
+    async (nodeKey: string, nodeData: GraphNode, screenPosition?: { x: number; y: number }) => {
       setSelectedNodeKey(nodeKey);
       setSelectedNode(nodeData);
+      if (screenPosition) {
+        setNodeActionAnchor({ nodeKey, nodeName: nodeData.name, position: screenPosition });
+      } else {
+        setNodeActionAnchor(null);
+      }
 
       try {
         const [impact, br] = await Promise.all([
@@ -373,6 +529,19 @@ export default function App() {
     },
     []
   );
+  const handleOpenImpactAnalysisPanel = useCallback((nodeKey: string, initialTab: ImpactTab = 'analyze') => {
+    const node = graphNodes.find((n) => n.namespace_key === nodeKey);
+    if (!node) return;
+    setImpactAnalysisNode(node);
+    setImpactAnalysisOpen(true);
+    setImpactPanelTab(initialTab);
+    handleNodeClick(nodeKey, node);
+  }, [graphNodes, handleNodeClick]);
+
+  const handleCloseImpactPanel = useCallback(() => {
+    setImpactAnalysisOpen(false);
+    setImpactAnalysisNode(null);
+  }, []);
 
   const handleCloseDetail = useCallback(() => {
     setSelectedNode(null);
@@ -477,22 +646,65 @@ export default function App() {
     setInventoryOpen((prev) => !prev);
   }, []);
 
-  const handleSemanticSearch = useCallback(async (query: string) => {
-    const q = query.trim();
-    if (!q) return;
+  const handleOpenSearchPanel = useCallback(() => {
+    setSearchPanelOpen(true);
+  }, []);
+
+  const handleCloseSearchPanel = useCallback(() => {
+    setSearchPanelOpen(false);
+  }, []);
+
+  const handleRunSemanticSearch = useCallback(async () => {
+    const q = searchQuery.trim();
+    if (!q) {
+      setSearchResults([]);
+      setSearchError(null);
+      return;
+    }
+    setSearchLoading(true);
+    setSearchError(null);
     try {
-      const res = await semanticGraphSearch(q, 20, selectedNodeKey || undefined, semanticSearchEnabled);
-      const keys = (res.results || []).map((r: any) => r.key || r.namespace_key).filter(Boolean);
-      setAiHighlightedNodes(keys);
-      if (keys.length > 0) {
-        const first = graphNodes.find((n) => n.namespace_key === keys[0]);
-        if (first) setSelectedNode(first);
-      }
+      const response = await semanticSearch(
+        q,
+        searchMode,
+        30,
+        selectedNodeKey || undefined,
+        semanticSearchEnabled,
+      );
+      setSearchResults(response.results);
+      setSearchContextSummary(response.context_summary || '');
+      setSearchContextNodes(response.context_nodes || []);
+      setSearchPanelOpen(true);
+      const nodeKeys = response.results
+        .map((result) => result.namespace_key)
+        .filter(Boolean) as string[];
+      setAiHighlightedNodes(nodeKeys);
     } catch (err) {
       console.error('Semantic search failed:', err);
-      alert('Falha na busca semântica.');
+      setSearchError('Falha na busca semântica. Tente novamente.');
+    } finally {
+      setSearchLoading(false);
     }
-  }, [selectedNodeKey, graphNodes, semanticSearchEnabled]);
+  }, [searchMode, searchQuery, selectedNodeKey, semanticSearchEnabled]);
+
+  const handleSelectSearchResult = useCallback(
+    (nodeKey: string) => {
+      const node = graphNodes.find((n) => n.namespace_key === nodeKey);
+      if (node) {
+        handleNodeClick(nodeKey, node);
+      }
+      setSearchPanelOpen(false);
+    },
+    [graphNodes, handleNodeClick],
+  );
+
+  const handleSearchImpactAction = useCallback(
+    (nodeKey: string) => {
+      handleOpenImpactAnalysisPanel(nodeKey, 'analyze');
+      setSearchPanelOpen(false);
+    },
+    [handleOpenImpactAnalysisPanel],
+  );
 
   const handleQuickImpactScenario = useCallback((
     scenario: 'delete' | 'signature' | 'data_type',
@@ -530,6 +742,132 @@ export default function App() {
     setAiHighlightedNodes(Array.from(keys));
   }, [impactData, blastRadius]);
 
+  const handleQuickAsk = useCallback(() => {
+    const label = selectedNode ? selectedNode.name : 'arquitetura';
+    const message = `Explique rapidamente o impacto de ${label} e quais dependências principais precisam ser consideradas.`;
+    setAskInitialMessage(message);
+    setAskOpen(true);
+  }, [selectedNode]);
+
+  const handleQuickAnnotate = useCallback(() => {
+    if (!selectedNode || !selectedNodeKey) return;
+    setSelectedNodeKey(selectedNodeKey);
+    setSelectedNode(selectedNode);
+    setAiHighlightedNodes([selectedNodeKey]);
+    alert('Use o painel de detalhes para adicionar uma anotação e salvar registros contextuais.');
+  }, [selectedNode, selectedNodeKey]);
+
+  const handleQuickSaveView = useCallback(() => {
+    const name = window.prompt('Nome da view atual');
+    if (name && name.trim()) {
+      handleSaveCurrentView(name.trim());
+    }
+  }, [handleSaveCurrentView]);
+
+  const handleFocusGraphNode = useCallback((nodeKey: string) => {
+    const node = graphNodes.find((n) => n.namespace_key === nodeKey);
+    if (node) {
+      handleNodeClick(nodeKey, node);
+    }
+  }, [graphNodes, handleNodeClick]);
+
+  const handleArrowNavigate = useCallback((direction: 'upstream' | 'downstream') => {
+    if (!selectedNodeKey || !impactData) return;
+    const neighbors = direction === 'upstream' ? impactData.upstream : impactData.downstream;
+    if (!neighbors.length) return;
+    const target = neighbors[0];
+    const node = graphNodes.find((n) => n.namespace_key === target.key);
+    if (node) {
+      handleNodeClick(target.key, node);
+    }
+  }, [selectedNodeKey, impactData, graphNodes, handleNodeClick]);
+
+  const wrapQuickAction = useCallback(
+    (label: string, effect: () => void) => (event: MouseEvent<HTMLButtonElement>) => {
+      event.preventDefault();
+      recordCommandHistory(label);
+      effect();
+    },
+    [recordCommandHistory]
+  );
+
+  const quickActionItems = useMemo<QuickActionConfig[]>(() => {
+    const hasNode = Boolean(selectedNodeKey);
+    return [
+      {
+        id: 'qa-impact',
+        label: 'Análise de Impacto',
+        icon: '🔍',
+        tooltip: 'Abrir impacto/RAG para o nó atual',
+        disabled: !hasNode,
+        shortcut: 'Ctrl+I',
+        onClick: wrapQuickAction('Análise de Impacto', () => {
+          if (hasNode && selectedNodeKey) handleOpenImpactAnalysisPanel(selectedNodeKey, 'analyze');
+        }),
+      },
+      {
+        id: 'qa-taint',
+        label: 'Taint',
+        icon: '🧪',
+        tooltip: 'Propagar taint a partir do nó selecionado',
+        disabled: !hasNode,
+        onClick: (event) => {
+          event.preventDefault();
+          if (hasNode && selectedNodeKey) handleOpenImpactAnalysisPanel(selectedNodeKey, 'taint');
+        },
+      },
+      {
+        id: 'qa-fragility',
+        label: 'Fragilidade',
+        icon: '📊',
+        tooltip: 'Analisar fragilidade e tendências',
+        disabled: !hasNode,
+        onClick: (event) => {
+          event.preventDefault();
+          if (hasNode && selectedNodeKey) handleOpenImpactAnalysisPanel(selectedNodeKey, 'fragility');
+        },
+      },
+      {
+        id: 'qa-dataflow',
+        label: 'Fluxo de Dados',
+        icon: '🔗',
+        tooltip: 'Abrir transaction view do nó',
+        disabled: !hasNode,
+        onClick: (event) => {
+          event.preventDefault();
+          if (hasNode && selectedNodeKey) handleOpenTransaction(selectedNodeKey);
+        },
+      },
+      {
+        id: 'qa-ask',
+        label: 'Perguntar à IA',
+        icon: '💬',
+        tooltip: 'Gerar pergunta rápida para o nó atual',
+        onClick: (event) => {
+          event.preventDefault();
+          handleQuickAsk();
+        },
+      },
+      {
+        id: 'qa-annotate',
+        label: 'Anotar',
+        icon: '📝',
+        tooltip: 'Registrar uma anotação rápida no nó',
+        disabled: !hasNode,
+        onClick: (event) => {
+          event.preventDefault();
+          handleQuickAnnotate();
+        },
+      },
+    ];
+  }, [
+    selectedNodeKey,
+    handleOpenImpactAnalysisPanel,
+    handleOpenTransaction,
+    handleQuickAsk,
+    handleQuickAnnotate,
+  ]);
+
   const handleRebuildRag = useCallback(async () => {
     try {
       setRagReindexing(true);
@@ -547,6 +885,216 @@ export default function App() {
   useEffect(() => {
     loadGraph();
   }, [loadGraph]);
+
+  useEffect(() => {
+    const handler = (event: KeyboardEvent) => {
+      const key = event.key.toLowerCase();
+      const target = event.target as HTMLElement | null;
+      const isTextInput = target && (target.tagName === 'INPUT' || target.tagName === 'TEXTAREA' || target.isContentEditable);
+
+      if (key === 'escape') {
+        if (commandPaletteOpen) {
+          event.preventDefault();
+          setCommandPaletteOpen(false);
+          return;
+        }
+        setAskOpen(false);
+        setDashboardOpen(false);
+        setSavedViewsOpen(false);
+        setImpactAnalysisOpen(false);
+        setTransactionOpen(false);
+        setInventoryOpen(false);
+        setSimulationOpen(false);
+        setCodeQLOpen(false);
+      }
+
+      if ((event.ctrlKey || event.metaKey) && key === 'k') {
+        event.preventDefault();
+        setCommandPaletteOpen((prev) => !prev);
+        return;
+      }
+
+      if ((event.ctrlKey || event.metaKey) && key === '/') {
+        event.preventDefault();
+        setAskOpen((prev) => !prev);
+        return;
+      }
+
+      if ((event.ctrlKey || event.metaKey) && key === 'd') {
+        event.preventDefault();
+        setDashboardOpen((prev) => !prev);
+        return;
+      }
+
+      if ((event.ctrlKey || event.metaKey) && key === 'f') {
+        event.preventDefault();
+        searchInputRef.current?.focus();
+        return;
+      }
+
+      if ((event.ctrlKey || event.metaKey) && event.shiftKey && key === 's') {
+        event.preventDefault();
+        handleQuickSaveView();
+        return;
+      }
+
+      if (!isTextInput && !commandPaletteOpen) {
+        if (key === 'arrowup') {
+          event.preventDefault();
+          handleArrowNavigate('upstream');
+          return;
+        }
+        if (key === 'arrowdown') {
+          event.preventDefault();
+          handleArrowNavigate('downstream');
+          return;
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [
+    commandPaletteOpen,
+    handleQuickSaveView,
+    handleArrowNavigate,
+    setDashboardOpen,
+    setAskOpen,
+    setSavedViewsOpen,
+    setImpactAnalysisOpen,
+    setTransactionOpen,
+    setInventoryOpen,
+    setSimulationOpen,
+    setCodeQLOpen,
+    setCommandPaletteOpen,
+  ]);
+
+  const commandActions = useMemo<CommandItem[]>(() => [
+    {
+      id: 'cmd_scan',
+      label: 'Scan All',
+      description: 'Executar scan em todos os workspaces',
+      category: 'Scan',
+      action: handleScan,
+    },
+    {
+      id: 'cmd_toggle_dashboard',
+      label: 'Dashboard',
+      description: 'Mostrar ou ocultar o painel',
+      category: 'Painel',
+      action: () => setDashboardOpen((prev) => !prev),
+    },
+    {
+      id: 'cmd_ai_assistant',
+      label: 'AI Assistant',
+      description: 'Abrir/fechar o assistente',
+      category: 'Assistente',
+      action: () => setAskOpen((prev) => !prev),
+    },
+    {
+      id: 'cmd_saved_views',
+      label: 'Saved Views',
+      description: 'Abrir painel de views salvas',
+      category: 'Views',
+      action: () => setSavedViewsOpen(true),
+    },
+    {
+      id: 'cmd_save_view',
+      label: 'Salvar view atual',
+      description: 'Salvar rapidamente a vista ativa',
+      category: 'Views',
+      action: handleQuickSaveView,
+    },
+    {
+      id: 'cmd_simulation',
+      label: 'Simulation Panel',
+      description: 'Abrir ou fechar simulação',
+      category: 'Simulação',
+      action: () => setSimulationOpen((prev) => !prev),
+    },
+    {
+      id: 'cmd_inventory',
+      label: 'API Inventory',
+      description: 'Explorar inventário de APIs',
+      category: 'Inventário',
+      action: () => setInventoryOpen((prev) => !prev),
+    },
+    {
+      id: 'cmd_codeql',
+      label: 'CodeQL',
+      description: 'Abrir/fechar CodeQL modal',
+      category: 'Segurança',
+      action: () => setCodeQLOpen((prev) => !prev),
+    },
+    {
+      id: 'cmd_impact_panel',
+      label: 'Análise de Impacto',
+      description: 'Abrir painel de impacto para o nó selecionado',
+      category: 'Nó',
+      action: () => {
+        if (!selectedNodeKey) {
+          alert('Selecione um nó antes de abrir a análise de impacto.');
+          return;
+        }
+        handleOpenImpactAnalysisPanel(selectedNodeKey);
+      },
+    },
+    {
+      id: 'cmd_ask_context',
+      label: 'Perguntar à IA',
+      description: 'Enviar pergunta contextual rápida',
+      category: 'IA',
+      action: handleQuickAsk,
+    },
+    {
+      id: 'cmd_reindex_rag',
+      label: 'Reindexar RAG',
+      description: 'Reconstruir índice semântico local',
+      category: 'RAG',
+      action: handleRebuildRag,
+    },
+  ], [
+    handleScan,
+    handleQuickSaveView,
+    handleRebuildRag,
+    handleOpenImpactAnalysisPanel,
+    handleQuickAsk,
+    selectedNodeKey,
+  ]);
+
+  const nodeCommandItems = useMemo<CommandItem[]>(() =>
+    graphNodes.slice(0, 40).map((node) => ({
+      id: `node-${node.namespace_key}`,
+      label: node.name,
+      description: node.file || node.layer || 'Nó da arquitetura',
+      category: node.layer || 'Node',
+      action: () => handleNodeClick(node.namespace_key, node),
+    })),
+    [graphNodes, handleNodeClick]
+  );
+
+  const savedViewCommands = useMemo<CommandItem[]>(() =>
+    savedViews.map((view) => ({
+      id: `saved-${view.id}`,
+      label: `Carregar ${view.name}`,
+      description: view.description || 'Saved View',
+      category: 'Saved View',
+      action: () => {
+        handleLoadSavedView(view);
+        setCommandPaletteOpen(false);
+      },
+    })),
+    [savedViews, handleLoadSavedView, setCommandPaletteOpen]
+  );
+
+  const commandItems = useMemo<CommandItem[]>(() => {
+    return [...commandActions, ...nodeCommandItems, ...savedViewCommands];
+  }, [commandActions, nodeCommandItems, savedViewCommands]);
+
+  const nodeQuickActionItems = useMemo<QuickActionConfig[]>(() =>
+    quickActionItems.filter((action) => NODE_QUICK_ACTION_IDS.has(action.id)),
+    [quickActionItems]
+  );
 
   useEffect(() => {
     return () => {
@@ -588,7 +1136,6 @@ export default function App() {
         onToggleSimulation={() => setSimulationOpen((prev) => !prev)}
         codeQLOpen={codeQLOpen}
         onToggleCodeQL={() => setCodeQLOpen((prev) => !prev)}
-        onSemanticSearch={handleSemanticSearch}
         semanticSearchEnabled={semanticSearchEnabled}
         onToggleSemanticSearchMode={() => setSemanticSearchEnabled((prev) => !prev)}
         onRebuildRagIndex={handleRebuildRag}
@@ -597,6 +1144,7 @@ export default function App() {
         onToggleSavedViews={handleToggleSavedViews}
         inventoryOpen={inventoryOpen}
         onToggleInventory={handleToggleInventory}
+        onOpenSearchPanel={handleOpenSearchPanel}
       />
 
       {isSimulated && (
@@ -652,27 +1200,42 @@ export default function App() {
         </div>
       )}
 
-    <Sidebar
-      workspaces={workspaces}
-      onRemoveWorkspace={handleRemoveWorkspace}
-      projects={projects}
-      selectedProjects={selectedProjects}
-      onToggleProject={handleToggleProject}
-      onDeleteProject={handleDeleteProject}
-      selectedLayer={selectedLayer}
-      onLayerChange={setSelectedLayer}
-      searchTerm={searchTerm}
-      onSearchChange={setSearchTerm}
-      tags={tagsForFilter}
-      selectedTag={selectedTagFilter}
-      onTagSelect={handleSelectTagFilter}
-      nodeCount={graphNodes.length}
-      edgeCount={graphEdges.length}
-    />
+<Sidebar
+  workspaces={workspaces}
+  onRemoveWorkspace={handleRemoveWorkspace}
+        projects={projects}
+        selectedProjects={selectedProjects}
+        onToggleProject={handleToggleProject}
+        onDeleteProject={handleDeleteProject}
+        selectedLayer={selectedLayer}
+        onLayerChange={setSelectedLayer}
+        searchTerm={searchTerm}
+        onSearchChange={setSearchTerm}
+  tags={tagsForFilter}
+  selectedTag={selectedTagFilter}
+  onTagSelect={handleSelectTagFilter}
+  nodeCount={graphNodes.length}
+  edgeCount={graphEdges.length}
+  nodeTypeOptions={NODE_TYPE_OPTIONS}
+  selectedNodeTypes={selectedNodeTypes}
+  onToggleNodeType={toggleNodeType}
+  hotspotRange={hotspotRange}
+  complexityRange={complexityRange}
+  onHotspotRangeChange={handleHotspotRangeChange}
+  onComplexityRangeChange={handleComplexityRangeChange}
+  availableFiles={availableFiles}
+  fileFilter={fileFilter}
+  onFileFilterChange={handleFileFilterChange}
+  impactOnly={impactOnly}
+  onImpactOnlyToggle={handleImpactOnlyToggle}
+  visibleNodeCount={visibleNodeCount}
+  totalNodeCount={totalNodeCount}
+  searchInputRef={searchInputRef}
+/>
 
       <GraphCanvas
-        graphNodes={graphNodes}
-        graphEdges={graphEdges}
+        graphNodes={filteredGraphNodes}
+        graphEdges={filteredGraphEdges}
         highlightedUpstream={highlightedUpstream}
         highlightedDownstream={highlightedDownstream}
         aiHighlightedNodes={aiHighlightedNodes}
@@ -684,6 +1247,13 @@ export default function App() {
         selectedTag={selectedTagFilter}
         tagFilterNodes={tagFilterNodes}
         ref={graphCanvasRef}
+        onCanvasClick={clearNodeActionAnchor}
+      />
+      <QuickActionToolbar actions={quickActionItems} />
+      <NodeQuickActions
+        anchor={nodeActionAnchor}
+        actions={nodeQuickActionItems}
+        onClose={clearNodeActionAnchor}
       />
 
       <NodeDetail
@@ -748,8 +1318,42 @@ export default function App() {
           onClose={() => setDashboardOpen(false)}
           onRefactorRequest={handleRefactorRequest}
           onOpenInventory={handleOpenInventory}
+          onFocusNode={handleFocusGraphNode}
+          onOpenImpactAnalysis={handleOpenImpactAnalysisPanel}
         />
       )}
+
+      {impactAnalysisOpen && impactAnalysisNode && (
+        <ImpactAnalysisPanel
+          nodeKey={impactAnalysisNode.namespace_key}
+          nodeName={impactAnalysisNode.name}
+          onClose={handleCloseImpactPanel}
+          onHighlightNodes={setAiHighlightedNodes}
+          initialTab={impactPanelTab}
+        />
+      )}
+      <CommandPalette
+        isOpen={commandPaletteOpen}
+        onClose={() => setCommandPaletteOpen(false)}
+        items={commandItems}
+      />
+
+      <SemanticSearchPanel
+        isOpen={searchPanelOpen}
+        query={searchQuery}
+        onQueryChange={setSearchQuery}
+        onSearch={handleRunSemanticSearch}
+        loading={searchLoading}
+        error={searchError}
+        mode={searchMode}
+        onModeChange={setSearchMode}
+        results={searchResults}
+        contextSummary={searchContextSummary}
+        contextNodes={searchContextNodes}
+        onClose={handleCloseSearchPanel}
+        onSelectResult={handleSelectSearchResult}
+        onImpactAction={handleSearchImpactAction}
+      />
 
       {simulationOpen && (
         <SimulationPanel 

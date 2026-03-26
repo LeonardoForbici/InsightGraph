@@ -1,4 +1,5 @@
 import type { Tag } from '../api';
+import type { RefObject } from 'react';
 
 interface SidebarProps {
     workspaces: string[];
@@ -11,11 +12,26 @@ interface SidebarProps {
     onLayerChange: (layer: string) => void;
     searchTerm: string;
     onSearchChange: (term: string) => void;
+    searchInputRef?: RefObject<HTMLInputElement>;
     nodeCount: number;
     edgeCount: number;
     tags: Tag[];
     selectedTag: string | null;
     onTagSelect: (tagName: string | null) => void;
+    nodeTypeOptions: { value: string; label: string }[];
+    selectedNodeTypes: string[];
+    onToggleNodeType: (type: string) => void;
+    hotspotRange: [number, number];
+    complexityRange: [number, number];
+    onHotspotRangeChange: (index: 0 | 1, value: number) => void;
+    onComplexityRangeChange: (index: 0 | 1, value: number) => void;
+    availableFiles: string[];
+    fileFilter: string;
+    onFileFilterChange: (value: string) => void;
+    impactOnly: boolean;
+    onImpactOnlyToggle: () => void;
+    visibleNodeCount: number;
+    totalNodeCount: number;
 }
 
 const LAYERS = [
@@ -37,11 +53,26 @@ export default function Sidebar({
     onLayerChange,
     searchTerm,
     onSearchChange,
+    searchInputRef,
     tags,
     selectedTag,
     onTagSelect,
     nodeCount,
     edgeCount,
+    nodeTypeOptions,
+    selectedNodeTypes,
+    onToggleNodeType,
+    hotspotRange,
+    complexityRange,
+    onHotspotRangeChange,
+    onComplexityRangeChange,
+    availableFiles,
+    fileFilter,
+    onFileFilterChange,
+    impactOnly,
+    onImpactOnlyToggle,
+    visibleNodeCount,
+    totalNodeCount,
 }: SidebarProps) {
     return (
         <div className="sidebar">
@@ -80,7 +111,97 @@ export default function Sidebar({
                     placeholder="Filtrar componentes pelo nome..."
                     value={searchTerm}
                     onChange={(e) => onSearchChange(e.target.value)}
+                    ref={searchInputRef}
                 />
+            </div>
+
+            {/* Advanced Filters */}
+            <div className="sidebar-section">
+                <div className="sidebar-section-title">
+                    Filtros avançados
+                    <span className="section-badge">{visibleNodeCount}/{totalNodeCount} visíveis</span>
+                </div>
+                <div className="range-control">
+                    <div className="range-row">
+                        <span>Hotspot score</span>
+                        <span className="range-value">{hotspotRange[0]} - {hotspotRange[1]}</span>
+                    </div>
+                    <div className="range-inputs">
+                        <input
+                            type="range"
+                            min={0}
+                            max={100}
+                            value={hotspotRange[0]}
+                            onChange={(event) => onHotspotRangeChange(0, Number(event.target.value) || 0)}
+                        />
+                        <input
+                            type="range"
+                            min={0}
+                            max={100}
+                            value={hotspotRange[1]}
+                            onChange={(event) => onHotspotRangeChange(1, Number(event.target.value) || 0)}
+                        />
+                    </div>
+                </div>
+                <div className="range-control">
+                    <div className="range-row">
+                        <span>Complexidade</span>
+                        <span className="range-value">{complexityRange[0]} - {complexityRange[1]}</span>
+                    </div>
+                    <div className="range-inputs">
+                        <input
+                            type="range"
+                            min={0}
+                            max={80}
+                            value={complexityRange[0]}
+                            onChange={(event) => onComplexityRangeChange(0, Number(event.target.value) || 0)}
+                        />
+                        <input
+                            type="range"
+                            min={0}
+                            max={80}
+                            value={complexityRange[1]}
+                            onChange={(event) => onComplexityRangeChange(1, Number(event.target.value) || 0)}
+                        />
+                    </div>
+                </div>
+                <div className="filter-group node-type-filter-group">
+                    {nodeTypeOptions.map((option) => (
+                        <label
+                            key={option.value}
+                            className={`filter-item node-type-toggle ${selectedNodeTypes.includes(option.value) ? 'active' : ''}`}
+                        >
+                            <input
+                                type="checkbox"
+                                checked={selectedNodeTypes.includes(option.value)}
+                                onChange={() => onToggleNodeType(option.value)}
+                            />
+                            {option.label}
+                        </label>
+                    ))}
+                </div>
+                <div className="file-filter-row">
+                    <input
+                        list="files-datalist"
+                        className="search-input file-filter-input"
+                        type="text"
+                        placeholder="Filtrar por arquivo..."
+                        value={fileFilter}
+                        onChange={(event) => onFileFilterChange(event.target.value)}
+                    />
+                    <datalist id="files-datalist">
+                        {availableFiles.map((file) => (
+                            <option key={file} value={file} />
+                        ))}
+                    </datalist>
+                </div>
+                <button
+                    type="button"
+                    className={`btn impact-toggle-btn ${impactOnly ? 'btn-accent' : 'btn-secondary'}`}
+                    onClick={onImpactOnlyToggle}
+                >
+                    {impactOnly ? 'Mostrar apenas impactados (ON)' : 'Mostrar apenas impactados'}
+                </button>
             </div>
 
             {/* Project Filter */}

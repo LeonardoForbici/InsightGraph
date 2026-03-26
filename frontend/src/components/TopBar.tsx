@@ -15,7 +15,6 @@ interface TopBarProps {
     onToggleSimulation: () => void;
     codeQLOpen: boolean;
     onToggleCodeQL: () => void;
-    onSemanticSearch: (query: string) => void;
     semanticSearchEnabled: boolean;
     onToggleSemanticSearchMode: () => void;
     onRebuildRagIndex: () => void;
@@ -24,6 +23,7 @@ interface TopBarProps {
     onToggleSavedViews: () => void;
     inventoryOpen: boolean;
     onToggleInventory: () => void;
+    onOpenSearchPanel: () => void;
 }
 
 export default function TopBar({
@@ -40,7 +40,6 @@ export default function TopBar({
     onToggleSimulation,
     codeQLOpen,
     onToggleCodeQL,
-    onSemanticSearch,
     semanticSearchEnabled,
     onToggleSemanticSearchMode,
     onRebuildRagIndex,
@@ -49,6 +48,7 @@ export default function TopBar({
     onToggleSavedViews,
     inventoryOpen,
     onToggleInventory,
+    onOpenSearchPanel,
 }: TopBarProps) {
     const [inputPath, setInputPath] = useState('');
 
@@ -146,13 +146,10 @@ export default function TopBar({
                 </button>
                 <button
                     className="btn btn-secondary"
-                    onClick={() => {
-                        const q = window.prompt('Search in graph:');
-                        if (q) onSemanticSearch(q);
-                    }}
-                    title={semanticSearchEnabled ? 'Hybrid lexical + semantic search' : 'Lexical-only search'}
+                    onClick={onOpenSearchPanel}
+                    title="Abrir busca semântica avançada"
                 >
-                    {semanticSearchEnabled ? 'Hybrid Search' : 'Lexical Search'}
+                    Buscar
                 </button>
                 <button
                     className="btn btn-secondary"

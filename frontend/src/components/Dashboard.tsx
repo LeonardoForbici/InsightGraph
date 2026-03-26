@@ -1,11 +1,32 @@
-import { useEffect, useState } from 'react';
-import { fetchAntipatterns, fetchGraphStats, fetchHotspots, fetchEvolutionSummary, fetchHotspotCochange, fetchCallResolutionSummary, fetchRagStatus, fetchIso5055, fetchOssExposure, type AntipatternData, type GraphStats, type HotspotItem, type EvolutionSummary, type CochangePair, type CallResolutionSummary, type RagStatus, type IsoQualityGrade, type OssExposureResponse } from '../api';
-import EvolutionTimeline from './EvolutionTimeline';
+import { useEffect, useMemo, useState } from 'react';
+import {
+    fetchAntipatterns,
+    fetchGraphStats,
+    fetchHotspots,
+    fetchHotspotCochange,
+    fetchCallResolutionSummary,
+    fetchRagStatus,
+    fetchIso5055,
+    fetchOssExposure,
+    type AntipatternData,
+    type GraphStats,
+    type HotspotItem,
+    type CochangePair,
+    type CallResolutionSummary,
+    type RagStatus,
+    type IsoQualityGrade,
+    type OssExposureResponse,
+} from '../api';
+import EvolutionDashboard from './EvolutionDashboard';
+import QualityGatePanel from './QualityGatePanel';
+import DebtTrackerPanel from './DebtTrackerPanel';
 
 interface DashboardProps {
     onClose: () => void;
     onRefactorRequest?: (nodeName: string, problemType: string) => void;
     onOpenInventory?: () => void;
+    onFocusNode?: (nodeKey: string) => void;
+    onOpenImpactAnalysis?: (nodeKey: string) => void;
 }
 
 const getGradeBucket = (grade: string | null | undefined) => {
@@ -14,7 +35,7 @@ const getGradeBucket = (grade: string | null | undefined) => {
     return letter.match(/[A-Z]/) ? letter : 'unknown';
 };
 
-export default function Dashboard({ onClose, onRefactorRequest, onOpenInventory }: DashboardProps) {
+export default function Dashboard({ onClose, onRefactorRequest, onOpenInventory, onFocusNode, onOpenImpactAnalysis }: DashboardProps) {
     const openUrl = (path: string) => {
         window.open(path, '_blank');
     };
@@ -36,22 +57,24 @@ export default function Dashboard({ onClose, onRefactorRequest, onOpenInventory 
     const [antipatterns, setAntipatterns] = useState<AntipatternData | null>(null);
     const [stats, setStats] = useState<GraphStats | null>(null);
     const [hotspots, setHotspots] = useState<HotspotItem[]>([]);
-    const [evolutionSummary, setEvolutionSummary] = useState<EvolutionSummary | null>(null);
     const [cochange, setCochange] = useState<Record<string, CochangePair[]>>({});
     const [callResolution, setCallResolution] = useState<CallResolutionSummary | null>(null);
     const [ragStatus, setRagStatus] = useState<RagStatus | null>(null);
     const [isoGrade, setIsoGrade] = useState<IsoQualityGrade | null>(null);
     const [ossExposure, setOssExposure] = useState<OssExposureResponse | null>(null);
+    const [hotspotSortField, setHotspotSortField] = useState<'name' | 'file' | 'project' | 'complexity' | 'git_churn' | 'hotspot_score'>('hotspot_score');
+    const [hotspotSortDirection, setHotspotSortDirection] = useState<'asc' | 'desc'>('desc');
+    const [hotspotProjectFilter, setHotspotProjectFilter] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
+    const [selectedHotspots, setSelectedHotspots] = useState<Set<string>>(() => new Set());
 
     useEffect(() => {
         const load = async () => {
             try {
-                const [aData, sData, hData, eData, cData, crData, rgData, isoData, ossData] = await Promise.all([
+                const [aData, sData, hData, cData, crData, rgData, isoData, ossData] = await Promise.all([
                     fetchAntipatterns(),
                     fetchGraphStats(),
-                    fetchHotspots(20, 90),
-                    fetchEvolutionSummary(20),
+                    fetchHotspots(50, 90),
                     fetchHotspotCochange(90, 12),
                     fetchCallResolutionSummary(undefined, 12),
                     fetchRagStatus(),
@@ -61,7 +84,6 @@ export default function Dashboard({ onClose, onRefactorRequest, onOpenInventory 
                 setAntipatterns(aData);
                 setStats(sData);
                 setHotspots(hData.hotspots || []);
-                setEvolutionSummary(eData);
                 setCochange(cData.projects || {});
                 setCallResolution(crData);
                 setRagStatus(rgData);
@@ -75,6 +97,138 @@ export default function Dashboard({ onClose, onRefactorRequest, onOpenInventory 
         };
         load();
     }, []);
+
+    const hotspotProjects = useMemo(() => {
+        return Array.from(new Set(hotspots.map((h) => h.project).filter(Boolean)));
+    }, [hotspots]);
+
+    const sortedHotspots = useMemo(() => {
+        const filtered = hotspotProjectFilter
+            ? hotspots.filter((item) => item.project === hotspotProjectFilter)
+            : hotspots;
+        const sorted = [...filtered].sort((a, b) => {
+            const getValue = (item: HotspotItem) => {
+                switch (hotspotSortField) {
+                    case 'name':
+                        return (item.name || '').toLowerCase();
+                    case 'file':
+                        return (item.file || '').toLowerCase();
+                    case 'project':
+                        return (item.project || '').toLowerCase();
+                    case 'complexity':
+                        return item.complexity ?? 0;
+                    case 'git_churn':
+                        return item.git_churn ?? 0;
+                    case 'hotspot_score':
+                    default:
+                        return item.hotspot_score ?? 0;
+                }
+            };
+            const aValue = getValue(a);
+            const bValue = getValue(b);
+            if (typeof aValue === 'number' && typeof bValue === 'number') {
+                return hotspotSortDirection === 'asc' ? aValue - bValue : bValue - aValue;
+            }
+            const aStr = String(aValue);
+            const bStr = String(bValue);
+            return hotspotSortDirection === 'asc' ? aStr.localeCompare(bStr) : bStr.localeCompare(aStr);
+        });
+        return sorted.slice(0, 50);
+    }, [hotspots, hotspotProjectFilter, hotspotSortField, hotspotSortDirection]);
+
+    useEffect(() => {
+        setSelectedHotspots((prev) => {
+            const valid = new Set(sortedHotspots.map((item) => item.namespace_key));
+            const next = new Set([...prev].filter((key) => valid.has(key)));
+            if (next.size === prev.size) return prev;
+            return next;
+        });
+    }, [sortedHotspots]);
+
+    const toggleHotspotSelection = (key: string) => {
+        setSelectedHotspots((prev) => {
+            const next = new Set(prev);
+            if (next.has(key)) next.delete(key);
+            else next.add(key);
+            return next;
+        });
+    };
+
+    const selectAllVisibleHotspots = () => {
+        setSelectedHotspots(new Set(sortedHotspots.map((item) => item.namespace_key)));
+    };
+
+    const clearHotspotSelection = () => {
+        setSelectedHotspots(new Set());
+    };
+
+    const handleHotspotSort = (field: 'name' | 'file' | 'project' | 'complexity' | 'git_churn' | 'hotspot_score') => {
+        if (hotspotSortField === field) {
+            setHotspotSortDirection((prev) => (prev === 'asc' ? 'desc' : 'asc'));
+            return;
+        }
+        setHotspotSortField(field);
+        setHotspotSortDirection('desc');
+    };
+
+    const sortIndicator = (field: typeof hotspotSortField) =>
+        hotspotSortField === field ? (hotspotSortDirection === 'asc' ? '↑' : '↓') : '';
+
+    const selectionCount = selectedHotspots.size;
+    const selectAllChecked = sortedHotspots.length > 0 && selectionCount === sortedHotspots.length;
+
+    const maxChurn = Math.max(...sortedHotspots.map((h) => h.git_churn ?? 0), 1);
+    const maxComplex = Math.max(...sortedHotspots.map((h) => h.complexity ?? 0), 1);
+
+    const layerColor: Record<string, string> = {
+        Database: '#34d399',
+        Service: '#fbbf24',
+        API: '#a78bfa',
+        Frontend: '#60a5fa',
+        Mobile: '#f472b6',
+        External: '#c084fc',
+        Other: '#94a3b8',
+    };
+    const scatterPoints = sortedHotspots.map((item) => {
+        const dependents = ((item as unknown as { dependents_count?: number }).dependents_count) ?? 1;
+        const layerName = item.layer ?? 'Other';
+        return {
+            key: item.namespace_key,
+            name: item.name,
+            complexity: item.complexity ?? 0,
+            churn: item.git_churn ?? 0,
+            hotspot: item.hotspot_score ?? 0,
+            project: item.project || 'Local',
+            layer: layerName,
+            dependents,
+            radius: 4 + Math.min(12, dependents / 4),
+            color: layerColor[layerName] ?? layerColor.Other,
+        };
+    });
+
+    const handleExportHotspots = () => {
+        const candidates = selectedHotspots.size
+            ? sortedHotspots.filter((item) => selectedHotspots.has(item.namespace_key))
+            : sortedHotspots;
+        const header = ['Namespace', 'Nome', 'Arquivo', 'Projeto', 'Hotspot', 'Complexidade', 'Churn'];
+        const rows = candidates.map((item) => [
+            item.namespace_key,
+            item.name,
+            item.file || '-',
+            item.project || '-',
+            String(item.hotspot_score ?? 0),
+            String(item.complexity ?? 0),
+            String(item.git_churn ?? 0),
+        ]);
+        const csv = [header, ...rows].map((line) => line.map((val) => `"${val.replace(/"/g, '""')}"`).join(',')).join('\n');
+        const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = 'hotspots.csv';
+        link.click();
+        URL.revokeObjectURL(url);
+    };
 
     if (loading) {
         return (
@@ -96,9 +250,180 @@ export default function Dashboard({ onClose, onRefactorRequest, onOpenInventory 
                 </div>
 
                 <div className="dashboard-content">
-                    {/* Evolution Timeline */}
-                    <div className="dashboard-section" style={{ paddingBottom: 16 }}>
-                        <EvolutionTimeline />
+                    <div className="dashboard-section" style={{ paddingBottom: 8 }}>
+                        <EvolutionDashboard />
+                    </div>
+                    <div className="dashboard-section hotspot-panel">
+                        <div className="hotspot-panel-header">
+                            <div>
+                                <h3>Hotspot Deep Analysis</h3>
+                                <p className="section-desc">Top 50 hotspots com filtros, seleção e visualização de dispersão.</p>
+                            </div>
+                            <div className="hotspot-controls">
+                                <select
+                                    value={hotspotProjectFilter ?? ''}
+                                    onChange={(event) => setHotspotProjectFilter(event.target.value || null)}
+                                >
+                                    <option value="">Todos os projetos</option>
+                                    {hotspotProjects.map((project) => (
+                                        <option key={project} value={project}>{project}</option>
+                                    ))}
+                                </select>
+                                <button className="btn btn-secondary" onClick={handleExportHotspots}>
+                                    Export CSV
+                                </button>
+                            </div>
+                        </div>
+                        <div className="hotspot-selection-row">
+                            <div className="selection-summary">
+                                {selectionCount > 0 ? `${selectionCount} selecionado(s)` : 'Nenhuma seleção ativa'}
+                            </div>
+                            <div className="selection-actions">
+                                <button
+                                    className="btn btn-ghost"
+                                    onClick={selectAllVisibleHotspots}
+                                    disabled={!sortedHotspots.length}
+                                >
+                                    Selecionar visíveis
+                                </button>
+                                <button
+                                    className="btn btn-secondary"
+                                    onClick={clearHotspotSelection}
+                                    disabled={!selectionCount}
+                                >
+                                    Limpar seleção
+                                </button>
+                            </div>
+                        </div>
+                        <div className="hotspot-panel-grid">
+                            <div className="hotspot-table-wrapper">
+                                <table className="data-table">
+                                    <thead>
+                                        <tr>
+                                            <th className="select-column">
+                                                <input
+                                                    type="checkbox"
+                                                    checked={selectAllChecked}
+                                                    disabled={!sortedHotspots.length}
+                                                    onChange={(event) => (event.target.checked ? selectAllVisibleHotspots() : clearHotspotSelection())}
+                                                    title="Selecionar todos os hotspots visíveis"
+                                                />
+                                            </th>
+                                            <th className="sortable-header" onClick={() => handleHotspotSort('name')}>
+                                                Entidade {sortIndicator('name')}
+                                            </th>
+                                            <th className="sortable-header" onClick={() => handleHotspotSort('file')}>
+                                                Arquivo {sortIndicator('file')}
+                                            </th>
+                                            <th className="sortable-header" onClick={() => handleHotspotSort('project')}>
+                                                Projeto {sortIndicator('project')}
+                                            </th>
+                                            <th className="sortable-header" onClick={() => handleHotspotSort('complexity')}>
+                                                Complexidade {sortIndicator('complexity')}
+                                            </th>
+                                            <th className="sortable-header" onClick={() => handleHotspotSort('git_churn')}>
+                                                Churn {sortIndicator('git_churn')}
+                                            </th>
+                                            <th className="sortable-header" onClick={() => handleHotspotSort('hotspot_score')}>
+                                                Hotspot {sortIndicator('hotspot_score')}
+                                            </th>
+                                            <th>Ações</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {sortedHotspots.map((h) => (
+                                            <tr key={`hotspot-${h.namespace_key}`}>
+                                                <td className="select-column">
+                                                    <input
+                                                        type="checkbox"
+                                                        checked={selectedHotspots.has(h.namespace_key)}
+                                                        onChange={() => toggleHotspotSelection(h.namespace_key)}
+                                                        className="hotspot-checkbox"
+                                                    />
+                                                </td>
+                                                <td>
+                                                    <strong>{h.name}</strong><br />
+                                                    <small style={{ color: 'var(--text-secondary)' }}>{h.namespace_key}</small>
+                                                </td>
+                                                <td style={{ fontSize: 12 }}>{h.file || '-'}</td>
+                                                <td>{h.project || '-'}</td>
+                                                <td>{h.complexity ?? 0}</td>
+                                                <td>{h.git_churn ?? 0}</td>
+                                                <td style={{ fontWeight: 600, color: '#f97316' }}>{h.hotspot_score ?? 0}</td>
+                                                <td className="hotspot-action-col">
+                                                    <button
+                                                        className="btn btn-ghost"
+                                                        onClick={() => onFocusNode?.(h.namespace_key)}
+                                                    >
+                                                        Ver no Grafo
+                                                    </button>
+                                                    <button
+                                                        className="btn btn-ghost"
+                                                        onClick={() => onOpenImpactAnalysis?.(h.namespace_key)}
+                                                    >
+                                                        Analisar Impacto
+                                                    </button>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                        {sortedHotspots.length === 0 && (
+                                            <tr>
+                                                <td colSpan={8} style={{ textAlign: 'center', color: 'var(--text-muted)' }}>
+                                                    Nenhum hotspot corresponde aos filtros atuais.
+                                                </td>
+                                            </tr>
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div className="hotspot-scatter-wrapper">
+                                <div className="hotspot-scatter-header">
+                                    <h4>Scatter Plot (Git Churn × Complexidade)</h4>
+                                    <span className="scatter-subtitle">Quadrante superior direito = Zona Crítica</span>
+                                </div>
+                                <div className="hotspot-scatter">
+                                    <svg viewBox="0 0 320 240">
+                                <rect x={170} y={20} width={130} height={90} fill="rgba(239,68,68,0.15)" stroke="#ef4444" strokeDasharray="4 3" />
+                                <text x={182} y={40} fill="#f97316" fontSize={11} fontWeight="600">
+                                    Zona Crítica
+                                </text>
+                                <line x1="50" y1="220" x2="310" y2="220" stroke="rgba(255,255,255,0.2)" />
+                                <line x1="50" y1="220" x2="50" y2="20" stroke="rgba(255,255,255,0.2)" />
+                                {scatterPoints.map((point) => {
+                                    const x = 50 + (point.churn / maxChurn) * 250;
+                                    const y = 220 - (point.complexity / maxComplex) * 200;
+                                    return (
+                                        <circle
+                                            key={`scatter-${point.key}`}
+                                            cx={x}
+                                            cy={y}
+                                            r={point.radius}
+                                            fill={point.color}
+                                            stroke="#0c1024"
+                                            strokeWidth={1.5}
+                                        >
+                                            <title>
+                                                {point.name} ({point.layer})
+                                                {' | '}
+                                                Churn: {point.churn}
+                                                {' | '}
+                                                Complexidade: {point.complexity}
+                                                {' | '}
+                                                Dependentes: {point.dependents}
+                                            </title>
+                                        </circle>
+                                    );
+                                })}
+                                    </svg>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                    <div className="dashboard-section">
+                        <QualityGatePanel />
+                    </div>
+                    <div className="dashboard-section">
+                        <DebtTrackerPanel />
                     </div>
 
                     {evolutionSummary && (
@@ -389,37 +714,6 @@ export default function Dashboard({ onClose, onRefactorRequest, onOpenInventory 
                                     <span className="stat-label">Projetos Escaneados</span>
                                 </div>
                             </div>
-                        </div>
-                    )}
-
-                    {hotspots.length > 0 && (
-                        <div className="dashboard-section">
-                            <h3>🌋 Hotspots (Complexidade × Churn)</h3>
-                            <p className="section-desc">Arquivos mais perigosos para alteração com base em churn de Git e complexidade (janela de 90 dias).</p>
-                            <table className="data-table">
-                                <thead>
-                                    <tr>
-                                        <th>Entidade</th>
-                                        <th>Arquivo</th>
-                                        <th>Complexidade</th>
-                                        <th>Churn</th>
-                                        <th>Hotspot</th>
-                                        <th>Categoria</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {hotspots.map((h, i) => (
-                                        <tr key={`${h.namespace_key}-${i}`}>
-                                            <td style={{ fontWeight: 'bold', color: 'var(--text-bright)' }}>{h.name}</td>
-                                            <td style={{ fontSize: 12 }}>{h.file || '-'}</td>
-                                            <td>{h.complexity ?? 0}</td>
-                                            <td>{h.git_churn ?? 0}</td>
-                                            <td style={{ fontWeight: 'bold', color: '#f97316' }}>{h.hotspot_score ?? 0}</td>
-                                            <td>{h.category ?? 'low'}</td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </table>
                         </div>
                     )}
 

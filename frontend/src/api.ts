@@ -772,6 +772,68 @@ export async function fetchGraphStats(): Promise<GraphStats> {
     return res.json();
 }
 
+export interface QualityThresholds {
+    max_god_classes: number;
+    min_call_resolution: number;
+    max_hotspot_score: number;
+    min_iso5055: number;
+}
+
+export interface QualityGateResult {
+    passed: boolean;
+    violations: string[];
+    score: number;
+    metrics: {
+        god_classes: number;
+        call_resolution_rate: number;
+        max_hotspot_score: number;
+        iso_score_percent: number;
+        iso_grade: string;
+        rules: Array<{ rule_id: string; name: string; passed: boolean; notes: string; weight: number }>;
+        snapshot_timestamp?: string;
+    };
+    thresholds: QualityThresholds;
+    timestamp: string;
+}
+
+export async function evaluateQualityGate(thresholds: QualityThresholds): Promise<QualityGateResult> {
+    const res = await fetch(`${BASE}/quality/gate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ thresholds }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function fetchQualityGateHistory(limit: number = 8): Promise<{ entries: QualityGateResult[] }> {
+    const res = await fetch(`${BASE}/quality/history?limit=${encodeURIComponent(String(limit))}`);
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export interface DebtQuickWin {
+  namespace_key: string;
+  name?: string;
+  project?: string;
+  file?: string;
+  hotspot_score: number;
+  dependents: number;
+}
+
+export interface DebtTrackerPayload {
+  score: number;
+  projection: number;
+  history: Array<{ timestamp?: string; risk: number; nodes: number; edges: number }>;
+  quick_wins: DebtQuickWin[];
+}
+
+export async function fetchDebtTracker(): Promise<DebtTrackerPayload> {
+  const res = await fetch(`${BASE}/debt-tracker`);
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
 export async function askQuestion(question: string, contextNode?: string): Promise<AskResponse> {
     const res = await fetch(`${BASE}/ask`, {
         method: 'POST',
@@ -929,6 +991,45 @@ export async function ragSearch(
     if (nodeKey) params.set('node_key', nodeKey);
     params.set('semantic', String(semantic));
     const res = await fetch(`${BASE}/rag/search?${params.toString()}`);
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export type SemanticSearchMode = 'code' | 'arch' | 'impact';
+
+export interface SemanticSearchResult extends GraphNode {
+    preview: string;
+    summary?: string;
+    rag_score?: number;
+    hotspot_score?: number;
+    model?: string;
+    highlight_terms: string[];
+}
+
+export interface SemanticSearchResponse {
+    results: SemanticSearchResult[];
+    query: string;
+    mode: SemanticSearchMode;
+    count: number;
+    context_nodes: string[];
+    context_summary: string;
+}
+
+export async function semanticSearch(
+    query: string,
+    mode: SemanticSearchMode = 'code',
+    topK: number = 20,
+    nodeKey?: string,
+    semantic: boolean = true,
+): Promise<SemanticSearchResponse> {
+    const params = new URLSearchParams({
+        q: query.trim(),
+        mode,
+        top_k: String(topK),
+        semantic: semantic ? 'true' : 'false',
+    });
+    if (nodeKey) params.set('node_key', nodeKey);
+    const res = await fetch(`${BASE}/search/semantic?${params.toString()}`);
     if (!res.ok) throw new Error(await res.text());
     return res.json();
 }
