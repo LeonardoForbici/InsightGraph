@@ -1,13 +1,38 @@
 import { useEffect, useState } from 'react';
-import { fetchAntipatterns, fetchGraphStats, fetchHotspots, fetchEvolutionSummary, fetchHotspotCochange, fetchCallResolutionSummary, fetchRagStatus, type AntipatternData, type GraphStats, type HotspotItem, type EvolutionSummary, type CochangePair, type CallResolutionSummary, type RagStatus } from '../api';
+import { fetchAntipatterns, fetchGraphStats, fetchHotspots, fetchEvolutionSummary, fetchHotspotCochange, fetchCallResolutionSummary, fetchRagStatus, fetchIso5055, fetchOssExposure, type AntipatternData, type GraphStats, type HotspotItem, type EvolutionSummary, type CochangePair, type CallResolutionSummary, type RagStatus, type IsoQualityGrade, type OssExposureResponse } from '../api';
 import EvolutionTimeline from './EvolutionTimeline';
 
 interface DashboardProps {
     onClose: () => void;
     onRefactorRequest?: (nodeName: string, problemType: string) => void;
+    onOpenInventory?: () => void;
 }
 
-export default function Dashboard({ onClose, onRefactorRequest }: DashboardProps) {
+const getGradeBucket = (grade: string | null | undefined) => {
+    if (!grade) return 'unknown';
+    const letter = grade.trim().charAt(0).toUpperCase();
+    return letter.match(/[A-Z]/) ? letter : 'unknown';
+};
+
+export default function Dashboard({ onClose, onRefactorRequest, onOpenInventory }: DashboardProps) {
+    const openUrl = (path: string) => {
+        window.open(path, '_blank');
+    };
+    const exportButtons = [
+        { label: 'Nodes CSV', path: '/api/export/nodes.csv' },
+        { label: 'Edges CSV', path: '/api/export/edges.csv' },
+        { label: 'Graph JSON', path: '/api/export/graph.json' },
+        { label: 'GraphML', path: '/api/export/graph.graphml' },
+        { label: 'Findings CSV', path: '/api/findings/export?format=csv' },
+        { label: 'Findings JSON', path: '/api/findings/export?format=json' },
+    ];
+    const reportTypes = [
+        { id: 'composition', label: 'Composition' },
+        { id: 'hotspots', label: 'Hotspots' },
+        { id: 'ck-metrics', label: 'CK Metrics' },
+        { id: 'security', label: 'Segurança' },
+        { id: 'iso5055', label: 'ISO 5055' },
+    ];
     const [antipatterns, setAntipatterns] = useState<AntipatternData | null>(null);
     const [stats, setStats] = useState<GraphStats | null>(null);
     const [hotspots, setHotspots] = useState<HotspotItem[]>([]);
@@ -15,12 +40,14 @@ export default function Dashboard({ onClose, onRefactorRequest }: DashboardProps
     const [cochange, setCochange] = useState<Record<string, CochangePair[]>>({});
     const [callResolution, setCallResolution] = useState<CallResolutionSummary | null>(null);
     const [ragStatus, setRagStatus] = useState<RagStatus | null>(null);
+    const [isoGrade, setIsoGrade] = useState<IsoQualityGrade | null>(null);
+    const [ossExposure, setOssExposure] = useState<OssExposureResponse | null>(null);
     const [loading, setLoading] = useState(true);
 
     useEffect(() => {
         const load = async () => {
             try {
-                const [aData, sData, hData, eData, cData, crData, rgData] = await Promise.all([
+                const [aData, sData, hData, eData, cData, crData, rgData, isoData, ossData] = await Promise.all([
                     fetchAntipatterns(),
                     fetchGraphStats(),
                     fetchHotspots(20, 90),
@@ -28,6 +55,8 @@ export default function Dashboard({ onClose, onRefactorRequest }: DashboardProps
                     fetchHotspotCochange(90, 12),
                     fetchCallResolutionSummary(undefined, 12),
                     fetchRagStatus(),
+                    fetchIso5055(),
+                    fetchOssExposure(30),
                 ]);
                 setAntipatterns(aData);
                 setStats(sData);
@@ -36,6 +65,8 @@ export default function Dashboard({ onClose, onRefactorRequest }: DashboardProps
                 setCochange(cData.projects || {});
                 setCallResolution(crData);
                 setRagStatus(rgData);
+                setIsoGrade(isoData);
+                setOssExposure(ossData);
             } catch (err) {
                 console.error("Failed to load dashboard data.", err);
             } finally {
@@ -215,6 +246,130 @@ export default function Dashboard({ onClose, onRefactorRequest }: DashboardProps
                             </div>
                         </div>
                     )}
+
+                    {isoGrade && (
+                        <div className="dashboard-section">
+                            <h3>ISO 5055 Quality Grade</h3>
+                            <p className="section-desc">
+                                Grade baseada em 20 regras críticas que avaliam confiabilidade, segurança e mantenibilidade.
+                            </p>
+                            <div className="stats-grid">
+                                <div className="stat-card">
+                                    <span className={`stat-value grade-pill grade-large grade-letter grade-${getGradeBucket(isoGrade.grade)}`}>
+                                        {isoGrade.grade}
+                                    </span>
+                                    <span className="stat-label">Grade Geral</span>
+                                </div>
+                                <div className="stat-card">
+                                    <span className="stat-value">{isoGrade.score_percent}%</span>
+                                    <span className="stat-label">score (%)</span>
+                                </div>
+                                <div className="stat-card">
+                                    <span className="stat-value">{isoGrade.score_obtained}</span>
+                                    <span className="stat-label">Pontos obtidos</span>
+                                </div>
+                                <div className="stat-card">
+                                    <span className="stat-value">{isoGrade.score_max}</span>
+                                    <span className="stat-label">Pontos possíveis</span>
+                                </div>
+                            </div>
+                            <div className="iso-rule-list">
+                                {isoGrade.rules.map((rule) => (
+                                    <div
+                                        key={rule.rule_id}
+                                        className={`rule-row ${rule.passed ? 'rule-passed' : 'rule-failed'}`}
+                                    >
+                                        <div>
+                                            <span className="rule-id">{rule.rule_id}</span>
+                                            <strong>{rule.name}</strong>
+                                            <p className="rule-notes">{rule.notes}</p>
+                                        </div>
+                                        <span className="rule-pill">
+                                            {rule.passed ? 'PASS' : 'FAIL'}
+                                        </span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
+                    {ossExposure && (
+                        <div className="dashboard-section">
+                            <h3>OSS Exposure (Top {Math.min(ossExposure.items.length, 12)} dependências)</h3>
+                            <p className="section-desc">
+                                Dependências externas com vulnerabilidades conhecidas consultadas via OSV.dev.
+                            </p>
+                            {ossExposure.items.length === 0 ? (
+                                <div style={{ color: 'var(--text-muted)' }}>Nenhuma vulnerabilidade exposta detectada.</div>
+                            ) : (
+                                <table className="data-table oss-table">
+                                    <thead>
+                                        <tr>
+                                            <th>Dependência</th>
+                                            <th>Versão</th>
+                                            <th>Vulns</th>
+                                            <th>Resumo</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody>
+                                        {ossExposure.items.slice(0, 12).map((dep) => (
+                                            <tr key={`${dep.ecosystem}:${dep.name}:${dep.version || 'latest'}`}>
+                                                <td>
+                                                    <strong>{dep.name}</strong>
+                                                    <div style={{ fontSize: 12, color: 'var(--text-secondary)' }}>{dep.ecosystem}</div>
+                                                </td>
+                                                <td>{dep.version || '–'}</td>
+                                                <td style={{ fontWeight: 'bold', color: dep.vuln_count > 0 ? '#ef4444' : '#22c55e' }}>
+                                                    {dep.vuln_count}
+                                                </td>
+                                                <td style={{ fontSize: 12 }}>
+                                                    {dep.vulnerabilities.slice(0, 2).map((v, i) => (
+                                                        <div key={v.id || i}>
+                                                            <span style={{ fontWeight: 600 }}>{v.id || 'VULN'}</span>
+                                                            : {v.summary || 'Sem resumo'}
+                                                        </div>
+                                                    ))}
+                                                    {dep.vulnerabilities.length > 2 && (
+                                                        <em style={{ fontSize: 11, color: 'var(--text-muted)' }}>
+                                                            +{dep.vulnerabilities.length - 2} outros
+                                                        </em>
+                                                    )}
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            )}
+                        </div>
+                    )}
+
+                    <div className="dashboard-section export-section">
+                        <h3>Fase 4 — Relatórios e Exportações</h3>
+                        <p className="section-desc">Dados para compartilhar evidências e alimentar outras ferramentas.</p>
+                        <div className="export-actions">
+                            {exportButtons.map((btn) => (
+                                <button key={btn.label} className="btn btn-secondary" onClick={() => openUrl(btn.path)}>
+                                    {btn.label}
+                                </button>
+                            ))}
+                        </div>
+                        <div className="report-grid">
+                            {reportTypes.map((rt) => (
+                                <button
+                                    key={rt.id}
+                                    className="btn btn-primary"
+                                    onClick={() => openUrl(`/api/reports/${rt.id}`)}
+                                >
+                                    {rt.label}
+                                </button>
+                            ))}
+                        </div>
+                        {onOpenInventory && (
+                            <button className="btn btn-accent" style={{ marginTop: 12 }} onClick={onOpenInventory}>
+                                Ver Inventário de APIs
+                            </button>
+                        )}
+                    </div>
 
                     {/* General Stats */}
                     {stats && (

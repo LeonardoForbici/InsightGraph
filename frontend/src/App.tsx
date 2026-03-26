@@ -1,7 +1,8 @@
-import { useState, useCallback, useEffect, useRef } from 'react';
+import { useState, useCallback, useEffect, useRef, useMemo } from 'react';
 import TopBar from './components/TopBar';
 import Sidebar from './components/Sidebar';
 import GraphCanvas from './components/GraphCanvas';
+import type { GraphCanvasHandle, SavedViewState } from './components/GraphCanvas';
 import NodeDetail from './components/NodeDetail';
 import AskPanel from './components/AskPanel';
 import StatsBar from './components/StatsBar';
@@ -9,6 +10,8 @@ import Dashboard from './components/Dashboard';
 import SimulationPanel from './components/SimulationPanel';
 import CodeQLModal from './components/CodeQLModal';
 import MethodUsageView from './components/MethodUsageView';
+import TransactionPanel from './components/TransactionPanel';
+import SavedViewsPanel from './components/SavedViewsPanel';
 import {
   scanProjects,
   getScanStatus,
@@ -19,10 +22,23 @@ import {
   fetchGraphStats,
   requestSimulationReview,
   semanticGraphSearch,
-  rebuildRagIndex
+  rebuildRagIndex,
+  listSavedViews,
+  createSavedView,
+  listAnnotations,
+  listTags,
 } from './api';
-import type { GraphNode, ImpactData, GraphStats, BlastRadiusData } from './api';
+import type { SavedView } from './api';
+import type {
+  GraphNode,
+  ImpactData,
+  GraphStats,
+  BlastRadiusData,
+  Tag,
+  AnnotationRecord,
+} from './api';
 import './index.css';
+import APIInventoryPanel from './components/APIInventoryPanel';
 
 export default function App() {
   // ─── Workspace State ───
@@ -39,6 +55,15 @@ export default function App() {
   const [graphEdges, setGraphEdges] = useState<
     { source: string; target: string; type: string }[]
   >([]);
+  const graphCanvasRef = useRef<GraphCanvasHandle>(null);
+  const [savedViewsOpen, setSavedViewsOpen] = useState(false);
+  const [savedViews, setSavedViews] = useState<SavedView[]>([]);
+  const [savedViewsLoading, setSavedViewsLoading] = useState(false);
+  const [saveViewLoading, setSaveViewLoading] = useState(false);
+  const [savedViewsError, setSavedViewsError] = useState<string | null>(null);
+  const [tagsForFilter, setTagsForFilter] = useState<Tag[]>([]);
+  const [selectedTagFilter, setSelectedTagFilter] = useState<string | null>(null);
+  const [annotationsIndex, setAnnotationsIndex] = useState<Record<string, AnnotationRecord[]>>({});
 
   // ─── Filter State ───
   const [selectedProjects, setSelectedProjects] = useState<string[]>([]);
@@ -63,6 +88,9 @@ export default function App() {
   const [codeQLOpen, setCodeQLOpen] = useState(false);
   const [methodUsageOpen, setMethodUsageOpen] = useState(false);
   const [methodUsageNode, setMethodUsageNode] = useState<{ key: string; name: string } | null>(null);
+  const [inventoryOpen, setInventoryOpen] = useState(false);
+  const [transactionOpen, setTransactionOpen] = useState(false);
+  const [transactionSourceKey, setTransactionSourceKey] = useState<string | null>(null);
   const [isSimulated, setIsSimulated] = useState(false);
   const [simRisk, setSimRisk] = useState<number | null>(null);
   const [simInsights, setSimInsights] = useState<string[]>([]);
@@ -126,6 +154,157 @@ export default function App() {
       alert('Erro ao deletar o projeto.');
     }
   }, [loadGraph]);
+
+  const loadSavedViews = useCallback(async () => {
+    setSavedViewsLoading(true);
+    try {
+      const projectFilter = selectedProjects.length === 1 ? selectedProjects[0] : undefined;
+      const data = await listSavedViews(projectFilter);
+      setSavedViews(data.items);
+      setSavedViewsError(null);
+    } catch (err) {
+      console.error('Failed to load saved views:', err);
+      setSavedViewsError('Falha ao carregar saved views.');
+    } finally {
+      setSavedViewsLoading(false);
+    }
+  }, [selectedProjects]);
+
+  const loadTags = useCallback(async () => {
+    try {
+      const payload = await listTags();
+      setTagsForFilter(payload.items);
+    } catch (err) {
+      console.error('Failed to load tags for filter:', err);
+    }
+  }, []);
+
+  const loadAnnotations = useCallback(async () => {
+    try {
+      const payload = await listAnnotations();
+      const grouped: Record<string, AnnotationRecord[]> = {};
+      (payload.items as AnnotationRecord[]).forEach((record) => {
+        if (!record.node_key) return;
+        grouped[record.node_key] = grouped[record.node_key] || [];
+        grouped[record.node_key].push(record);
+      });
+      setAnnotationsIndex(grouped);
+    } catch (err) {
+      console.error('Failed to load annotations for filter:', err);
+    }
+  }, []);
+
+  useEffect(() => {
+    loadTags();
+    loadAnnotations();
+  }, [loadTags, loadAnnotations]);
+
+  const handleOpenSavedViews = useCallback(() => {
+    loadSavedViews();
+    setSavedViewsOpen(true);
+  }, [loadSavedViews]);
+
+  const handleToggleSavedViews = useCallback(() => {
+    if (savedViewsOpen) {
+      setSavedViewsOpen(false);
+      return;
+    }
+    handleOpenSavedViews();
+  }, [savedViewsOpen, handleOpenSavedViews]);
+
+  const handleSelectTagFilter = useCallback((tagName: string | null) => {
+    setSelectedTagFilter((prev) => (prev === tagName ? null : tagName));
+  }, []);
+
+  const handleAnnotationsChanged = useCallback(() => {
+    loadAnnotations();
+    loadTags();
+  }, [loadAnnotations, loadTags]);
+
+  const nodeAnnotationMeta = useMemo(() => {
+    const map = new Map<string, { tag?: string; color?: string | null }>();
+    Object.entries(annotationsIndex).forEach(([nodeKey, records]) => {
+      if (!records.length) return;
+      const tagged = records.find((record) => record.tag);
+      if (tagged && tagged.tag) {
+        map.set(nodeKey, { tag: tagged.tag, color: tagged.tag_color ?? undefined });
+      } else {
+        map.set(nodeKey, { color: records[0]?.tag_color ?? undefined });
+      }
+    });
+    return map;
+  }, [annotationsIndex]);
+
+  const nodesByTag = useMemo(() => {
+    const map = new Map<string, Set<string>>();
+    Object.entries(annotationsIndex).forEach(([nodeKey, records]) => {
+      records.forEach((record) => {
+        if (!record.tag) return;
+        const existing = map.get(record.tag);
+        if (existing) {
+          existing.add(nodeKey);
+        } else {
+          map.set(record.tag, new Set([nodeKey]));
+        }
+      });
+    });
+    return map;
+  }, [annotationsIndex]);
+
+  const tagFilterNodes = useMemo(() => {
+    if (!selectedTagFilter) return undefined;
+    return nodesByTag.get(selectedTagFilter) ?? new Set<string>();
+  }, [nodesByTag, selectedTagFilter]);
+
+  const handleSaveCurrentView = useCallback(
+    async (name: string, description?: string) => {
+      if (!graphCanvasRef.current) throw new Error('Graph canvas is not ready yet.');
+      const viewState = graphCanvasRef.current.captureViewState();
+      setSaveViewLoading(true);
+      try {
+        await createSavedView({
+          name,
+          description,
+          project: selectedProjects.length === 1 ? selectedProjects[0] : undefined,
+          filters: {
+            searchTerm,
+            selectedLayer,
+            selectedProjects: [...selectedProjects],
+          },
+          reactflow_state: viewState,
+        });
+        await loadSavedViews();
+      } finally {
+        setSaveViewLoading(false);
+      }
+    },
+    [selectedLayer, searchTerm, selectedProjects, loadSavedViews]
+  );
+
+  const handleLoadSavedView = useCallback(
+    (view: SavedView) => {
+      const filters = (view.filters || {}) as Record<string, unknown>;
+      if (filters.searchTerm !== undefined) {
+        setSearchTerm(String(filters.searchTerm || ''));
+      }
+      if (filters.selectedLayer !== undefined) {
+        setSelectedLayer(String(filters.selectedLayer || ''));
+      }
+      if (Array.isArray(filters.selectedProjects)) {
+        setSelectedProjects(filters.selectedProjects.filter((p): p is string => typeof p === 'string'));
+      }
+
+      const rfState = view.reactflow_state as SavedViewState | undefined;
+      if (rfState?.nodes?.length && graphCanvasRef.current) {
+        graphCanvasRef.current.applyViewState({
+          nodes: rfState.nodes,
+          viewport: rfState.viewport || { x: 0, y: 0, zoom: 1 },
+        });
+      }
+      setSavedViewsOpen(false);
+    },
+    []
+  );
 
   const handleScan = useCallback(async () => {
     if (workspaces.length === 0) return;
@@ -255,6 +434,11 @@ export default function App() {
     setDashboardOpen(false);
   }, []);
 
+  const handleOpenTransaction = useCallback((nodeKey: string) => {
+    setTransactionSourceKey(nodeKey);
+    setTransactionOpen(true);
+  }, []);
+
   const handleViewUsages = useCallback((nodeKey: string, nodeName: string) => {
     const methodLikeLabels = new Set(['Java_Method', 'TS_Function', 'API_Endpoint', 'SQL_Procedure']);
     const node = graphNodes.find((n) => n.namespace_key === nodeKey);
@@ -278,6 +462,14 @@ export default function App() {
       setMethodUsageOpen(false);
     }
   }, [graphNodes, handleNodeClick]);
+
+  const handleOpenInventory = useCallback(() => {
+    setInventoryOpen(true);
+  }, []);
+
+  const handleToggleInventory = useCallback(() => {
+    setInventoryOpen((prev) => !prev);
+  }, []);
 
   const handleSemanticSearch = useCallback(async (query: string) => {
     const q = query.trim();
@@ -395,6 +587,10 @@ export default function App() {
         onToggleSemanticSearchMode={() => setSemanticSearchEnabled((prev) => !prev)}
         onRebuildRagIndex={handleRebuildRag}
         ragReindexing={ragReindexing}
+        savedViewsOpen={savedViewsOpen}
+        onToggleSavedViews={handleToggleSavedViews}
+        inventoryOpen={inventoryOpen}
+        onToggleInventory={handleToggleInventory}
       />
 
       {isSimulated && (
@@ -450,20 +646,23 @@ export default function App() {
         </div>
       )}
 
-      <Sidebar
-        workspaces={workspaces}
-        onRemoveWorkspace={handleRemoveWorkspace}
-        projects={projects}
-        selectedProjects={selectedProjects}
-        onToggleProject={handleToggleProject}
-        onDeleteProject={handleDeleteProject}
-        selectedLayer={selectedLayer}
-        onLayerChange={setSelectedLayer}
-        searchTerm={searchTerm}
-        onSearchChange={setSearchTerm}
-        nodeCount={graphNodes.length}
-        edgeCount={graphEdges.length}
-      />
+    <Sidebar
+      workspaces={workspaces}
+      onRemoveWorkspace={handleRemoveWorkspace}
+      projects={projects}
+      selectedProjects={selectedProjects}
+      onToggleProject={handleToggleProject}
+      onDeleteProject={handleDeleteProject}
+      selectedLayer={selectedLayer}
+      onLayerChange={setSelectedLayer}
+      searchTerm={searchTerm}
+      onSearchChange={setSearchTerm}
+      tags={tagsForFilter}
+      selectedTag={selectedTagFilter}
+      onTagSelect={handleSelectTagFilter}
+      nodeCount={graphNodes.length}
+      edgeCount={graphEdges.length}
+    />
 
       <GraphCanvas
         graphNodes={graphNodes}
@@ -475,6 +674,10 @@ export default function App() {
         onNodeClick={handleNodeClick}
         onClearAiHighlights={handleClearAiHighlights}
         searchTerm={searchTerm}
+        nodeAnnotations={nodeAnnotationMeta}
+        selectedTag={selectedTagFilter}
+        tagFilterNodes={tagFilterNodes}
+        ref={graphCanvasRef}
       />
 
       <NodeDetail
@@ -484,7 +687,32 @@ export default function App() {
         onClose={handleCloseDetail}
         onViewUsages={handleViewUsages}
         onQuickImpactScenario={handleQuickImpactScenario}
+        onOpenTransaction={handleOpenTransaction}
+        onAnnotationsChanged={handleAnnotationsChanged}
       />
+
+      {transactionOpen && (
+        <TransactionPanel
+          isOpen={transactionOpen}
+          initialSourceKey={transactionSourceKey}
+          graphNodes={graphNodes}
+          onClose={() => setTransactionOpen(false)}
+        />
+      )}
+
+      {savedViewsOpen && (
+        <SavedViewsPanel
+          isOpen={savedViewsOpen}
+          onClose={() => setSavedViewsOpen(false)}
+          views={savedViews}
+          loading={savedViewsLoading}
+          saving={saveViewLoading}
+          error={savedViewsError}
+          onRefresh={loadSavedViews}
+          onSave={handleSaveCurrentView}
+          onLoad={handleLoadSavedView}
+        />
+      )}
 
       {methodUsageOpen && methodUsageNode && (
         <MethodUsageView
@@ -513,6 +741,7 @@ export default function App() {
         <Dashboard 
           onClose={() => setDashboardOpen(false)}
           onRefactorRequest={handleRefactorRequest}
+          onOpenInventory={handleOpenInventory}
         />
       )}
 
@@ -526,6 +755,10 @@ export default function App() {
 
       {codeQLOpen && (
         <CodeQLModal onClose={() => setCodeQLOpen(false)} />
+      )}
+
+      {inventoryOpen && (
+        <APIInventoryPanel onClose={() => setInventoryOpen(false)} />
       )}
 
       {aiReport && (

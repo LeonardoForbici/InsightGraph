@@ -57,6 +57,116 @@ export interface BlastRadiusData {
     risk_score: number;
 }
 
+export interface TransactionLane {
+    layer: string;
+    nodes: Array<{
+        namespace_key: string;
+        name: string;
+        labels: string[];
+        layer: string;
+        project?: string;
+        file?: string;
+        depth: number;
+        via_rel?: string | null;
+    }>;
+}
+
+export interface TransactionViewData {
+    origin: {
+        namespace_key: string;
+        name: string;
+        labels: string[];
+        layer: string;
+        project?: string;
+        file?: string;
+    };
+    max_depth: number;
+    nodes_visited: number;
+    lanes: TransactionLane[];
+    edges: GraphEdge[];
+    terminal_paths: Array<{
+        target_key: string;
+        target_name: string;
+        target_layer: string;
+        depth: number;
+        path: string[];
+    }>;
+}
+
+export interface TransactionExplainData {
+    explanation: string;
+    model?: string | null;
+    origin: TransactionViewData["origin"];
+    layers: string[];
+    terminal_paths: TransactionViewData["terminal_paths"];
+}
+
+export interface PathFinderData {
+    found: boolean;
+    source: string;
+    target: string;
+    max_depth?: number;
+    hops?: number;
+    path: string[];
+    nodes: GraphNode[];
+    edges: GraphEdge[];
+}
+
+export interface SavedViewPayload {
+    name: string;
+    description?: string;
+    project?: string;
+    filters?: Record<string, unknown>;
+    reactflow_state?: Record<string, unknown>;
+}
+
+export interface SavedView extends SavedViewPayload {
+    id: string;
+    created_at: number;
+    updated_at: number;
+}
+
+export interface AnnotationPayload {
+    node_key: string;
+    title?: string;
+    content: string;
+    severity?: string;
+    tag?: string;
+    tag_id?: string;
+    tag_color?: string;
+}
+
+export interface AnnotationRecord {
+    id: string;
+    node_key: string;
+    title?: string | null;
+    content: string;
+    severity?: string | null;
+    tag?: string | null;
+    tag_color?: string | null;
+    tag_id?: string | null;
+    created_at: number;
+    updated_at: number;
+}
+
+export interface ApiInventoryResponseItem {
+    namespace_key?: string | null;
+    name?: string | null;
+    route_path?: string | null;
+    http_method?: string | null;
+    project?: string | null;
+    file?: string | null;
+    layer?: string | null;
+    labels?: string[];
+}
+
+export interface Tag {
+    id: string;
+    name: string;
+    color?: string | null;
+    created_at: number;
+}
+
 export interface AntipatternData {
     circular_dependencies: { path: string[]; length: number }[];
     god_classes: { key: string; name: string; layer: string; out_degree: number; in_degree: number; complexity: number }[];
@@ -427,6 +537,213 @@ export async function fetchGraph(project?: string, layer?: string): Promise<Grap
 
 export async function fetchImpact(nodeKey: string): Promise<ImpactData> {
     const res = await fetch(`${BASE}/impact/${encodeURIComponent(nodeKey)}`);
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function fetchTransactionView(nodeKey: string, maxDepth: number = 10): Promise<TransactionViewData> {
+    const params = new URLSearchParams({ max_depth: String(maxDepth) });
+    const res = await fetch(`${BASE}/transaction/${encodeURIComponent(nodeKey)}?${params.toString()}`);
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function fetchGraphPath(source: string, target: string, maxDepth: number = 12): Promise<PathFinderData> {
+    const params = new URLSearchParams({
+        source,
+        target,
+        max_depth: String(maxDepth),
+    });
+    const res = await fetch(`${BASE}/graph/paths?${params.toString()}`);
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function fetchTransactionExplain(nodeKey: string, maxDepth: number = 10): Promise<TransactionExplainData> {
+    const params = new URLSearchParams({
+        max_depth: String(maxDepth),
+    });
+    const res = await fetch(`${BASE}/transaction/${encodeURIComponent(nodeKey)}/explain?${params.toString()}`);
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function listSavedViews(project?: string): Promise<{ items: SavedView[] }> {
+    const params = new URLSearchParams();
+    if (project) params.set('project', project);
+    const suffix = params.toString();
+    const res = await fetch(`${BASE}/views${suffix ? `?${suffix}` : ''}`);
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function createSavedView(payload: SavedViewPayload): Promise<SavedView> {
+    const res = await fetch(`${BASE}/views`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function updateSavedView(id: string, payload: Partial<SavedViewPayload>): Promise<SavedView> {
+    const res = await fetch(`${BASE}/views/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function deleteSavedView(id: string): Promise<{ status: string; id: string }> {
+    const res = await fetch(`${BASE}/views/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function listAnnotations(nodeKey?: string): Promise<{ items: any[] }> {
+    const params = new URLSearchParams();
+    if (nodeKey) params.set('node_key', nodeKey);
+    const suffix = params.toString();
+    const res = await fetch(`${BASE}/annotations${suffix ? `?${suffix}` : ''}`);
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function createAnnotation(payload: AnnotationPayload): Promise<any> {
+    const res = await fetch(`${BASE}/annotations`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function updateAnnotation(id: string, payload: Partial<AnnotationPayload>): Promise<any> {
+    const res = await fetch(`${BASE}/annotations/${encodeURIComponent(id)}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function deleteAnnotation(id: string): Promise<{ status: string; id: string }> {
+    const res = await fetch(`${BASE}/annotations/${encodeURIComponent(id)}`, { method: 'DELETE' });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function listTags(): Promise<{ items: Tag[] }> {
+    const res = await fetch(`${BASE}/tags`);
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function upsertTag(name: string, color?: string): Promise<Tag> {
+    const res = await fetch(`${BASE}/tags`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, color }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export interface IsoRule {
+    rule_id: string;
+    name: string;
+    weight: number;
+    passed: boolean;
+    notes: string;
+    score: number;
+}
+
+export interface IsoQualityGrade {
+    grade: string;
+    score_percent: number;
+    score_obtained: number;
+    score_max: number;
+    rules: IsoRule[];
+}
+
+export async function fetchIso5055(): Promise<IsoQualityGrade> {
+    const res = await fetch(`${BASE}/quality/iso5055`);
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export interface OssVulnerability {
+    id: string;
+    aliases: string[];
+    summary?: string;
+    modified?: string;
+}
+
+export interface OssDependency {
+    ecosystem: string;
+    name: string;
+    version?: string | null;
+    source?: string | null;
+    vulnerabilities: OssVulnerability[];
+    vuln_count: number;
+}
+
+export interface OssExposureResponse {
+    total_dependencies: number;
+    total_vulnerabilities: number;
+    items: OssDependency[];
+}
+
+export async function fetchOssExposure(limit: number = 120): Promise<OssExposureResponse> {
+    const res = await fetch(`${BASE}/oss/exposure?limit=${encodeURIComponent(String(limit))}`);
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function fetchApiInventory(params?: { project?: string; method?: string; q?: string }): Promise<{ items: ApiInventoryResponseItem[] }> {
+    const qs = new URLSearchParams();
+    if (params?.project) qs.set('project', params.project);
+    if (params?.method) qs.set('method', params.method);
+    if (params?.q) qs.set('q', params.q);
+    const suffix = qs.toString();
+    const res = await fetch(`${BASE}/inventory/apis${suffix ? `?${suffix}` : ''}`);
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function fetchInheritance(project?: string, root?: string): Promise<any> {
+    const qs = new URLSearchParams();
+    if (project) qs.set('project', project);
+    let url = '';
+    if (root) {
+        url = `${BASE}/inheritance/${encodeURIComponent(root)}`;
+        const suffix = qs.toString();
+        if (suffix) url += `?${suffix}`;
+    } else {
+        const suffix = qs.toString();
+        url = `${BASE}/inheritance${suffix ? `?${suffix}` : ''}`;
+    }
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function exportFindings(format: 'json' | 'csv' = 'json'): Promise<any> {
+    const res = await fetch(`${BASE}/findings/export?format=${format}`);
+    if (!res.ok) throw new Error(await res.text());
+    if (format === 'csv') return res.text();
+    return res.json();
+}
+
+export async function triggerAdvancedCallResolver(maxCandidates: number = 5): Promise<any> {
+    const res = await fetch(`${BASE}/calls/resolve/advanced?max_candidates=${encodeURIComponent(String(maxCandidates))}`, {
+        method: 'POST',
+    });
     if (!res.ok) throw new Error(await res.text());
     return res.json();
 }

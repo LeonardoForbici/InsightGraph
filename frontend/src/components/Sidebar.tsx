@@ -1,3 +1,5 @@
+import type { Tag } from '../api';
+
 interface SidebarProps {
     workspaces: string[];
     onRemoveWorkspace: (path: string) => void;
@@ -11,6 +13,9 @@ interface SidebarProps {
     onSearchChange: (term: string) => void;
     nodeCount: number;
     edgeCount: number;
+    tags: Tag[];
+    selectedTag: string | null;
+    onTagSelect: (tagName: string | null) => void;
 }
 
 const LAYERS = [
@@ -32,6 +37,9 @@ export default function Sidebar({
     onLayerChange,
     searchTerm,
     onSearchChange,
+    tags,
+    selectedTag,
+    onTagSelect,
     nodeCount,
     edgeCount,
 }: SidebarProps) {
@@ -132,6 +140,39 @@ export default function Sidebar({
                     ))}
                 </div>
             </div>
+
+            {tags.length > 0 && (
+                <div className="sidebar-section">
+                    <div className="sidebar-section-title">
+                        Filtrar por tag
+                        {selectedTag && <span className="section-badge" style={{ background: 'rgba(79, 143, 247, 0.1)', color: '#60a5fa' }}>ativo</span>}
+                    </div>
+                    <div className="filter-group tag-filter-group">
+                        {tags.map((tag) => (
+                            <div
+                                key={tag.id}
+                                className={`filter-item tag-filter ${selectedTag === tag.name ? 'active' : ''}`}
+                                onClick={() => onTagSelect(tag.name)}
+                            >
+                                <div
+                                    className="filter-dot"
+                                    style={{ background: tag.color || '#cbd5f5', boxShadow: '0 0 6px currentColor' }}
+                                />
+                                {tag.name}
+                            </div>
+                        ))}
+                        {selectedTag && (
+                            <button
+                                type="button"
+                                className="tag-clear-btn"
+                                onClick={() => onTagSelect(null)}
+                            >
+                                Limpar filtro
+                            </button>
+                        )}
+                    </div>
+                </div>
+            )}
 
             {/* Node Types Legend */}
             <div className="sidebar-section" style={{ marginTop: 'auto' }}>

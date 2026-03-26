@@ -20,6 +20,10 @@ interface TopBarProps {
     onToggleSemanticSearchMode: () => void;
     onRebuildRagIndex: () => void;
     ragReindexing: boolean;
+    savedViewsOpen: boolean;
+    onToggleSavedViews: () => void;
+    inventoryOpen: boolean;
+    onToggleInventory: () => void;
 }
 
 export default function TopBar({
@@ -41,6 +45,10 @@ export default function TopBar({
     onToggleSemanticSearchMode,
     onRebuildRagIndex,
     ragReindexing,
+    savedViewsOpen,
+    onToggleSavedViews,
+    inventoryOpen,
+    onToggleInventory,
 }: TopBarProps) {
     const [inputPath, setInputPath] = useState('');
 
@@ -113,6 +121,20 @@ export default function TopBar({
                     title="Open CodeQL security analysis"
                 >
                     CodeQL
+                </button>
+                <button
+                    className={`btn ${inventoryOpen ? 'btn-accent' : 'btn-secondary'}`}
+                    onClick={onToggleInventory}
+                    title="Explore API inventory"
+                >
+                    API Inventory
+                </button>
+                <button
+                    className={`btn ${savedViewsOpen ? 'btn-accent' : 'btn-secondary'}`}
+                    onClick={onToggleSavedViews}
+                    title="Manage saved views"
+                >
+                    Saved Views
                 </button>
                 <button
                     className={`btn btn-accent ${askOpen ? 'active' : ''}`}

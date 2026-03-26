@@ -16,17 +16,23 @@ import logging
 import datetime
 import argparse
 import subprocess
+import csv
+import io
+import threading
 from dataclasses import asdict
 from pathlib import Path
 from typing import Optional
 from contextlib import asynccontextmanager
-from collections import defaultdict
+from collections import Counter, defaultdict, deque
+import xml.etree.ElementTree as ET
 
 import httpx
-from fastapi import FastAPI, HTTPException, BackgroundTasks
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Query
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse, Response
 from pydantic import BaseModel, Field
 from py2neo import Graph, Node, Relationship
+from jinja2 import Environment, FileSystemLoader
 
 # ──────────────────────────────────────────────
 # tree-sitter imports
@@ -55,6 +61,8 @@ from semantic_analyzer import SemanticAnalyzer
 from side_effect_detector import SideEffectDetector
 from symbol_resolver import SymbolResolver
 from taint_propagator import TaintPropagator
+from state import AppState
+from state_store import LocalStateStore
 
 # ──────────────────────────────────────────────
 # Configuration
@@ -71,11 +79,15 @@ OLLAMA_CHAT_MODEL = os.getenv("OLLAMA_CHAT_MODEL", "qwen3.5:4b")
 OLLAMA_COMPLEX_MODEL = os.getenv("OLLAMA_COMPLEX_MODEL", "qwen3-coder-next:q4_K_M")
 OLLAMA_EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "nomic-embed-text")
 RAG_INDEX_FILE = Path(os.getenv("RAG_INDEX_FILE", "rag_index.json"))
+STATE_DB_FILE = Path(os.getenv("STATE_DB_FILE", "insightgraph_state.db"))
 OLLAMA_FORCE_GPU = os.getenv("OLLAMA_FORCE_GPU", "0").lower() in ("1", "true", "yes", "on")
 OLLAMA_NUM_GPU = int(os.getenv("OLLAMA_NUM_GPU", "999") or "999")
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("insightgraph")
+state_store = LocalStateStore(str(STATE_DB_FILE))
+TEMPLATES_DIR = Path(__file__).resolve().parent / "templates" / "reports"
+REPORT_ENV = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)))
 
 # ──────────────────────────────────────────────
 # FastAPI App
@@ -83,6 +95,12 @@ logger = logging.getLogger("insightgraph")
 @asynccontextmanager
 async def lifespan(application):
     """Connect to Neo4j on startup (non-fatal if unavailable)."""
+    try:
+        state_store.initialize()
+        logger.info("SQLite state store initialized at %s", STATE_DB_FILE)
+    except Exception as e:
+        logger.warning("SQLite state store initialization failed: %s", e)
+
     try:
         if neo4j_service.connect():
             neo4j_service.ensure_indexes()
@@ -98,6 +116,16 @@ async def lifespan(application):
         logger.info("RAG index startup load: %d entries from %s", loaded, RAG_INDEX_FILE)
     except Exception as e:
         logger.warning("RAG startup load failed: %s", e)
+
+    try:
+        persisted = state_store.get_state("scan_status")
+        if isinstance(persisted, dict) and persisted.get("status"):
+            for key, value in persisted.items():
+                if hasattr(scan_state, key):
+                    setattr(scan_state, key, value)
+            logger.info("Recovered persisted scan status from SQLite: %s", scan_state.status)
+    except Exception as e:
+        logger.warning("Failed to recover persisted scan status: %s", e)
     yield
 
 app = FastAPI(
@@ -174,16 +202,51 @@ class FileContentResponse(BaseModel):
     content: str
     file_path: str
 
-# Global state
-scan_state = ScanStatus(status="idle")
-ai_busy = False  # True while Qwen Q&A is processing
-scanned_projects: dict[str, str] = {}  # Maps project_name -> absolute_project_path
 
-# In-memory graph storage (works even without Neo4j)
-memory_nodes: list[dict] = []
-memory_edges: list[dict] = []
-rag_index: list[dict] = []
-rag_index_metadata: dict = {}
+class SavedViewCreateRequest(BaseModel):
+    name: str
+    description: str | None = None
+    project: str | None = None
+    filters: dict = Field(default_factory=dict)
+    reactflow_state: dict = Field(default_factory=dict)
+
+
+class SavedViewUpdateRequest(BaseModel):
+    name: str | None = None
+    description: str | None = None
+    project: str | None = None
+    filters: dict | None = None
+    reactflow_state: dict | None = None
+
+
+class AnnotationCreateRequest(BaseModel):
+    node_key: str
+    title: str | None = None
+    content: str
+    severity: str | None = None
+    tag_id: str | None = None
+    tag: str | None = None
+    tag_color: str | None = None
+
+
+class AnnotationUpdateRequest(BaseModel):
+    title: str | None = None
+    content: str | None = None
+    severity: str | None = None
+    tag_id: str | None = None
+    tag: str | None = None
+    tag_color: str | None = None
+
+# Global state built on AppState
+app_state = AppState.instance()
+scan_state = app_state.scan_status
+ai_semaphore = app_state.ai_semaphore
+scan_lock = app_state.scan_lock
+scanned_projects = app_state.scanned_projects
+memory_nodes = app_state.nodes
+memory_edges = app_state.edges
+rag_index = app_state.rag_index
+rag_index_metadata = app_state.rag_index_metadata
 
 # ──────────────────────────────────────────────
 # Neo4j Service
@@ -1702,9 +1765,8 @@ def _ollama_options(base: dict | None = None) -> dict:
 async def parse_sql_with_ollama(file_path: str, content: str, project_path: str) -> dict:
     """Send SQL content to Ollama Coder-Next for analysis.
     Waits if Qwen Q&A is currently processing to avoid loading both models."""
-    global ai_busy
     for _ in range(60):  # max 60s wait
-        if not ai_busy:
+        if not ai_semaphore.locked():
             break
         await asyncio.sleep(1)
         logger.info("Waiting for Qwen Q&A to finish before calling Coder-Next...")
@@ -1832,12 +1894,10 @@ SQL Code:
 # ──────────────────────────────────────────────
 async def ask_ai(question: str, context: str) -> dict:
     """Send a question with graph context to Qwen for intelligent answers.
-    Sets ai_busy flag to prevent Coder-Next from running simultaneously.
-    If the primary model times out, retries with the fast model."""
-    global ai_busy
-    ai_busy = True
-    
-    system_prompt = """Você é o InsightGraph AI, um Arquiteto de Software Sênior e assistente prestativo.
+    Limits concurrent AI calls via a shared semaphore."""
+    async with ai_semaphore:
+
+        system_prompt = """Você é o InsightGraph AI, um Arquiteto de Software Sênior e assistente prestativo.
 DIRETRIZES DE RESPOSTA (OBRIGATÓRIO):
 - Estruture TODAS as respostas em 3 blocos bem definidos (na ordem abaixo), usando cabeçalhos claros.
 
@@ -1908,7 +1968,6 @@ Pergunta do usuário:
             result = resp.json()
             return result.get("message", {}).get("content", "{}")
 
-    try:
         try:
             # Try primary chat model first
             logger.info("Attempting AI response with primary model: %s (10s timeout)", OLLAMA_CHAT_MODEL)
@@ -1919,69 +1978,64 @@ Pergunta do usuário:
             # Try fast model as fallback
             content = await _call_ollama(OLLAMA_FAST_MODEL, 60.0)
             return {"raw_text": content, "model": f"{OLLAMA_FAST_MODEL} (fallback)"}
-
-    except Exception as e:
-        logger.error("All AI models failed: %s", e)
-        import json
-        return {
-            "raw_text": json.dumps({
-                "resposta_texto": f"Erro ao consultar a IA: {str(e)}. Tente novamente mais tarde.", 
-                "nos_relevantes": []
-            }), 
-            "model": "error"
-        }
-    finally:
-        ai_busy = False
+        except Exception as e:
+            logger.error("All AI models failed: %s", e)
+            import json
+            return {
+                "raw_text": json.dumps({
+                    "resposta_texto": f"Erro ao consultar a IA: {str(e)}. Tente novamente mais tarde.", 
+                    "nos_relevantes": []
+                }), 
+                "model": "error"
+            }
 
 
 async def ask_complex_ai(prompt_text: str) -> str:
     """Send a complex request to the high-end architectural model with robust fallbacks."""
-    global ai_busy
-    ai_busy = True
+    async with ai_semaphore:
 
-    async def _call_ollama_generate(model: str, timeout: float) -> str:
-        # Usamos /api/generate pois é mais universal e ignora a ausência de chat_templates
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            resp = await client.post(
-                f"{OLLAMA_URL}/api/generate",
-                json={
-                    "model": model,
-                    "prompt": prompt_text,
-                    "stream": False,
-                    "options": _ollama_options({
-                        "temperature": 0.3,
-                        "num_predict": 1024
-                    }),
-                    "keep_alive": "5m"
-                },
-            )
-            resp.raise_for_status()
-            result = resp.json()
-            content = result.get("response", "").strip()
-            
-            if not content:
-                raise ValueError(f"O modelo {model} retornou um texto vazio.")
-                
-            return content
+        async def _call_ollama_generate(model: str, timeout: float) -> str:
+            # Usamos /api/generate pois é mais universal e ignora a ausência de chat_templates
+            async with httpx.AsyncClient(timeout=timeout) as client:
+                resp = await client.post(
+                    f"{OLLAMA_URL}/api/generate",
+                    json={
+                        "model": model,
+                        "prompt": prompt_text,
+                        "stream": False,
+                        "options": _ollama_options({
+                            "temperature": 0.3,
+                            "num_predict": 1024
+                        }),
+                        "keep_alive": "5m"
+                    },
+                )
+                resp.raise_for_status()
+                result = resp.json()
+                content = result.get("response", "").strip()
 
-    try:
-        logger.info("Deep architectural review requested via %s", OLLAMA_COMPLEX_MODEL)
+                if not content:
+                    raise ValueError(f"O modelo {model} retornou um texto vazio.")
+
+                return content
+
         try:
-            return await _call_ollama_generate(OLLAMA_COMPLEX_MODEL, 180.0)
-        except Exception as e:
-            logger.warning("Complex model failed (%s); falling back to chat model", e)
+            logger.info("Deep architectural review requested via %s", OLLAMA_COMPLEX_MODEL)
             try:
-                return await _call_ollama_generate(OLLAMA_CHAT_MODEL, 90.0)
-            except Exception as e2:
-                logger.warning("Chat model fallback failed (%s); trying fast model", e2)
+                return await _call_ollama_generate(OLLAMA_COMPLEX_MODEL, 180.0)
+            except Exception as e:
+                logger.warning("Complex model failed (%s); falling back to chat model", e)
                 try:
-                    return await _call_ollama_generate(OLLAMA_FAST_MODEL, 60.0)
-                except Exception as e3:
-                    logger.error("All fallback models failed: %s", e3)
-                    return "⚠️ Todos os modelos de IA falharam em gerar o relatório. Verifique se os modelos estão instalados no Ollama (`ollama list`) e se o computador tem memória RAM/VRAM disponível."
-    finally:
-        ai_busy = False
-
+                    return await _call_ollama_generate(OLLAMA_CHAT_MODEL, 90.0)
+                except Exception as e2:
+                    logger.warning("Chat model fallback failed (%s); trying fast model", e2)
+                    try:
+                        return await _call_ollama_generate(OLLAMA_FAST_MODEL, 60.0)
+                    except Exception as e3:
+                        logger.error("All fallback models failed: %s", e3)
+                        return "⚠️ Todos os modelos de IA falharam em gerar o relatório. Verifique se os modelos estão instalados no Ollama (`ollama list`) e se o computador tem memória RAM/VRAM disponível."
+        except Exception:
+            raise
 
 # ──────────────────────────────────────────────
 # Project Scanner
@@ -2718,70 +2772,86 @@ async def ingest_to_neo4j(entities: dict) -> None:
         scan_state.total_relationships += 1
 
 
+def _prepare_scan_status() -> None:
+    """Reset the shared scan status object before a new run."""
+    scan_state.status = "scanning"
+    scan_state.scanned_files = 0
+    scan_state.total_files = 0
+    scan_state.total_nodes = 0
+    scan_state.total_relationships = 0
+    scan_state.progress_percent = 0.0
+    scan_state.current_file = ""
+    scan_state.errors.clear()
+
+
 async def run_scan(paths: list[str]):
     """Background task to scan all projects."""
     global scan_state, memory_nodes, memory_edges
-    scan_state = ScanStatus(status="scanning")
-    memory_nodes = []
-    memory_edges = []
-
-    try:
-        # Count total files first for progress tracking
-        total = 0
-        for project_path in paths:
-            total += _count_files(project_path)
-        scan_state.total_files = total
-
-        for project_path in paths:
-            logger.info("Scanning project: %s", project_path)
-            entities = await scan_project(project_path)
-            await ingest_to_neo4j(entities)
-
-        scan_state.status = "completed"
-        scan_state.progress_percent = 100.0
-        scan_state.current_file = ""
-        try:
-            _rebuild_rag_index(include_embeddings=False, persist=True)
-        except Exception as reidx_err:
-            logger.warning("Post-scan RAG index refresh failed: %s", reidx_err)
-        logger.info(
-            "Scan complete: %d files, %d nodes, %d relationships",
-            scan_state.scanned_files,
-            scan_state.total_nodes,
-            scan_state.total_relationships,
-        )
+    async with scan_lock:
+        _prepare_scan_status()
+        memory_nodes.clear()
+        memory_edges.clear()
 
         try:
-            anti = await get_antipatterns()
-            call_res = _compute_call_resolution_summary(top_n=10)
-            snapshot = {
-                "timestamp": datetime.datetime.now().isoformat(),
-                "total_nodes": scan_state.total_nodes,
-                "total_edges": scan_state.total_relationships,
-                "god_classes": len(anti.get("god_classes", [])),
-                "circular_deps": len(anti.get("circular_dependencies", [])),
-                "dead_code": len(anti.get("dead_code", [])),
-                "call_resolution_rate": float(call_res.get("resolution_rate", 0.0) or 0.0),
-                "call_total": int(call_res.get("total_calls", 0) or 0),
-                "call_resolved": int(call_res.get("resolved_calls", 0) or 0),
-                "call_unresolved": int(call_res.get("unresolved_calls", 0) or 0),
-            }
-            history_file = Path("history.json")
-            history = []
-            if history_file.exists():
-                with open(history_file, "r") as f:
-                    history = json.load(f)
-            history.append(snapshot)
-            with open(history_file, "w") as f:
-                json.dump(history, f, indent=2)
-            logger.info("Saved architecture snapshot to history.json")
-        except Exception as he:
-            logger.warning("Failed to save history snapshot: %s", he)
+            # Count total files first for progress tracking
+            total = 0
+            for project_path in paths:
+                total += _count_files(project_path)
+            scan_state.total_files = total
+            state_store.set_state("scan_status", scan_state.model_dump())
 
-    except Exception as e:
-        scan_state.status = "error"
-        scan_state.errors.append(str(e))
-        logger.error("Scan failed: %s", e)
+            for project_path in paths:
+                logger.info("Scanning project: %s", project_path)
+                entities = await scan_project(project_path)
+                await ingest_to_neo4j(entities)
+
+            scan_state.status = "completed"
+            scan_state.progress_percent = 100.0
+            scan_state.current_file = ""
+            state_store.set_state("scan_status", scan_state.model_dump())
+            try:
+                _rebuild_rag_index(include_embeddings=False, persist=True)
+            except Exception as reidx_err:
+                logger.warning("Post-scan RAG index refresh failed: %s", reidx_err)
+            logger.info(
+                "Scan complete: %d files, %d nodes, %d relationships",
+                scan_state.scanned_files,
+                scan_state.total_nodes,
+                scan_state.total_relationships,
+            )
+
+            try:
+                anti = await get_antipatterns()
+                call_res = _compute_call_resolution_summary(top_n=10)
+                snapshot = {
+                    "timestamp": datetime.datetime.now().isoformat(),
+                    "total_nodes": scan_state.total_nodes,
+                    "total_edges": scan_state.total_relationships,
+                    "god_classes": len(anti.get("god_classes", [])),
+                    "circular_deps": len(anti.get("circular_dependencies", [])),
+                    "dead_code": len(anti.get("dead_code", [])),
+                    "call_resolution_rate": float(call_res.get("resolution_rate", 0.0) or 0.0),
+                    "call_total": int(call_res.get("total_calls", 0) or 0),
+                    "call_resolved": int(call_res.get("resolved_calls", 0) or 0),
+                    "call_unresolved": int(call_res.get("unresolved_calls", 0) or 0),
+                }
+                history_file = Path("history.json")
+                history = []
+                if history_file.exists():
+                    with open(history_file, "r") as f:
+                        history = json.load(f)
+                history.append(snapshot)
+                with open(history_file, "w") as f:
+                    json.dump(history, f, indent=2)
+                logger.info("Saved architecture snapshot to history.json")
+            except Exception as he:
+                logger.warning("Failed to save history snapshot: %s", he)
+
+        except Exception as e:
+            scan_state.status = "error"
+            scan_state.errors.append(str(e))
+            state_store.set_state("scan_status", scan_state.model_dump())
+            logger.error("Scan failed: %s", e)
 
 
 # ──────────────────────────────────────────────
@@ -2792,12 +2862,11 @@ async def run_scan(paths: list[str]):
 @app.post("/api/scan", response_model=ScanStatus)
 async def trigger_scan(request: ScanRequest, background_tasks: BackgroundTasks):
     """Start scanning the provided project paths."""
-    global scan_state
-    if scan_state.status == "scanning":
+    if scan_state.status == "scanning" or scan_lock.locked():
         raise HTTPException(status_code=409, detail="A scan is already in progress")
 
     background_tasks.add_task(run_scan, request.paths)
-    scan_state = ScanStatus(status="scanning")
+    _prepare_scan_status()
     return scan_state
 
 
@@ -2816,8 +2885,8 @@ async def get_graph(project: str = None, layer: str = None):
             data = neo4j_service.get_full_graph(project=project, layer=layer)
             # Sync to memory if we're getting the full graph (no filters)
             if not project and not layer:
-                memory_nodes = [dict(n) for n in data["nodes"]]
-                memory_edges = [dict(e) for e in data["edges"]]
+                memory_nodes[:] = [dict(n) for n in data["nodes"]]
+                memory_edges[:] = [dict(e) for e in data["edges"]]
             return data
         except Exception as e:
             logger.warning("Neo4j query failed, falling back to memory: %s", e)
@@ -2844,17 +2913,474 @@ async def get_impact(node_key: str):
             logger.warning("Neo4j impact query failed, falling back to memory: %s", e)
 
     # Fallback: compute from in-memory data
+    graph = _ensure_graph_index()
     upstream = []
     downstream = []
-    node_map = {n["namespace_key"]: n for n in memory_nodes}
-    for edge in memory_edges:
-        if edge["target"] == node_key and edge["source"] in node_map:
-            n = node_map[edge["source"]]
-            upstream.append({"key": n["namespace_key"], "name": n["name"], "labels": n.get("labels", []), "rel_type": edge["type"]})
-        if edge["source"] == node_key and edge["target"] in node_map:
-            n = node_map[edge["target"]]
-            downstream.append({"key": n["namespace_key"], "name": n["name"], "labels": n.get("labels", []), "rel_type": edge["type"]})
+    for edge in graph.incoming_edges(node_key):
+        src = edge.get("source")
+        src_node = graph.node_by_key.get(src)
+        if not src_node:
+            continue
+        upstream.append({
+            "key": src,
+            "name": src_node.get("name"),
+            "labels": src_node.get("labels", []),
+            "rel_type": edge.get("type"),
+        })
+    for edge in graph.outgoing_edges(node_key):
+        tgt = edge.get("target")
+        tgt_node = graph.node_by_key.get(tgt)
+        if not tgt_node:
+            continue
+        downstream.append({
+            "key": tgt,
+            "name": tgt_node.get("name"),
+            "labels": tgt_node.get("labels", []),
+            "rel_type": edge.get("type"),
+        })
     return {"upstream": upstream[:100], "downstream": downstream[:100]}
+
+
+TRANSACTION_RELATION_TYPES = {
+    "CALLS",
+    "CALLS_RESOLVED",
+    "READS_FROM",
+    "WRITES_TO",
+    "READS_FROM_COLUMN",
+    "WRITES_TO_COLUMN",
+    "HAS_METHOD",
+}
+
+LAYER_PRIORITY = ["API", "Service", "Database", "Frontend", "Unknown"]
+
+
+def _edge_endpoints(edge: dict) -> tuple[str | None, str | None]:
+    src = edge.get("source") or edge.get("from")
+    tgt = edge.get("target") or edge.get("to")
+    return src, tgt
+ 
+
+class GraphIndex:
+    """In-memory graph index optimized for fast lookups and token search."""
+
+    def __init__(self):
+        self.node_by_key: dict[str, dict] = {}
+        self.edges_by_source: dict[str, list[dict]] = defaultdict(list)
+        self.edges_by_target: dict[str, list[dict]] = defaultdict(list)
+        self.edges_by_type: dict[str, list[dict]] = defaultdict(list)
+        self.lexical_index: dict[str, dict[str, float]] = defaultdict(dict)
+        self.blob_by_key: dict[str, str] = {}
+        self.embedding_index: dict[str, dict[str, float]] = {}
+        self.priority_keys: list[str] = []
+        self.node_count = -1
+        self.edge_count = -1
+        self.rag_entries_id: int | None = None
+        self._lock = threading.Lock()
+        self._token_pattern = re.compile(r"[a-z0-9]{3,}", flags=re.IGNORECASE)
+
+    def ensure_updated(self, nodes: list[dict], edges: list[dict], rag_entries: list[dict] | None) -> None:
+        with self._lock:
+            nodes_changed = len(nodes) != self.node_count
+            edges_changed = len(edges) != self.edge_count
+            rag_id = id(rag_entries) if rag_entries is not None else None
+            rag_changed = rag_id != self.rag_entries_id
+            if nodes_changed or edges_changed:
+                self._build_graph(nodes, edges)
+            if rag_entries is not None and (rag_changed or nodes_changed):
+                self._build_lexical_index_from_entries(rag_entries, nodes)
+            elif nodes_changed:
+                self._build_lexical_index_from_nodes(nodes)
+
+    def _build_graph(self, nodes: list[dict], edges: list[dict]) -> None:
+        self.node_by_key = {
+            node["namespace_key"]: dict(node)
+            for node in nodes
+            if node.get("namespace_key")
+        }
+        self.edges_by_source = defaultdict(list)
+        self.edges_by_target = defaultdict(list)
+        self.edges_by_type = defaultdict(list)
+        for edge in edges:
+            src, tgt = _edge_endpoints(edge)
+            if not src or not tgt:
+                continue
+            edge_type = str(edge.get("type") or "")
+            normalized = {**edge, "source": src, "target": tgt, "type": edge_type}
+            self.edges_by_source[src].append(normalized)
+            self.edges_by_target[tgt].append(normalized)
+            self.edges_by_type[edge_type].append(normalized)
+        self.node_count = len(nodes)
+        self.edge_count = len(edges)
+
+    def _build_lexical_index_from_entries(self, entries: list[dict], nodes: list[dict]) -> None:
+        self.lexical_index = defaultdict(dict)
+        self.blob_by_key = {}
+        self.embedding_index = {}
+        for entry in entries:
+            key = entry.get("key")
+            if not key:
+                continue
+            blob = entry.get("blob") or _node_text_blob(self.node_by_key.get(key, {}))
+            self.blob_by_key[key] = blob
+            self._index_blob(key, blob)
+            emb = entry.get("embedding")
+            if isinstance(emb, list) and emb:
+                norm = _vector_norm(emb)
+                if norm:
+                    self.embedding_index[key] = {"vector": emb, "norm": norm}
+        self._fill_priority_keys(nodes)
+        self.rag_entries_id = id(entries)
+
+    def _build_lexical_index_from_nodes(self, nodes: list[dict]) -> None:
+        self.lexical_index = defaultdict(dict)
+        self.blob_by_key = {}
+        self.embedding_index = {}
+        for node in nodes:
+            key = node.get("namespace_key")
+            if not key:
+                continue
+            blob = _node_text_blob(node)
+            self.blob_by_key[key] = blob
+            self._index_blob(key, blob)
+        self._fill_priority_keys(nodes)
+        self.rag_entries_id = None
+
+    def _index_blob(self, key: str, blob: str) -> None:
+        tokens = self._token_pattern.findall(blob.lower())
+        if not tokens:
+            return
+        counts = Counter(tokens)
+        entry = self.lexical_index
+        for token, cnt in counts.items():
+            if cnt <= 0:
+                continue
+            entry[token][key] = entry[token].get(key, 0.0) + float(cnt)
+
+    def _fill_priority_keys(self, nodes: list[dict]) -> None:
+        scored = []
+        for node in nodes:
+            key = node.get("namespace_key")
+            if not key:
+                continue
+            hotspot = float(node.get("hotspot_score") or 0.0)
+            complexity = float(node.get("complexity") or 0.0)
+            scored.append((max(hotspot, complexity), key))
+        scored.sort(reverse=True)
+        self.priority_keys = [key for _, key in scored[:500]]
+
+    def incoming_edges(self, key: str, rel_types: set[str] | None = None) -> list[dict]:
+        edges = self.edges_by_target.get(key, [])
+        if rel_types:
+            return [edge for edge in edges if edge.get("type") in rel_types]
+        return list(edges)
+
+    def outgoing_edges(self, key: str, rel_types: set[str] | None = None) -> list[dict]:
+        edges = self.edges_by_source.get(key, [])
+        if rel_types:
+            return [edge for edge in edges if edge.get("type") in rel_types]
+        return list(edges)
+
+    def neighbor_keys(self, key: str) -> set[str]:
+        neighbors = {edge["target"] for edge in self.edges_by_source.get(key, []) if edge.get("target")}
+        neighbors.update(edge["source"] for edge in self.edges_by_target.get(key, []) if edge.get("source"))
+        return neighbors
+
+
+graph_index = GraphIndex()
+
+
+def _ensure_graph_index() -> GraphIndex:
+    _ensure_memory_graph_loaded()
+    graph_index.ensure_updated(memory_nodes, memory_edges, rag_index)
+    return graph_index
+
+
+def _infer_layer(node: dict) -> str:
+    explicit_layer = str(node.get("layer") or "").strip()
+    if explicit_layer:
+        return explicit_layer
+    labels = set(node.get("labels") or [])
+    if "API_Endpoint" in labels:
+        return "API"
+    if labels & {"SQL_Table", "SQL_Procedure", "SQL_Column"}:
+        return "Database"
+    if labels & {"TS_Component", "Mobile_Component"}:
+        return "Frontend"
+    if labels & {"Java_Class", "Java_Method", "TS_Function"}:
+        return "Service"
+    return "Unknown"
+
+
+def _build_adjacency(edge_types: set[str] | None = None) -> dict[str, list[tuple[str, str]]]:
+    graph = _ensure_graph_index()
+    adjacency: dict[str, list[tuple[str, str]]] = defaultdict(list)
+    for src, edges in graph.edges_by_source.items():
+        for edge in edges:
+            rel_type = str(edge.get("type") or "")
+            if edge_types is not None and rel_type not in edge_types:
+                continue
+            adjacency[src].append((edge["target"], rel_type))
+    return adjacency
+
+
+def _find_simple_paths(
+    graph: GraphIndex,
+    source: str,
+    target: str,
+    max_depth: int,
+    max_paths: int,
+) -> list[list[str]]:
+    """Breadth-first enumeration of simple paths limited by depth and count."""
+    if max_depth < 1:
+        return []
+    paths: list[list[str]] = []
+    queue = deque([[source]])
+    visited_sets = set()
+
+    while queue and len(paths) < max_paths:
+        current_path = queue.popleft()
+        if len(current_path) - 1 >= max_depth:
+            continue
+        last = current_path[-1]
+        for edge in graph.outgoing_edges(last):
+            neighbor = edge.get("target")
+            if not neighbor or neighbor in current_path:
+                continue
+            new_path = [*current_path, neighbor]
+            if neighbor == target:
+                paths.append(new_path)
+                if len(paths) >= max_paths:
+                    break
+            else:
+                path_key = tuple(new_path)
+                if path_key in visited_sets:
+                    continue
+                visited_sets.add(path_key)
+                queue.append(new_path)
+    return paths
+
+
+def _node_summary(node: dict) -> dict:
+    return {
+        "namespace_key": node.get("namespace_key"),
+        "name": node.get("name"),
+        "labels": node.get("labels", []),
+        "layer": _infer_layer(node),
+        "project": node.get("project"),
+        "file": node.get("file"),
+    }
+
+
+def _build_transaction_data(node_key: str, max_depth: int = 10) -> dict:
+    _ensure_memory_graph_loaded()
+    if max_depth < 1:
+        raise ValueError("max_depth must be >= 1")
+
+    node_by_key = {n.get("namespace_key"): n for n in memory_nodes if n.get("namespace_key")}
+    origin = node_by_key.get(node_key)
+    if not origin:
+        raise KeyError(f"Node not found: {node_key}")
+
+    adjacency = _build_adjacency(TRANSACTION_RELATION_TYPES)
+    visited = {node_key}
+    queue = deque([(node_key, 0)])
+    paths: dict[str, list[str]] = {node_key: [node_key]}
+    depth_by_key = {node_key: 0}
+    lanes: dict[str, list[dict]] = defaultdict(list)
+    lanes[_infer_layer(origin)].append({**_node_summary(origin), "depth": 0, "via_rel": None})
+
+    while queue:
+        current_key, depth = queue.popleft()
+        if depth >= max_depth:
+            continue
+        for next_key, rel_type in adjacency.get(current_key, []):
+            if next_key in visited:
+                continue
+            visited.add(next_key)
+            depth_by_key[next_key] = depth + 1
+            paths[next_key] = [*paths[current_key], next_key]
+            queue.append((next_key, depth + 1))
+            node = node_by_key.get(next_key)
+            if not node:
+                continue
+            lanes[_infer_layer(node)].append({
+                **_node_summary(node),
+                "depth": depth + 1,
+                "via_rel": rel_type,
+            })
+
+    lane_order = [layer for layer in LAYER_PRIORITY if layer in lanes]
+    lane_order.extend(sorted(layer for layer in lanes if layer not in LAYER_PRIORITY))
+    lane_payload = []
+    for layer in lane_order:
+        lane_payload.append({
+            "layer": layer,
+            "nodes": sorted(lanes[layer], key=lambda n: (n.get("depth", 0), str(n.get("name") or ""))),
+        })
+
+    traversal_edges = []
+    for edge in memory_edges:
+        src, tgt = _edge_endpoints(edge)
+        rel_type = str(edge.get("type") or "")
+        if not src or not tgt or rel_type not in TRANSACTION_RELATION_TYPES:
+            continue
+        if src in visited and tgt in visited:
+            traversal_edges.append({"source": src, "target": tgt, "type": rel_type})
+
+    terminals = []
+    for key, path in paths.items():
+        if key == node_key:
+            continue
+        has_outgoing = bool(adjacency.get(key))
+        if (not has_outgoing) or depth_by_key.get(key, 0) >= max_depth:
+            target_node = node_by_key.get(key)
+            terminals.append({
+                "target_key": key,
+                "target_name": (target_node or {}).get("name", key),
+                "target_layer": _infer_layer(target_node or {}),
+                "depth": depth_by_key.get(key, 0),
+                "path": path,
+            })
+
+    terminals.sort(key=lambda item: (item["depth"], str(item["target_name"])))
+
+    return {
+        "origin": _node_summary(origin),
+        "max_depth": max_depth,
+        "nodes_visited": len(visited),
+        "lanes": lane_payload,
+        "edges": traversal_edges,
+        "terminal_paths": terminals[:200],
+        "paths": paths,
+    }
+
+
+def _extract_ai_response_text(raw_text: str) -> str:
+    text = (raw_text or "").strip()
+    if not text:
+        return ""
+    try:
+        payload = json.loads(text)
+        if isinstance(payload, dict):
+            return payload.get("resposta_texto") or payload.get("answer") or text
+    except Exception:
+        pass
+    return text
+
+
+@app.get("/api/transaction/{node_key:path}")
+async def get_transaction_view(node_key: str, max_depth: int = 10):
+    """Build a transaction-oriented traversal grouped by architecture layer."""
+    try:
+        data = _build_transaction_data(node_key, max_depth)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    return {
+        "origin": data["origin"],
+        "max_depth": data["max_depth"],
+        "nodes_visited": data["nodes_visited"],
+        "lanes": data["lanes"],
+        "edges": data["edges"],
+        "terminal_paths": data["terminal_paths"],
+    }
+
+
+@app.get("/api/transaction/{node_key:path}/explain")
+async def explain_transaction_view(node_key: str, max_depth: int = 10):
+    try:
+        data = _build_transaction_data(node_key, max_depth)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+
+    layer_lines = []
+    for lane in data["lanes"]:
+        names = [n.get("name") or n.get("namespace_key") for n in lane["nodes"] if n.get("name") or n.get("namespace_key")]
+        if not names:
+            continue
+        layer_lines.append(f"{lane['layer']}: {', '.join(names[:5])}")
+
+    terminal_summary = ", ".join(
+        f"{t['target_name']} ({t['target_layer']})"
+        for t in data["terminal_paths"][:5]
+    )
+    layer_summary = "\n".join(layer_lines) if layer_lines else "Nenhuma camada extra registrada."
+    context_lines = [
+        f"Origem: {data['origin']['name']} ({data['origin']['layer']})",
+        "Camadas percorridas:",
+        layer_summary,
+        f"Paths terminais destacados: {terminal_summary or 'Nenhum terminal visível.'}",
+        f"Total de nós visitados: {data['nodes_visited']}",
+    ]
+
+    question = "Explique em 3-4 frases simples o que esta transação faz, quais camadas ela atravessa e o que persiste."
+    ai_result = await ask_ai(question, "\n".join(context_lines))
+    explanation = _extract_ai_response_text(ai_result.get("raw_text", ""))
+
+    return {
+        "origin": data["origin"],
+        "model": ai_result.get("model"),
+        "explanation": explanation,
+        "layers": layer_lines,
+        "terminal_paths": data["terminal_paths"][:5],
+    }
+
+
+@app.get("/api/graph/paths")
+async def find_graph_paths(
+    source: str,
+    target: str,
+    max_depth: int = 12,
+    max_paths: int = 10,
+):
+    """Enumerate up to `max_paths` simple routes between two nodes."""
+    if max_depth < 1:
+        raise HTTPException(status_code=400, detail="max_depth must be >= 1")
+
+    graph = _ensure_graph_index()
+    if source not in graph.node_by_key:
+        raise HTTPException(status_code=404, detail=f"Source not found: {source}")
+    if target not in graph.node_by_key:
+        raise HTTPException(status_code=404, detail=f"Target not found: {target}")
+
+    if source == target:
+        node = graph.node_by_key[source]
+        return {
+            "paths": [[{
+                "key": source,
+                "name": node.get("name", source),
+                "layer": node.get("layer"),
+                "project": node.get("project"),
+            }]],
+            "total": 1,
+            "truncated": False,
+        }
+
+    raw_paths = _find_simple_paths(graph, source, target, max_depth, max_paths)
+    enriched = []
+    for path in raw_paths:
+        enriched.append([
+            {
+                "key": key,
+                "name": graph.node_by_key.get(key, {}).get("name", key),
+                "layer": graph.node_by_key.get(key, {}).get("layer"),
+                "project": graph.node_by_key.get(key, {}).get("project"),
+            }
+            for key in path
+        ])
+
+    truncated = len(raw_paths) >= max_paths
+    return {
+        "paths": enriched,
+        "total": len(raw_paths),
+        "truncated": truncated,
+        "max_depth": max_depth,
+        "max_paths": max_paths,
+    }
 
 
 def _ensure_memory_graph_loaded() -> None:
@@ -2866,8 +3392,8 @@ def _ensure_memory_graph_loaded() -> None:
         return
     try:
         data = neo4j_service.get_full_graph()
-        memory_nodes = [dict(n) for n in data.get("nodes", [])]
-        memory_edges = [dict(e) for e in data.get("edges", [])]
+        memory_nodes[:] = [dict(n) for n in data.get("nodes", [])]
+        memory_edges[:] = [dict(e) for e in data.get("edges", [])]
     except Exception as e:
         logger.warning("Failed to lazy-load memory graph: %s", e)
 
@@ -3096,13 +3622,14 @@ def _save_rag_index() -> None:
         RAG_INDEX_FILE.parent.mkdir(parents=True, exist_ok=True)
         with open(RAG_INDEX_FILE, "w", encoding="utf-8") as f:
             json.dump(payload, f, ensure_ascii=False)
-        rag_index_metadata = {
+        rag_index_metadata.clear()
+        rag_index_metadata.update({
             "loaded": True,
             "model": OLLAMA_EMBED_MODEL,
             "generated_at": payload["generated_at"],
             "entries": len(rag_index),
             "path": str(RAG_INDEX_FILE),
-        }
+        })
     except Exception as e:
         logger.warning("Failed to persist RAG index: %s", e)
 
@@ -3111,28 +3638,36 @@ def _load_rag_index() -> int:
     """Load RAG index from disk if available."""
     global rag_index, rag_index_metadata
     if not RAG_INDEX_FILE.exists():
-        rag_index_metadata = {"loaded": False, "reason": "not_found", "path": str(RAG_INDEX_FILE)}
+        rag_index_metadata.clear()
+        rag_index_metadata.update({"loaded": False, "reason": "not_found", "path": str(RAG_INDEX_FILE)})
         return 0
     try:
         with open(RAG_INDEX_FILE, "r", encoding="utf-8") as f:
             payload = json.load(f)
         entries = payload.get("entries") if isinstance(payload, dict) else payload
         if not isinstance(entries, list):
-            rag_index = []
-            rag_index_metadata = {"loaded": False, "reason": "invalid_format", "path": str(RAG_INDEX_FILE)}
+            rag_index.clear()
+            rag_index_metadata.clear()
+            rag_index_metadata.update({
+                "loaded": False,
+                "reason": "invalid_format",
+                "path": str(RAG_INDEX_FILE),
+            })
             return 0
-        rag_index = [e for e in entries if isinstance(e, dict) and e.get("key") and e.get("blob") is not None]
-        rag_index_metadata = {
+        rag_index[:] = [e for e in entries if isinstance(e, dict) and e.get("key") and e.get("blob") is not None]
+        rag_index_metadata.clear()
+        rag_index_metadata.update({
             "loaded": True,
             "path": str(RAG_INDEX_FILE),
             "model": payload.get("model") if isinstance(payload, dict) else None,
             "generated_at": payload.get("generated_at") if isinstance(payload, dict) else None,
             "entries": len(rag_index),
-        }
+        })
         return len(rag_index)
     except Exception as e:
-        rag_index = []
-        rag_index_metadata = {"loaded": False, "reason": str(e), "path": str(RAG_INDEX_FILE)}
+        rag_index.clear()
+        rag_index_metadata.clear()
+        rag_index_metadata.update({"loaded": False, "reason": str(e), "path": str(RAG_INDEX_FILE)})
         logger.warning("Failed to load RAG index: %s", e)
         return 0
 
@@ -3196,51 +3731,73 @@ def _rag_search_nodes(
     if not q_tokens and not question.strip():
         return []
 
+    graph = _ensure_graph_index()
+    candidate_scores: dict[str, float] = defaultdict(float)
+    for token in q_tokens:
+        postings = graph.lexical_index.get(token, {})
+        for key, count in postings.items():
+            candidate_scores[key] += float(count)
+
     neighborhood = set()
     if node_key:
-        neighborhood.add(node_key)
-        for e in memory_edges:
-            if e.get("source") == node_key:
-                neighborhood.add(e.get("target"))
-            if e.get("target") == node_key:
-                neighborhood.add(e.get("source"))
+        neighborhood = graph.neighbor_keys(node_key)
+        candidate_scores.setdefault(node_key, 0.0)
+        for neighbor in neighborhood:
+            candidate_scores.setdefault(neighbor, 0.0)
 
-    if not rag_index:
-        _load_rag_index()
-    if not rag_index or _is_rag_index_stale():
-        _rebuild_rag_index(include_embeddings=False, persist=True)
-    blob_by_key = {entry["key"]: entry["blob"] for entry in rag_index}
-    entry_by_key = {entry["key"]: entry for entry in rag_index}
+    if not candidate_scores:
+        for key in graph.priority_keys[:100]:
+            candidate_scores.setdefault(key, 0.0)
 
-    q_emb = _embed_text(question) if use_semantic else None
-    scored: list[tuple[float, dict]] = []
-    for node in memory_nodes:
-        key = node.get("namespace_key")
-        if not key:
+    query_emb = _embed_text(question) if use_semantic else None
+    query_norm = _vector_norm(query_emb) if query_emb else 0.0
+    if query_emb and query_norm:
+        base_keys = list(candidate_scores.keys())
+        extras = 0
+        for key in graph.priority_keys:
+            if key in candidate_scores or extras >= 100:
+                continue
+            candidate_scores[key] = 0.0
+            base_keys.append(key)
+            extras += 1
+        semantic_limit = 400
+        semantic_targets = base_keys[: semantic_limit]
+        for key in semantic_targets:
+            entry = graph.embedding_index.get(key)
+            if not entry:
+                continue
+            denom = query_norm * entry.get("norm", 0.0)
+            if not denom:
+                continue
+            score = max(0.0, _vector_dot(query_emb, entry["vector"]) / denom)
+            if score > 0:
+                candidate_scores[key] += score * 3.0
+
+    for key in list(candidate_scores.keys()):
+        if key in neighborhood:
+            candidate_scores[key] += 1.5
+        node = graph.node_by_key.get(key)
+        hotspot = float(node.get("hotspot_score") or 0.0) if node else 0.0
+        candidate_scores[key] += min(2.0, hotspot / 50.0)
+
+    scored = sorted(
+        ((score, key) for key, score in candidate_scores.items() if key),
+        key=lambda item: item[0],
+        reverse=True,
+    )
+    results = []
+    added_keys = set()
+    for score, key in scored:
+        if len(results) >= limit:
+            break
+        if key in added_keys:
             continue
-        index_entry = entry_by_key.get(key)
-        blob = blob_by_key.get(key, "")
-        if not blob:
+        node = graph.node_by_key.get(key)
+        if not node:
             continue
-        lexical_score = 0.0
-        for tok in q_tokens:
-            if tok in blob:
-                lexical_score += 1.0
-        semantic_score = 0.0
-        if q_emb and index_entry and isinstance(index_entry.get("embedding"), list):
-            semantic_score = max(0.0, _cosine_similarity(q_emb, index_entry["embedding"]))
-
-        score = lexical_score + (semantic_score * 3.0)
-        if score <= 0:
-            continue
-        if node_key and node.get("namespace_key") in neighborhood:
-            score += 1.5
-        if node.get("hotspot_score"):
-            score += min(2.0, float(node.get("hotspot_score", 0.0)) / 50.0)
-        scored.append((score, node))
-
-    scored.sort(key=lambda x: x[0], reverse=True)
-    return [dict(n) for _, n in scored[:limit]]
+        results.append(dict(node))
+        added_keys.add(key)
+    return results
 
 
 def _format_rag_context(nodes: list[dict]) -> str:
@@ -3256,9 +3813,8 @@ def _format_rag_context(nodes: list[dict]) -> str:
 
 def _rebuild_rag_index(include_embeddings: bool = False, persist: bool = True) -> int:
     """Rebuild in-memory RAG index with optional embeddings."""
-    global rag_index
     _ensure_memory_graph_loaded()
-    rag_index = []
+    rag_index.clear()
     for n in memory_nodes:
         key = n.get("namespace_key")
         if not key:
@@ -3348,38 +3904,38 @@ async def get_contract_breaks():
 @app.get("/api/method/{node_key:path}/usages")
 async def get_method_usages(node_key: str):
     """Return callers/callees and nearby chain details for a method/function node."""
-    _ensure_memory_graph_loaded()
-    node_map = {n.get("namespace_key"): n for n in memory_nodes if n.get("namespace_key")}
+    graph = _ensure_graph_index()
     callers = []
     callees = []
     rel_types = {"CALLS_RESOLVED", "CALLS", "CALLS_NHOP"}
-    for e in memory_edges:
-        if e.get("type") not in rel_types:
+    for edge in graph.incoming_edges(node_key, rel_types=rel_types):
+        src = edge.get("source")
+        src_node = graph.node_by_key.get(src)
+        if not src_node:
             continue
-        src = e.get("source")
-        tgt = e.get("target")
-        if tgt == node_key and src in node_map:
-            src_node = node_map[src]
-            callers.append({
-                "key": src,
-                "name": src_node.get("name"),
-                "file": src_node.get("file"),
-                "layer": src_node.get("layer"),
-                "type": e.get("type"),
-                "confidence_score": e.get("confidence_score"),
-                "hop_distance": e.get("hop_distance"),
-            })
-        if src == node_key and tgt in node_map:
-            tgt_node = node_map[tgt]
-            callees.append({
-                "key": tgt,
-                "name": tgt_node.get("name"),
-                "file": tgt_node.get("file"),
-                "layer": tgt_node.get("layer"),
-                "type": e.get("type"),
-                "confidence_score": e.get("confidence_score"),
-                "hop_distance": e.get("hop_distance"),
-            })
+        callers.append({
+            "key": src,
+            "name": src_node.get("name"),
+            "file": src_node.get("file"),
+            "layer": src_node.get("layer"),
+            "type": edge.get("type"),
+            "confidence_score": edge.get("confidence_score"),
+            "hop_distance": edge.get("hop_distance"),
+        })
+    for edge in graph.outgoing_edges(node_key, rel_types=rel_types):
+        tgt = edge.get("target")
+        tgt_node = graph.node_by_key.get(tgt)
+        if not tgt_node:
+            continue
+        callees.append({
+            "key": tgt,
+            "name": tgt_node.get("name"),
+            "file": tgt_node.get("file"),
+            "layer": tgt_node.get("layer"),
+            "type": edge.get("type"),
+            "confidence_score": edge.get("confidence_score"),
+            "hop_distance": edge.get("hop_distance"),
+        })
     return {
         "node_key": node_key,
         "callers": callers[:500],
@@ -3447,6 +4003,90 @@ async def get_call_resolution(project: str | None = None, top_n: int = 20):
     except Exception as e:
         logger.error("Call resolution summary failed: %s", e)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/calls/resolve/advanced")
+async def resolve_calls_advanced(max_candidates: int = 5):
+    """Improve unresolved CALLS edges using signature and cross-file heuristics."""
+    _ensure_memory_graph_loaded()
+    node_by_key = {n.get("namespace_key"): n for n in memory_nodes if n.get("namespace_key")}
+
+    method_nodes = []
+    by_project_and_name: dict[tuple[str, str], list[dict]] = defaultdict(list)
+    for n in memory_nodes:
+        labels = set(n.get("labels") or [])
+        if not ({"Java_Method", "TS_Function", "API_Endpoint"} & labels):
+            continue
+        name = str(n.get("name") or "").strip()
+        project = str(n.get("project") or "")
+        if not name:
+            continue
+        method_nodes.append(n)
+        by_project_and_name[(project, name)].append(n)
+
+    created = 0
+    ambiguous = 0
+    unresolved = 0
+    existing_pairs = {(e.get("source"), e.get("target"), e.get("type")) for e in memory_edges}
+    new_edges = []
+
+    for edge in memory_edges:
+        if edge.get("type") != "CALLS":
+            continue
+        src = edge.get("source") or edge.get("from")
+        dst = edge.get("target") or edge.get("to")
+        if not src:
+            continue
+        src_node = node_by_key.get(src) or {}
+        src_project = str(src_node.get("project") or "")
+
+        target_hint = str(edge.get("target_method_hint") or "").strip()
+        if not target_hint and dst:
+            target_hint = str(dst).split(":")[-1].split(".")[-1]
+        owner_hint = str(edge.get("target_owner_hint") or "").strip()
+
+        candidates = by_project_and_name.get((src_project, target_hint), [])[:]
+        if owner_hint:
+            owner_filtered = [c for c in candidates if owner_hint.lower() in str(c.get("namespace_key") or "").lower()]
+            if owner_filtered:
+                candidates = owner_filtered
+
+        if not candidates:
+            unresolved += 1
+            continue
+        if len(candidates) > max_candidates:
+            ambiguous += 1
+            continue
+
+        for c in candidates:
+            tgt_key = c.get("namespace_key")
+            if not tgt_key:
+                continue
+            key = (src, tgt_key, "CALLS_RESOLVED")
+            if key in existing_pairs:
+                continue
+            new_edges.append(
+                {
+                    "source": src,
+                    "target": tgt_key,
+                    "type": "CALLS_RESOLVED",
+                    "resolution_method": "advanced_signature_crossfile",
+                    "confidence_score": 0.78 if len(candidates) > 1 else 0.93,
+                    "target_method_hint": target_hint,
+                    "target_owner_hint": owner_hint or None,
+                }
+            )
+            existing_pairs.add(key)
+            created += 1
+
+    memory_edges.extend(new_edges)
+    return {
+        "status": "ok",
+        "created_resolved_edges": created,
+        "ambiguous_calls": ambiguous,
+        "unresolved_calls": unresolved,
+        "total_edges_now": len(memory_edges),
+    }
 
 
 @app.get("/api/metrics/ck")
@@ -3814,10 +4454,10 @@ async def delete_project(project_name: str):
 
     # Clean in-memory graph
     before_nodes = len(memory_nodes)
-    memory_nodes = [n for n in memory_nodes if n.get("project") != project_name]
+    memory_nodes[:] = [n for n in memory_nodes if n.get("project") != project_name]
     removed_keys = {n["namespace_key"] for n in memory_nodes}
     before_edges = len(memory_edges)
-    memory_edges = [e for e in memory_edges if e["source"] in removed_keys and e["target"] in removed_keys]
+    memory_edges[:] = [e for e in memory_edges if e["source"] in removed_keys and e["target"] in removed_keys]
 
     return {
         "project": project_name,
@@ -4373,8 +5013,8 @@ async def simulate_changes(req: SimulateRequest):
         try:
             logger.info("Simulation memory empty, lazily loading from Neo4j...")
             data = neo4j_service.get_full_graph()
-            memory_nodes = data["nodes"]
-            memory_edges = data["edges"]
+            memory_nodes[:] = data["nodes"]
+            memory_edges[:] = data["edges"]
             logger.info("Lazy load complete. Fetched %d nodes, %d edges", len(memory_nodes), len(memory_edges))
         except Exception as e:
             logger.error("Failed to lazily load graph for simulation: %s", e)
@@ -4528,7 +5168,7 @@ async def simulate_changes(req: SimulateRequest):
 @app.post("/api/simulate/review")
 async def review_simulation(sim_report: SimulationReviewRequest):
     """Generate a deep architectural review of a simulation scenario."""
-    if scan_state.status == "scanning" or ai_busy:
+    if scan_state.status == "scanning" or ai_semaphore.locked():
          raise HTTPException(
             status_code=409,
             detail="A IA está ocupada ou o sistema está escaneando. Tente novamente em instantes."
@@ -4616,7 +5256,7 @@ async def delete_workspace(project_name: str):
     else:
         # Fallback: filter memory_nodes and memory_edges
         original_count = len(memory_nodes)
-        memory_nodes = [n for n in memory_nodes if n.get("project") != project_name]
+        memory_nodes[:] = [n for n in memory_nodes if n.get("project") != project_name]
         deleted_nodes = original_count - len(memory_nodes)
         
         # Get set of remaining namespace_keys
@@ -4624,7 +5264,7 @@ async def delete_workspace(project_name: str):
         
         # Filter edges to only keep those with both source and target in remaining_keys
         original_edges = len(memory_edges)
-        memory_edges = [
+        memory_edges[:] = [
             e for e in memory_edges 
             if e["source"] in remaining_keys and e["target"] in remaining_keys
         ]
@@ -4913,6 +5553,925 @@ async def get_file_content(file_path: str, project: str = None):
     except Exception as e:
         logger.error(f"Unexpected error reading file {file_path}: {e}")
         raise HTTPException(status_code=500, detail=f"Server error: {str(e)}")
+
+
+def _safe_ratio(numerator: float, denominator: float) -> float:
+    if denominator <= 0:
+        return 0.0
+    return float(numerator) / float(denominator)
+
+
+def _iso_grade_from_score(score: float) -> str:
+    if score >= 90:
+        return "A"
+    if score >= 80:
+        return "B"
+    if score >= 70:
+        return "C"
+    if score >= 60:
+        return "D"
+    if score >= 50:
+        return "E"
+    return "F"
+
+
+def _iso_rule_checks() -> list[dict]:
+    _ensure_memory_graph_loaded()
+    total_nodes = len(memory_nodes)
+    total_edges = len(memory_edges)
+
+    class_like = [n for n in memory_nodes if "Java_Class" in (n.get("labels") or [])]
+    methods = [n for n in memory_nodes if "Java_Method" in (n.get("labels") or []) or "TS_Function" in (n.get("labels") or [])]
+    endpoints = [n for n in memory_nodes if "API_Endpoint" in (n.get("labels") or [])]
+    db_nodes = [n for n in memory_nodes if {"SQL_Table", "SQL_Procedure"} & set(n.get("labels") or [])]
+    god_classes = [n for n in memory_nodes if float(n.get("wmc") or 0) > 40 or float(n.get("hotspot_score") or 0) > 70]
+    high_complex = [n for n in memory_nodes if float(n.get("complexity") or 0) > 15]
+    no_file = [n for n in memory_nodes if not n.get("file")]
+    no_project = [n for n in memory_nodes if not n.get("project")]
+    unresolved_calls = [e for e in memory_edges if e.get("type") == "CALLS"]
+    resolved_calls = [e for e in memory_edges if e.get("type") == "CALLS_RESOLVED"]
+    reads_writes = [e for e in memory_edges if e.get("type") in {"READS_FROM", "WRITES_TO"}]
+    sensitive = [n for n in memory_nodes if "Sensitive_Data" in (n.get("labels") or [])]
+    cloud_blockers = [n for n in memory_nodes if "Cloud_Blocker" in (n.get("labels") or [])]
+    hardcoded_secrets = [n for n in memory_nodes if "Hardcoded_Secret" in (n.get("labels") or [])]
+
+    orphan_nodes = 0
+    adj_count: dict[str, int] = defaultdict(int)
+    for edge in memory_edges:
+        src, tgt = _edge_endpoints(edge)
+        if src:
+            adj_count[src] += 1
+        if tgt:
+            adj_count[tgt] += 1
+    for node in memory_nodes:
+        key = node.get("namespace_key")
+        if key and adj_count.get(key, 0) == 0:
+            orphan_nodes += 1
+
+    cycles_count = 0
+    graph_adj = _build_adjacency({"CALLS", "CALLS_RESOLVED"})
+    for start in list(graph_adj.keys())[:1200]:
+        for neighbor, _ in graph_adj.get(start, []):
+            if neighbor == start:
+                cycles_count += 1
+
+    max_depth = 0
+    for start in list(graph_adj.keys())[:200]:
+        visited = {start}
+        q = deque([(start, 0)])
+        while q:
+            cur, d = q.popleft()
+            max_depth = max(max_depth, d)
+            if d >= 6:
+                continue
+            for nxt, _ in graph_adj.get(cur, []):
+                if nxt in visited:
+                    continue
+                visited.add(nxt)
+                q.append((nxt, d + 1))
+
+    rules = [
+        ("R01", "Sem nós órfãos", 5, _safe_ratio(total_nodes - orphan_nodes, max(1, total_nodes)) >= 0.95, f"orphan={orphan_nodes}/{total_nodes}"),
+        ("R02", "Cobertura de projeto", 4, _safe_ratio(total_nodes - len(no_project), max(1, total_nodes)) >= 0.98, f"missing_project={len(no_project)}"),
+        ("R03", "Cobertura de arquivo", 4, _safe_ratio(total_nodes - len(no_file), max(1, total_nodes)) >= 0.95, f"missing_file={len(no_file)}"),
+        ("R04", "Resolução de chamadas", 6, _safe_ratio(len(resolved_calls), max(1, len(unresolved_calls))) >= 0.75, f"resolved={len(resolved_calls)}/{len(unresolved_calls)}"),
+        ("R05", "Relações de dados API->DB", 5, len(reads_writes) >= max(1, len(endpoints) // 2), f"rw_edges={len(reads_writes)} endpoints={len(endpoints)}"),
+        ("R06", "Complexidade extrema controlada", 5, _safe_ratio(len(high_complex), max(1, len(methods))) <= 0.15, f"high_complex={len(high_complex)}"),
+        ("R07", "God classes controladas", 5, _safe_ratio(len(god_classes), max(1, len(class_like))) <= 0.12, f"god={len(god_classes)}"),
+        ("R08", "Sem segredos hardcoded", 5, len(hardcoded_secrets) == 0, f"secrets={len(hardcoded_secrets)}"),
+        ("R09", "Sensíveis rastreados", 4, len(sensitive) == 0 or len(reads_writes) > 0, f"sensitive={len(sensitive)}"),
+        ("R10", "Cloud blockers reduzidos", 4, len(cloud_blockers) <= max(1, total_nodes // 200), f"blockers={len(cloud_blockers)}"),
+        ("R11", "Profundidade de dependência", 4, max_depth <= 6, f"max_depth={max_depth}"),
+        ("R12", "Ciclos triviais", 3, cycles_count == 0, f"self_cycles={cycles_count}"),
+        ("R13", "Densidade de arestas mínima", 3, _safe_ratio(total_edges, max(1, total_nodes)) >= 0.8, f"edges={total_edges} nodes={total_nodes}"),
+        ("R14", "Densidade de arestas máxima", 3, _safe_ratio(total_edges, max(1, total_nodes)) <= 25, f"edges={total_edges} nodes={total_nodes}"),
+        ("R15", "Endpoints mapeados", 4, len(endpoints) > 0, f"endpoints={len(endpoints)}"),
+        ("R16", "Camadas DB mapeadas", 4, len(db_nodes) > 0, f"db_nodes={len(db_nodes)}"),
+        ("R17", "CBO médio aceitável", 4, (_safe_ratio(sum(float(n.get("cbo") or 0) for n in class_like), max(1, len(class_like))) <= 14), "avg_cbo"),
+        ("R18", "RFC médio aceitável", 4, (_safe_ratio(sum(float(n.get("rfc") or 0) for n in class_like), max(1, len(class_like))) <= 60), "avg_rfc"),
+        ("R19", "LCOM médio aceitável", 4, (_safe_ratio(sum(float(n.get("lcom") or 0) for n in class_like), max(1, len(class_like))) <= 0.8), "avg_lcom"),
+        ("R20", "Cobertura mínima de métodos", 4, len(methods) >= max(10, len(class_like)), f"methods={len(methods)} classes={len(class_like)}"),
+    ]
+    return [
+        {
+            "rule_id": rid,
+            "name": name,
+            "weight": weight,
+            "passed": passed,
+            "notes": notes,
+            "score": weight if passed else 0,
+        }
+        for rid, name, weight, passed, notes in rules
+    ]
+
+
+@app.get("/api/quality/iso5055")
+async def get_iso5055_grade():
+    rules = _iso_rule_checks()
+    max_score = sum(r["weight"] for r in rules)
+    got_score = sum(r["score"] for r in rules)
+    pct = round(_safe_ratio(got_score, max_score) * 100.0, 2)
+    return {
+        "grade": _iso_grade_from_score(pct),
+        "score_percent": pct,
+        "score_obtained": got_score,
+        "score_max": max_score,
+        "rules": rules,
+    }
+
+
+@app.post("/api/views")
+async def create_saved_view(request: SavedViewCreateRequest):
+    if not request.name.strip():
+        raise HTTPException(status_code=400, detail="name is required")
+    view = state_store.create_view(request.model_dump())
+    return view
+
+
+@app.get("/api/views")
+async def list_saved_views(project: str | None = None):
+    return {"items": state_store.list_views(project=project)}
+
+
+@app.get("/api/views/{view_id}")
+async def get_saved_view(view_id: str):
+    view = state_store.get_view(view_id)
+    if not view:
+        raise HTTPException(status_code=404, detail="view not found")
+    return view
+
+
+@app.patch("/api/views/{view_id}")
+async def update_saved_view(view_id: str, request: SavedViewUpdateRequest):
+    view = state_store.update_view(view_id, request.model_dump(exclude_none=True))
+    if not view:
+        raise HTTPException(status_code=404, detail="view not found")
+    return view
+
+
+@app.delete("/api/views/{view_id}")
+async def delete_saved_view(view_id: str):
+    deleted = state_store.delete_view(view_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="view not found")
+    return JSONResponse({"status": "deleted", "id": view_id})
+
+
+@app.get("/api/tags")
+async def list_tags():
+    return {"items": state_store.list_tags()}
+
+
+@app.post("/api/tags")
+async def upsert_tag(payload: dict):
+    name = str(payload.get("name") or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="tag name is required")
+    return state_store.upsert_tag(name, payload.get("color"))
+
+
+@app.post("/api/annotations")
+async def create_annotation(request: AnnotationCreateRequest):
+    if not request.node_key.strip():
+        raise HTTPException(status_code=400, detail="node_key is required")
+    created = state_store.create_annotation(request.model_dump())
+    return created
+
+
+@app.get("/api/annotations")
+async def list_annotations(node_key: str | None = None):
+    return {"items": state_store.list_annotations(node_key=node_key)}
+
+
+@app.patch("/api/annotations/{annotation_id}")
+async def update_annotation(annotation_id: str, request: AnnotationUpdateRequest):
+    updated = state_store.update_annotation(annotation_id, request.model_dump(exclude_none=True))
+    if not updated:
+        raise HTTPException(status_code=404, detail="annotation not found")
+    return updated
+
+
+@app.delete("/api/annotations/{annotation_id}")
+async def delete_annotation(annotation_id: str):
+    deleted = state_store.delete_annotation(annotation_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail="annotation not found")
+    return JSONResponse({"status": "deleted", "id": annotation_id})
+
+
+def _collect_api_endpoints(project: str | None = None, method: str | None = None, q: str | None = None):
+    _ensure_memory_graph_loaded()
+    term = (q or "").lower().strip()
+    method_filter = (method or "").upper().strip()
+    endpoints = []
+
+    for node in memory_nodes:
+        labels = set(node.get("labels") or [])
+        if "API_Endpoint" not in labels:
+            continue
+        if project and node.get("project") != project:
+            continue
+        route = str(node.get("route_path") or node.get("name") or "")
+        route_method = ""
+        route_upper = route.upper()
+        for candidate in ("GET", "POST", "PUT", "PATCH", "DELETE"):
+            if route_upper.startswith(candidate):
+                route_method = candidate
+                break
+        if method_filter and route_method != method_filter:
+            continue
+        hay = f"{node.get('name','')} {node.get('namespace_key','')} {route}".lower()
+        if term and term not in hay:
+            continue
+        endpoints.append(
+            {
+                "namespace_key": node.get("namespace_key"),
+                "name": node.get("name"),
+                "route_path": node.get("route_path"),
+                "http_method": route_method,
+                "project": node.get("project"),
+                "file": node.get("file"),
+                "layer": _infer_layer(node),
+                "labels": node.get("labels", []),
+            }
+        )
+    endpoints.sort(key=lambda item: (str(item.get("project") or ""), str(item.get("name") or "")))
+    return {"total": len(endpoints), "items": endpoints}
+
+
+@app.get("/api/api-inventory")
+async def get_api_inventory(project: str | None = None, method: str | None = None, q: str | None = None):
+    return _collect_api_endpoints(project, method, q)
+
+
+@app.get("/api/inventory/apis")
+async def get_inventory_apis(project: str | None = None, method: str | None = None, q: str | None = None):
+    return _collect_api_endpoints(project, method, q)
+
+
+@app.get("/api/inheritance")
+async def get_inheritance_view(project: str | None = None, root: str | None = None):
+    _ensure_memory_graph_loaded()
+    classes = [
+        n for n in memory_nodes
+        if "Java_Class" in (n.get("labels") or []) and (not project or n.get("project") == project)
+    ]
+    key_by_name = {str(c.get("name")): c.get("namespace_key") for c in classes if c.get("name") and c.get("namespace_key")}
+    children: dict[str, list[str]] = defaultdict(list)
+    parent_of: dict[str, str] = {}
+    for c in classes:
+        c_key = c.get("namespace_key")
+        parent_name = str(c.get("parent_class") or "").strip()
+        if not c_key or not parent_name:
+            continue
+        p_key = key_by_name.get(parent_name)
+        if not p_key:
+            continue
+        children[p_key].append(c_key)
+        parent_of[c_key] = p_key
+
+    all_keys = {c.get("namespace_key") for c in classes if c.get("namespace_key")}
+    candidate_roots = [c.get("namespace_key") for c in classes if c.get("namespace_key") and c.get("namespace_key") not in parent_of]
+    if root:
+        candidate_roots = [root] if root in all_keys else []
+
+    node_by_key = {c.get("namespace_key"): c for c in classes if c.get("namespace_key")}
+    forest = []
+    for rk in sorted(candidate_roots):
+        queue = deque([(rk, 0)])
+        local_nodes = []
+        local_edges = []
+        seen = {rk}
+        while queue:
+            cur, depth = queue.popleft()
+            node = node_by_key.get(cur)
+            if node:
+                local_nodes.append(
+                    {
+                        "namespace_key": cur,
+                        "name": node.get("name"),
+                        "project": node.get("project"),
+                        "file": node.get("file"),
+                        "depth": depth,
+                        "parent_class": node.get("parent_class"),
+                    }
+                )
+            for child in children.get(cur, []):
+                local_edges.append({"source": cur, "target": child, "type": "INHERITS"})
+                if child not in seen:
+                    seen.add(child)
+                    queue.append((child, depth + 1))
+        forest.append({"root": rk, "nodes": local_nodes, "edges": local_edges})
+    return {"trees": forest, "total_trees": len(forest)}
+
+
+def _build_inheritance_index():
+    _ensure_memory_graph_loaded()
+    class_nodes = [n for n in memory_nodes if "Java_Class" in (n.get("labels") or [])]
+    nodes_by_key = {n.get("namespace_key"): n for n in class_nodes if n.get("namespace_key")}
+    children_map: dict[str, list[str]] = defaultdict(list)
+    name_index = {str(n.get("name")): n.get("namespace_key") for n in class_nodes if n.get("name") and n.get("namespace_key")}
+
+    for node in class_nodes:
+        key = node.get("namespace_key")
+        parent_name = str(node.get("parent_class") or "").strip()
+        if not key or not parent_name:
+            continue
+        parent_key = name_index.get(parent_name)
+        if parent_key:
+            children_map[parent_key].append(key)
+
+    return nodes_by_key, children_map
+
+
+def _build_inheritance_tree(key: str, nodes_by_key: dict[str, dict], children_map: dict[str, list[str]]):
+    node = nodes_by_key.get(key)
+    if not node:
+        return None
+    children = [
+        child
+        for child_key in sorted(set(children_map.get(key, [])))
+        if (child := _build_inheritance_tree(child_key, nodes_by_key, children_map))
+    ]
+    return {
+        "key": key,
+        "name": node.get("name"),
+        "layer": node.get("layer"),
+        "project": node.get("project"),
+        "children": children,
+    }
+
+
+def _flatten_inheritance(tree: dict) -> tuple[list[dict], list[dict]]:
+    nodes: list[dict] = []
+    edges: list[dict] = []
+
+    def recurse(node: dict, depth: int):
+        nodes.append(
+            {
+                "namespace_key": node["key"],
+                "name": node.get("name"),
+                "layer": node.get("layer") or "Java_Class",
+                "project": node.get("project"),
+                "depth": depth,
+            }
+        )
+        for child in node.get("children", []):
+            edges.append({"source": node["key"], "target": child["key"]})
+            recurse(child, depth + 1)
+
+    recurse(tree, 0)
+    return nodes, edges
+
+
+@app.get("/api/inheritance/{node_key:path}")
+async def get_inheritance_tree(node_key: str):
+    nodes_by_key, children_map = _build_inheritance_index()
+    if node_key not in nodes_by_key:
+        raise HTTPException(status_code=404, detail="node not found")
+    tree = _build_inheritance_tree(node_key, nodes_by_key, children_map)
+    if not tree:
+        raise HTTPException(status_code=404, detail="node not found")
+    nodes, edges = _flatten_inheritance(tree)
+    return {"tree": tree, "nodes": nodes, "edges": edges}
+
+
+def _build_findings_payload() -> list[dict]:
+    _ensure_memory_graph_loaded()
+    findings = []
+    for n in memory_nodes:
+        risk = float(n.get("hotspot_score") or 0)
+        if risk >= 70:
+            findings.append(
+                {
+                    "type": "HOTSPOT",
+                    "severity": "high",
+                    "namespace_key": n.get("namespace_key"),
+                    "name": n.get("name"),
+                    "project": n.get("project"),
+                    "file": n.get("file"),
+                    "score": risk,
+                    "details": "High hotspot score",
+                }
+            )
+        complexity = float(n.get("complexity") or 0)
+        if complexity > 20:
+            findings.append(
+                {
+                    "type": "COMPLEXITY",
+                    "severity": "high",
+                    "namespace_key": n.get("namespace_key"),
+                    "name": n.get("name"),
+                    "project": n.get("project"),
+                    "file": n.get("file"),
+                    "score": complexity,
+                    "details": "Complexity above threshold",
+                }
+            )
+    return findings
+
+
+def _serialize_nodes_for_export():
+    _ensure_memory_graph_loaded()
+    nodes = []
+    for n in memory_nodes:
+        nodes.append({
+            "namespace_key": n.get("namespace_key"),
+            "name": n.get("name"),
+            "layer": n.get("layer"),
+            "project": n.get("project"),
+            "labels": ", ".join(n.get("labels") or []),
+            "complexity": n.get("complexity"),
+            "hotspot_score": n.get("hotspot_score"),
+        })
+    return nodes
+
+
+def _serialize_edges_for_export():
+    _ensure_memory_graph_loaded()
+    edges = []
+    for e in memory_edges:
+        edges.append({
+            "source": e.get("source"),
+            "target": e.get("target"),
+            "type": e.get("type"),
+            "confidence": e.get("confidence"),
+        })
+    return edges
+
+
+@app.get("/api/export/nodes.csv")
+async def export_nodes_csv():
+    nodes = _serialize_nodes_for_export()
+    buffer = io.StringIO()
+    writer = csv.DictWriter(
+        buffer,
+        fieldnames=["namespace_key", "name", "layer", "project", "labels", "complexity", "hotspot_score"],
+    )
+    writer.writeheader()
+    for row in nodes:
+        writer.writerow({k: row.get(k) for k in writer.fieldnames})
+    return PlainTextResponse(
+        content=buffer.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="nodes.csv"'},
+    )
+
+
+@app.get("/api/export/edges.csv")
+async def export_edges_csv():
+    edges = _serialize_edges_for_export()
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=["source", "target", "type", "confidence"])
+    writer.writeheader()
+    for row in edges:
+        writer.writerow({k: row.get(k) for k in writer.fieldnames})
+    return PlainTextResponse(
+        content=buffer.getvalue(),
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="edges.csv"'},
+    )
+
+
+@app.get("/api/export/graph.json")
+async def export_graph_json():
+    _ensure_memory_graph_loaded()
+    payload = {
+        "nodes": _serialize_nodes_for_export(),
+        "edges": _serialize_edges_for_export(),
+    }
+    return JSONResponse(payload)
+
+
+@app.get("/api/export/graph.graphml")
+async def export_graph_graphml():
+    _ensure_memory_graph_loaded()
+    graphml = ET.Element(
+        "graphml",
+        {
+            "xmlns": "http://graphml.graphdrawing.org/xmlns",
+            "xmlns:xsi": "http://www.w3.org/2001/XMLSchema-instance",
+            "xsi:schemaLocation": (
+                "http://graphml.graphdrawing.org/xmlns "
+                "http://graphml.graphdrawing.org/xmlns/1.0/graphml.xsd"
+            ),
+        },
+    )
+    graph = ET.SubElement(graphml, "graph", edgedefault="directed")
+    node_map = _serialize_nodes_for_export()
+    for node in node_map:
+        ET.SubElement(graph, "node", id=node["namespace_key"] or "")
+    for edge in _serialize_edges_for_export():
+        ET.SubElement(graph, "edge", source=edge["source"] or "", target=edge["target"] or "", type=edge.get("type") or "edge")
+    xml_bytes = ET.tostring(graphml, encoding="utf-8", xml_declaration=True)
+    return Response(content=xml_bytes, media_type="application/graphml+xml")
+
+
+@app.get("/api/findings/export")
+async def export_findings(format: str = Query("json", pattern="^(json|csv)$")):
+    rows = _build_findings_payload()
+    if format == "json":
+        return {"total": len(rows), "items": rows}
+
+    buffer = io.StringIO()
+    fields = ["type", "severity", "namespace_key", "name", "project", "file", "score", "details"]
+    writer = csv.DictWriter(buffer, fieldnames=fields)
+    writer.writeheader()
+    for row in rows:
+        writer.writerow({k: row.get(k) for k in fields})
+    content = buffer.getvalue()
+    return PlainTextResponse(
+        content=content,
+        media_type="text/csv",
+        headers={"Content-Disposition": 'attachment; filename="insightgraph_findings.csv"'},
+    )
+
+
+@app.get("/api/reports/pdf")
+async def export_report_pdf():
+    iso = await get_iso5055_grade()
+    findings = _build_findings_payload()[:120]
+    now = datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC")
+    rows_html = "".join(
+        f"<tr><td>{f['type']}</td><td>{f['severity']}</td><td>{f['name']}</td><td>{f['score']}</td><td>{f['project'] or ''}</td></tr>"
+        for f in findings
+    )
+    html = f"""
+    <html>
+    <head>
+      <meta charset="utf-8" />
+      <style>
+        body {{ font-family: Arial, sans-serif; margin: 28px; }}
+        h1, h2 {{ margin-bottom: 8px; }}
+        .meta {{ color: #555; margin-bottom: 20px; }}
+        .grade {{ font-size: 28px; font-weight: bold; }}
+        table {{ border-collapse: collapse; width: 100%; margin-top: 16px; }}
+        th, td {{ border: 1px solid #ccc; padding: 6px; text-align: left; font-size: 12px; }}
+        th {{ background: #f6f6f6; }}
+      </style>
+    </head>
+    <body>
+      <h1>InsightGraph Architecture Report</h1>
+      <div class="meta">Generated: {now}</div>
+      <h2>ISO 5055 Grade</h2>
+      <div class="grade">{iso['grade']} ({iso['score_percent']}%)</div>
+      <h2>Top Findings</h2>
+      <table>
+        <thead><tr><th>Type</th><th>Severity</th><th>Name</th><th>Score</th><th>Project</th></tr></thead>
+        <tbody>{rows_html}</tbody>
+      </table>
+    </body>
+    </html>
+    """
+    try:
+        from weasyprint import HTML
+
+        pdf = HTML(string=html).write_pdf()
+        return StreamingResponse(
+            io.BytesIO(pdf),
+            media_type="application/pdf",
+            headers={"Content-Disposition": 'attachment; filename="insightgraph_report.pdf"'},
+        )
+    except Exception as e:
+        logger.warning("WeasyPrint unavailable, returning HTML report fallback: %s", e)
+        return PlainTextResponse(content=html, media_type="text/html")
+
+
+def _make_table_section(title: str, columns: list[str], rows: list[dict], description: str | None = None, metric: str | None = None):
+    return {"title": title, "description": description, "table": {"columns": columns, "rows": rows}, "metric": metric}
+
+
+def _prepare_report_context(report_type: str):
+    nodes = _serialize_nodes_for_export()
+    edges = _serialize_edges_for_export()
+    iso_rules = _iso_rule_checks()
+    max_score = sum(rule["weight"] for rule in iso_rules)
+    score_obtained = sum(rule["score"] for rule in iso_rules)
+    score_percent = round(_safe_ratio(score_obtained, max_score) * 100, 2)
+    title = ""
+    subtitle = ""
+    sections: list[dict] = []
+
+    if report_type == "composition":
+        counts = [
+            {"Métrica": "Nós", "Valor": len(nodes)},
+            {"Métrica": "Arestas", "Valor": len(edges)},
+            {"Métrica": "Endpoints API", "Valor": sum(1 for n in nodes if n.get("layer") and "API" in n.get("layer"))},
+            {"Métrica": "Classes Java", "Valor": sum(1 for n in nodes if n.get("layer") == "Java_Class")},
+        ]
+        layer_counts = Counter(str(n.get("layer") or "Unknown") for n in nodes)
+        project_counts = Counter(str(n.get("project") or "local") for n in nodes)
+        layer_rows = [{"Camada": layer, "Nós": count} for layer, count in layer_counts.most_common()]
+        project_rows = [{"Projeto": project, "Nós": count} for project, count in project_counts.most_common()]
+        sections = [
+            _make_table_section("Resumo Geral", ["Métrica", "Valor"], counts, description="Contagem geral do grafo atual"),
+            _make_table_section("Distribuição por Camada", ["Camada", "Nós"], layer_rows),
+            _make_table_section("Projetos com mais nós", ["Projeto", "Nós"], project_rows[:10]),
+        ]
+        title = "Relatório de Composição"
+        subtitle = "Visão compacta do grafo, dividido por camadas e projetos"
+
+    elif report_type == "hotspots":
+        hotspot_nodes = sorted(
+            ((n, float(n.get("hotspot_score") or 0)) for n in nodes),
+            key=lambda item: -item[1],
+        )
+        rows = []
+        for node, score in hotspot_nodes[:12]:
+            rows.append(
+                {
+                    "Nome": node.get("name"),
+                    "Projeto": node.get("project") or "N/A",
+                    "Score": f"{score:.1f}",
+                    "Complexidade": node.get("complexity") or "",
+                }
+            )
+        sections = [
+            _make_table_section(
+                "Hotspots Prioritários",
+                ["Nome", "Projeto", "Score", "Complexidade"],
+                rows,
+                description="Nós com maior risco de regressão (score de hotspot + complexidade).",
+            )
+        ]
+        title = "Relatório de Hotspots"
+        subtitle = "Top 12 áreas críticas com base em churn e complexidade"
+
+    elif report_type == "ck-metrics":
+        ck_nodes = sorted(
+            ((n, float(n.get("risk_score") or 0)) for n in nodes),
+            key=lambda item: -item[1],
+        )
+        rows = []
+        for node, risk in ck_nodes[:12]:
+            rows.append(
+                {
+                    "Classe": node.get("name"),
+                    "Projeto": node.get("project") or "local",
+                    "Risk Score": f"{risk:.1f}",
+                    "WMC": node.get("complexity") or "",
+                    "CBO": (node.get("cbo") or ""),
+                    "LCOM": (node.get("lcom") or ""),
+                }
+            )
+        sections = [
+            _make_table_section(
+                "Classes de Maior Risco",
+                ["Classe", "Projeto", "Risk Score", "WMC", "CBO", "LCOM"],
+                rows,
+                description="Ranking baseado no score de risco das métricas CK.",
+            )
+        ]
+        title = "Relatório de Métricas CK"
+        subtitle = "Avaliação das classes por risco acumulado"
+
+    elif report_type == "security":
+        dependency_rows = []
+        for dep in _collect_dependency_packages()[:10]:
+            dependency_rows.append(
+                {
+                    "Dependência": dep["name"],
+                    "Ecosistema": dep["ecosystem"],
+                    "Versão": dep["version"] or "latest",
+                    "Origem": dep["source"],
+                }
+            )
+        sections = [
+            _make_table_section(
+                "ISO 5055 Resumo",
+                ["Métrica", "Valor"],
+                [
+                    {"Métrica": "Grade geral", "Valor": _iso_grade_from_score(score_percent)},
+                    {"Métrica": "Score (%)", "Valor": f"{score_percent:.2f}%"},
+                    {"Métrica": "Regras passadas", "Valor": f"{sum(1 for r in iso_rules if r['passed'])}/{len(iso_rules)}"},
+                ],
+            ),
+            _make_table_section(
+                "Dependências Externas",
+                ["Dependência", "Ecosistema", "Versão", "Origem"],
+                dependency_rows,
+                description="Lista inicial de dependências rastreadas (use /api/oss/exposure para dados de CVE).",
+            ),
+        ]
+        title = "Relatório de Segurança"
+        subtitle = "Resumo de ISO 5055 e dependências externas"
+
+    elif report_type == "iso5055":
+        rule_rows = []
+        for rule in iso_rules:
+            rule_rows.append(
+                {
+                    "ID": rule["rule_id"],
+                    "Nome": rule["name"],
+                    "Status": "PASS" if rule["passed"] else "FAIL",
+                    "Notas": rule["notes"],
+                }
+            )
+        sections = [
+            _make_table_section(
+                "Grade ISO 5055",
+                ["Métrica", "Valor"],
+                [
+                    {"Métrica": "Grade", "Valor": _iso_grade_from_score(score_percent)},
+                    {"Métrica": "Score (%)", "Valor": f"{score_percent:.2f}%"},
+                    {"Métrica": "Regras avaliadas", "Valor": len(iso_rules)},
+                ],
+            ),
+            _make_table_section(
+                "Regras",
+                ["ID", "Nome", "Status", "Notas"],
+                rule_rows,
+                description="Detalhamento das regras ISO 5055 avaliadas por este scan.",
+            ),
+        ]
+        title = "Relatório ISO 5055"
+        subtitle = "Grade executiva baseada nos 20 controles críticos"
+
+    else:
+        raise HTTPException(status_code=404, detail="report type not supported")
+
+    return {
+        "title": title,
+        "subtitle": subtitle,
+        "sections": sections,
+        "generated_at": datetime.datetime.utcnow().strftime("%Y-%m-%d %H:%M UTC"),
+    }
+
+
+@app.get("/api/reports/{report_type}")
+async def generate_report(report_type: str, format: str = Query("pdf", pattern="^(pdf|html)$")):
+    context = _prepare_report_context(report_type)
+    template = REPORT_ENV.get_template("report_base.html")
+    html = template.render(**context)
+    if format == "html":
+        return PlainTextResponse(content=html, media_type="text/html")
+
+    try:
+        from weasyprint import HTML
+
+        pdf = HTML(string=html).write_pdf()
+        return StreamingResponse(
+            io.BytesIO(pdf),
+            media_type="application/pdf",
+            headers={"Content-Disposition": f'attachment; filename="insightgraph_{report_type}.pdf"'},
+        )
+    except Exception as exc:
+        logger.warning("WeasyPrint render failed for %s: %s", report_type, exc)
+        return PlainTextResponse(content=html, media_type="text/html")
+
+
+def _collect_dependency_packages() -> list[dict]:
+    deps = []
+    req = Path("requirements.txt")
+    if req.exists():
+        for line in req.read_text(encoding="utf-8", errors="ignore").splitlines():
+            raw = line.strip()
+            if not raw or raw.startswith("#"):
+                continue
+            name = re.split(r"[<>=~! ]", raw)[0].strip()
+            if not name:
+                continue
+            deps.append({"ecosystem": "PyPI", "name": name, "version": None, "source": "requirements.txt"})
+
+    lock = Path("../frontend/package-lock.json")
+    if lock.exists():
+        try:
+            payload = json.loads(lock.read_text(encoding="utf-8"))
+            packages = payload.get("packages", {})
+            for pkg_path, data in packages.items():
+                if pkg_path == "":
+                    continue
+                name = str(data.get("name") or "").strip()
+                version = str(data.get("version") or "").strip() or None
+                if name:
+                    deps.append({"ecosystem": "npm", "name": name, "version": version, "source": "package-lock.json"})
+        except Exception:
+            pass
+
+    seen = set()
+    unique = []
+    for dep in deps:
+        key = (dep["ecosystem"], dep["name"], dep.get("version"))
+        if key in seen:
+            continue
+        seen.add(key)
+        unique.append(dep)
+    return unique
+
+
+async def _query_osv(dep: dict) -> list[dict]:
+    body = {"package": {"name": dep["name"], "ecosystem": dep["ecosystem"]}}
+    if dep.get("version"):
+        body["version"] = dep["version"]
+    try:
+        async with httpx.AsyncClient(timeout=12.0) as client:
+            res = await client.post("https://api.osv.dev/v1/query", json=body)
+            if res.status_code != 200:
+                return []
+            data = res.json()
+            vulns = data.get("vulns", []) or []
+            return [
+                {
+                    "id": v.get("id"),
+                    "aliases": v.get("aliases", []) or [],
+                    "summary": v.get("summary"),
+                    "modified": v.get("modified"),
+                }
+                for v in vulns
+            ]
+    except Exception:
+        return []
+
+
+@app.get("/api/oss/exposure")
+async def get_oss_exposure(limit: int = 120):
+    dependencies = _collect_dependency_packages()[: max(1, min(limit, 300))]
+    results = []
+    total_vulns = 0
+    for dep in dependencies:
+        vulns = await _query_osv(dep)
+        total_vulns += len(vulns)
+        results.append({**dep, "vulnerabilities": vulns, "vuln_count": len(vulns)})
+    results.sort(key=lambda item: item["vuln_count"], reverse=True)
+    return {
+        "total_dependencies": len(results),
+        "total_vulnerabilities": total_vulns,
+        "items": results,
+    }
+
+
+@app.post("/api/embeddings/reindex")
+async def rebuild_object_embeddings(limit: int = 300):
+    """Persist object embeddings (SQLite) for top graph nodes."""
+    _ensure_memory_graph_loaded()
+    count = 0
+    for node in memory_nodes[: max(1, min(limit, len(memory_nodes)))]:
+        key = node.get("namespace_key")
+        if not key:
+            continue
+        labels = node.get("labels", [])
+        summary = f"{node.get('name')} | {node.get('layer')} | {node.get('file')} | {','.join(labels)}"
+        emb = _embed_text(summary)
+        state_store.upsert_embedding(
+            object_key=key,
+            object_type=(labels[0] if labels else "Entity"),
+            summary=summary,
+            embedding=emb,
+            model=OLLAMA_EMBED_MODEL if emb else None,
+        )
+        count += 1
+    return {"status": "ok", "indexed_objects": count, "model": OLLAMA_EMBED_MODEL}
+
+
+@app.get("/api/objects/{node_key:path}/explain")
+async def explain_object(node_key: str):
+    """AI explanation focused on an object (node) instead of full file."""
+    _ensure_memory_graph_loaded()
+    node = next((n for n in memory_nodes if n.get("namespace_key") == node_key), None)
+    if not node:
+        raise HTTPException(status_code=404, detail="node not found")
+
+    context_parts = [
+        f"Node key: {node.get('namespace_key')}",
+        f"Name: {node.get('name')}",
+        f"Layer: {node.get('layer')}",
+        f"Labels: {', '.join(node.get('labels', []))}",
+        f"File: {node.get('file')}",
+        f"Project: {node.get('project')}",
+        f"Complexity: {node.get('complexity')}",
+        f"WMC/CBO/RFC/LCOM: {node.get('wmc')}/{node.get('cbo')}/{node.get('rfc')}/{node.get('lcom')}",
+    ]
+    linked = []
+    for edge in memory_edges:
+        src, tgt = _edge_endpoints(edge)
+        if src == node_key or tgt == node_key:
+            linked.append(f"{src} -[{edge.get('type')}]-> {tgt}")
+        if len(linked) >= 20:
+            break
+    if linked:
+        context_parts.append("Relações diretas:\n" + "\n".join(linked))
+    context = "\n".join(str(p) for p in context_parts if p)
+    question = "Explique a responsabilidade deste objeto no sistema, riscos e ações de melhoria."
+    ai_result = await ask_ai(question, context)
+    state_store.upsert_embedding(
+        object_key=node_key,
+        object_type=(node.get("labels") or ["Entity"])[0],
+        summary=context,
+        embedding=_embed_text(context),
+        model=OLLAMA_EMBED_MODEL,
+    )
+    return {
+        "node_key": node_key,
+        "model": ai_result.get("model"),
+        "answer": ai_result.get("raw_text"),
+        "node": {
+            "name": node.get("name"),
+            "labels": node.get("labels", []),
+            "layer": node.get("layer"),
+            "file": node.get("file"),
+            "project": node.get("project"),
+        },
+    }
 
 
 @app.get("/api/health", response_model=HealthStatus)

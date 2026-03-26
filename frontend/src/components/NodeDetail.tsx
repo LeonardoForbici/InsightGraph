@@ -1,6 +1,6 @@
-import { useState, useCallback } from 'react';
-import type { ImpactData, BlastRadiusData, GraphNode } from '../api';
-import { fetchFileContent, explainComponent } from '../api';
+import { useState, useCallback, useEffect } from 'react';
+import type { ImpactData, BlastRadiusData, GraphNode, AnnotationPayload, AnnotationRecord, Tag } from '../api';
+import { fetchFileContent, explainComponent, listAnnotations, createAnnotation, listTags } from '../api';
 
 interface NodeDetailProps {
     node: GraphNode | null;
@@ -9,6 +9,8 @@ interface NodeDetailProps {
     onClose: () => void;
     onViewUsages?: (nodeKey: string, nodeName: string) => void;
     onQuickImpactScenario?: (scenario: 'delete' | 'signature' | 'data_type', node: GraphNode) => void;
+    onOpenTransaction?: (nodeKey: string) => void;
+    onAnnotationsChanged?: () => void;
 }
 
 function getTypeIcon(labels: string[]): { icon: string; bg: string; color: string } {
@@ -22,13 +24,21 @@ function getTypeIcon(labels: string[]): { icon: string; bg: string; color: strin
     return { icon: '◇', bg: 'rgba(139,147,176,0.08)', color: '#8b93b0' };
 }
 
-export default function NodeDetail({ node, impact, blastRadius, onClose, onViewUsages, onQuickImpactScenario }: NodeDetailProps) {
+export default function NodeDetail({ node, impact, blastRadius, onClose, onViewUsages, onQuickImpactScenario, onOpenTransaction, onAnnotationsChanged }: NodeDetailProps) {
     // Todos os hooks DEVEM ser chamados ANTES de qualquer condicional
     const [activeTab, setActiveTab] = useState<'details' | 'code'>('details');
     const [fileContent, setFileContent] = useState<string>('');
     const [loadingCode, setLoadingCode] = useState(false);
     const [explanation, setExplanation] = useState<string>('');
     const [explaining, setExplaining] = useState(false);
+    const [annotations, setAnnotations] = useState<AnnotationRecord[]>([]);
+    const [annotationsLoading, setAnnotationsLoading] = useState(false);
+    const [annotationTitle, setAnnotationTitle] = useState('');
+    const [annotationContent, setAnnotationContent] = useState('');
+    const [annotationSeverity, setAnnotationSeverity] = useState('low');
+    const [annotationTag, setAnnotationTag] = useState('');
+    const [annotationError, setAnnotationError] = useState<string | null>(null);
+    const [tags, setTags] = useState<Tag[]>([]);
 
     const handleLoadCode = useCallback(async () => {
         if (!node?.file || fileContent) return;
@@ -58,6 +68,60 @@ export default function NodeDetail({ node, impact, blastRadius, onClose, onViewU
             setExplaining(false);
         }
     }, [fileContent, explaining]);
+
+    const refreshAnnotations = useCallback(async () => {
+        const nodeKey = node?.namespace_key;
+        if (!nodeKey) {
+            setAnnotations([]);
+            return;
+        }
+        setAnnotationsLoading(true);
+        try {
+            const payload = await listAnnotations(nodeKey);
+            setAnnotations(payload.items as AnnotationRecord[]);
+        } catch (err) {
+            console.error('Failed to load annotations:', err);
+        } finally {
+            setAnnotationsLoading(false);
+        }
+    }, [node?.namespace_key]);
+
+    useEffect(() => {
+        refreshAnnotations();
+    }, [refreshAnnotations]);
+
+    useEffect(() => {
+        listTags()
+            .then((payload) => setTags(payload.items))
+            .catch((err) => console.error('Failed to load tags:', err));
+    }, []);
+
+    const handleCreateAnnotation = useCallback(async () => {
+        if (!node?.namespace_key) return;
+        if (!annotationContent.trim()) {
+            setAnnotationError('Conteúdo é obrigatório.');
+            return;
+        }
+        setAnnotationError(null);
+            const payload: AnnotationPayload = {
+                node_key: node.namespace_key,
+                title: annotationTitle.trim() || undefined,
+                content: annotationContent.trim(),
+                severity: annotationSeverity || undefined,
+                tag: annotationTag || undefined,
+            };
+            try {
+                await createAnnotation(payload);
+                setAnnotationTitle('');
+                setAnnotationContent('');
+                setAnnotationSeverity('low');
+                setAnnotationTag('');
+                await refreshAnnotations();
+                onAnnotationsChanged?.();
+            } catch (err: any) {
+                setAnnotationError(err?.message || 'Falha ao criar anotação.');
+            }
+    }, [annotationTitle, annotationContent, annotationSeverity, annotationTag, node?.namespace_key, refreshAnnotations]);
 
     // Condicional APÓS todos os hooks
     if (!node) return null;
@@ -178,6 +242,15 @@ export default function NodeDetail({ node, impact, blastRadius, onClose, onViewU
                             🔍 Ver usos do método
                         </button>
                     )}
+                    {onOpenTransaction && node.namespace_key && (
+                        <button
+                            className="btn btn-secondary"
+                            style={{ width: '100%', margin: '0 0 10px', fontSize: 12 }}
+                            onClick={() => onOpenTransaction(node.namespace_key)}
+                        >
+                            Transaction View + Path Finder
+                        </button>
+                    )}
                     {node.loc !== undefined && (
                         <div className="node-detail-row" style={{ marginTop: 8 }}>
                             <span className="node-detail-label">Linhas de Código</span>
@@ -285,6 +358,96 @@ export default function NodeDetail({ node, impact, blastRadius, onClose, onViewU
                                 </button>
                             </div>
                         )}
+                    </div>
+
+                    <div style={{
+                        marginTop: 16,
+                        border: '1px solid rgba(148,163,184,0.28)',
+                        borderRadius: 8,
+                        padding: 12,
+                        background: 'rgba(2,6,23,0.6)',
+                    }}>
+                        <div style={{ fontSize: 12, fontWeight: 700, marginBottom: 6 }}>Knowledge Layer</div>
+                        <div style={{ fontSize: 11, opacity: 0.85, marginBottom: 10 }}>
+                            Anotações vinculadas a este nó ficam armazenadas localmente e podem receber tags.
+                        </div>
+                        {annotationsLoading ? (
+                            <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 8 }}>Carregando anotações...</div>
+                        ) : annotations.length === 0 ? (
+                            <div style={{ fontSize: 12, opacity: 0.7, marginBottom: 8 }}>Sem anotações ainda.</div>
+                        ) : (
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 160, overflowY: 'auto', marginBottom: 10 }}>
+                                {annotations.map((ann) => (
+                                    <div key={ann.id} style={{ border: '1px solid rgba(148,163,184,0.25)', borderRadius: 8, padding: 8 }}>
+                                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, fontWeight: 600 }}>
+                                            <span>{ann.title || 'Anotação'}</span>
+                                            <span style={{ fontSize: 10, opacity: 0.7 }}>
+                                                {ann.severity?.toUpperCase() || 'INFO'} · {new Date(ann.created_at * 1000).toLocaleString()}
+                                            </span>
+                                        </div>
+                                        <div style={{ fontSize: 11, margin: '6px 0' }}>{ann.content}</div>
+                                        {ann.tag && (
+                                            <span style={{
+                                                fontSize: 10,
+                                                padding: '2px 6px',
+                                                borderRadius: 999,
+                                                background: ann.tag_color ? ann.tag_color : 'rgba(99,102,241,0.2)',
+                                                color: ann.tag_color ? '#fff' : '#cbd5f5',
+                                            }}>
+                                                {ann.tag}
+                                            </span>
+                                        )}
+                                    </div>
+                                ))}
+                            </div>
+                        )}
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+                            <input
+                                className="search-input"
+                                placeholder="Título (opcional)"
+                                value={annotationTitle}
+                                onChange={(e) => setAnnotationTitle(e.target.value)}
+                            />
+                            <textarea
+                                className="search-input"
+                                placeholder="Escreva a anotação"
+                                rows={3}
+                                value={annotationContent}
+                                onChange={(e) => setAnnotationContent(e.target.value)}
+                            />
+                            <div style={{ display: 'flex', gap: 8 }}>
+                                <select
+                                    className="search-input"
+                                    value={annotationSeverity}
+                                    onChange={(e) => setAnnotationSeverity(e.target.value)}
+                                >
+                                    {['low', 'medium', 'high', 'critical'].map((severity) => (
+                                        <option key={severity} value={severity}>{severity.toUpperCase()}</option>
+                                    ))}
+                                </select>
+                                <select
+                                    className="search-input"
+                                    value={annotationTag}
+                                    onChange={(e) => setAnnotationTag(e.target.value)}
+                                >
+                                    <option value="">Sem tag</option>
+                                    {tags.map((tag) => (
+                                        <option key={tag.id} value={tag.name}>{tag.name}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <button
+                                className="btn btn-primary"
+                                style={{ fontSize: 12 }}
+                                onClick={handleCreateAnnotation}
+                                disabled={!annotationContent.trim()}
+                            >
+                                Criar anotação
+                            </button>
+                            {annotationError && (
+                                <div style={{ color: '#ef4444', fontSize: 12 }}>{annotationError}</div>
+                            )}
+                        </div>
                     </div>
 
                     {impact && (

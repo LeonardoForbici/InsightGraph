@@ -1,0 +1,60 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <title>{{ title }}</title>
+  <style>
+    body { font-family: 'Inter', Verdana, sans-serif; background: #f5f7fb; color: #0f172a; margin: 0; padding: 32px; }
+    h1 { font-size: 32px; margin-bottom: 4px; }
+    h2 { margin-top: 32px; font-size: 20px; color: #1e3a8a; }
+    table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+    th, td { border: 1px solid #cbd5f5; padding: 8px 10px; text-align: left; font-size: 12px; }
+    th { background: #e0e7ff; }
+    .section { margin-top: 24px; }
+    .section-desc { color: #475569; font-size: 13px; margin: 8px 0; }
+    .pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; background: #e0f2fe; border-radius: 999px; color: #0f172a; font-size: 12px; font-weight: 600; }
+    .footer { margin-top: 48px; font-size: 11px; color: #475569; border-top: 1px solid #cbd5f5; padding-top: 12px; }
+  </style>
+</head>
+<body>
+  <header>
+    <div class="pill">InsightGraph</div>
+    <h1>{{ title }}</h1>
+    {% if subtitle %}
+      <p class="section-desc">{{ subtitle }}</p>
+    {% endif %}
+  </header>
+  {% for section in sections %}
+    <section class="section">
+      <h2>{{ section.title }}</h2>
+      {% if section.description %}
+        <p class="section-desc">{{ section.description }}</p>
+      {% endif %}
+      {% if section.table %}
+        <table>
+          <thead>
+            <tr>
+              {% for column in section.table.columns %}
+                <th>{{ column }}</th>
+              {% endfor %}
+            </tr>
+          </thead>
+          <tbody>
+            {% for row in section.table.rows %}
+              <tr>
+                {% for column in section.table.columns %}
+                  <td>{{ row[column] }}</td>
+                {% endfor %}
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% endif %}
+      {% if section.metric %}
+        <div class="section-desc">{{ section.metric }}</div>
+      {% endif %}
+    </section>
+  {% endfor %}
+  <footer class="footer">Relatório gerado em {{ generated_at }} — InsightGraph / CAST parity plan</footer>
+</body>
+</html>

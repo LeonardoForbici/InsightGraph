@@ -1,4 +1,4 @@
-import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef, forwardRef, useImperativeHandle, ForwardedRef } from 'react';
 import {
     ReactFlow,
     Controls,
@@ -13,9 +13,11 @@ import {
     ReactFlowProvider,
 } from '@xyflow/react';
 import type { Node, Edge, NodeProps } from '@xyflow/react';
+import type { Viewport } from '@xyflow/system';
 import '@xyflow/react/dist/style.css';
 import dagre from '@dagrejs/dagre';
 import type { GraphNode, GraphEdge } from '../api';
+import { fetchGraphPath, fetchInheritance } from '../api';
 import GraphCanvas3D from './GraphCanvas3D';
 
 /* ─── Helpers ─── */
@@ -202,6 +204,13 @@ function CustomNode({ data }: NodeProps) {
                     {String(data.icon || '')} {String(data.label || '')}
                 </div>
                 {data.sublabel ? <div className="node-sublabel">{String(data.sublabel)}</div> : null}
+                {data.hasAnnotation && (
+                    <span
+                        className="annotation-dot"
+                        style={{ background: data.annotationColor || '#60a5fa' }}
+                        title={data.annotationTag ? `Tag: ${data.annotationTag}` : 'Anotação disponível'}
+                    />
+                )}
             </div>
             <Handle type="source" position={Position.Bottom} style={hiddenHandleStyle} isConnectable={false} />
         </>
@@ -209,6 +218,21 @@ function CustomNode({ data }: NodeProps) {
 }
 
 const nodeTypes = { custom: CustomNode };
+
+export interface SavedNodeState {
+    id: string;
+    position: { x: number; y: number };
+}
+
+export interface SavedViewState {
+    nodes: SavedNodeState[];
+    viewport: Viewport;
+}
+
+export interface GraphCanvasHandle {
+    captureViewState: () => SavedViewState;
+    applyViewState: (state: SavedViewState) => void;
+}
 
 /* ─── Inner Canvas Component ─── */
 interface GraphCanvasProps {
@@ -221,24 +245,46 @@ interface GraphCanvasProps {
     onNodeClick: (nodeKey: string, nodeData: GraphNode) => void;
     onClearAiHighlights?: () => void;
     searchTerm: string;
+    nodeAnnotations?: Map<string, { tag?: string; color?: string | null }>;
+    selectedTag?: string | null;
+    tagFilterNodes?: Set<string>;
 }
 
-function GraphCanvasInner({
-    graphNodes,
-    graphEdges,
-    highlightedUpstream,
-    highlightedDownstream,
-    aiHighlightedNodes,
-    selectedNodeKey,
-    onNodeClick,
-    onClearAiHighlights,
-    searchTerm,
-}: GraphCanvasProps) {
+const GraphCanvasInnerImpl = (props: GraphCanvasProps, ref: ForwardedRef<GraphCanvasHandle>) => {
+    const {
+        graphNodes,
+        graphEdges,
+        highlightedUpstream,
+        highlightedDownstream,
+        aiHighlightedNodes,
+        selectedNodeKey,
+        onNodeClick,
+        onClearAiHighlights,
+        searchTerm,
+        nodeAnnotations,
+        selectedTag,
+        tagFilterNodes,
+    } = props;
     const [heatmapEnabled, setHeatmapEnabled] = useState(false);
     const [viewMode, setViewMode] = useState<'2d' | '3d'>('2d');
     const [autoMode, setAutoMode] = useState(true);
     const [clustered3D, setClustered3D] = useState(true);
     const [focusRequestId, setFocusRequestId] = useState(0);
+    const [pathFinderMode, setPathFinderMode] = useState(false);
+    const [pathFinderOrigin, setPathFinderOrigin] = useState<string | null>(null);
+    const [pathFinderTarget, setPathFinderTarget] = useState<string | null>(null);
+    const [pathFinderPaths, setPathFinderPaths] = useState<string[][]>([]);
+    const [pathFinderEdgeKeys, setPathFinderEdgeKeys] = useState<Set<string>>(new Set());
+    const [pathFinderLoading, setPathFinderLoading] = useState(false);
+    const [pathFinderError, setPathFinderError] = useState<string | null>(null);
+    const [pathFinderDepth, setPathFinderDepth] = useState(12);
+    const [inheritanceMode, setInheritanceMode] = useState(false);
+    const [inheritanceData, setInheritanceData] = useState<{
+        nodes: Array<{ namespace_key?: string; name?: string; layer?: string; project?: string }>;
+        edges: Array<{ source?: string; target?: string }>;
+    } | null>(null);
+    const [inheritanceLoading, setInheritanceLoading] = useState(false);
+    const [inheritanceError, setInheritanceError] = useState<string | null>(null);
     
     // Clustering state (set of expanded layer sizes). Auto-expand small graphs.
     const [expandedClusters, setExpandedClusters] = useState<Set<string>>(new Set());
@@ -298,11 +344,149 @@ function GraphCanvasInner({
         }
     }, [aiHighlightedNodes, graphNodes]);
 
+    useEffect(() => {
+        if (!graphNodes.length && !graphEdges.length) return;
+        setPathFinderPaths([]);
+        setPathFinderEdgeKeys(new Set());
+        setPathFinderOrigin(null);
+        setPathFinderTarget(null);
+        setPathFinderError(null);
+    }, [graphNodes, graphEdges]);
+
+    useEffect(() => {
+        if (!inheritanceMode) {
+            setInheritanceData(null);
+            setInheritanceError(null);
+            setInheritanceLoading(false);
+            return;
+        }
+
+        if (!selectedNodeKey) {
+            setInheritanceError('Selecione uma classe para ver a árvore de herança.');
+            setInheritanceData(null);
+            setInheritanceLoading(false);
+            return;
+        }
+
+        setInheritanceLoading(true);
+        setInheritanceError(null);
+        fetchInheritance(undefined, selectedNodeKey)
+            .then((data) => {
+                setInheritanceData(data);
+            })
+            .catch((err) => {
+                console.error('Failed to load inheritance tree:', err);
+                setInheritanceError('Não foi possível recuperar a hierarquia.');
+                setInheritanceData(null);
+            })
+            .finally(() => {
+                setInheritanceLoading(false);
+            });
+    }, [inheritanceMode, selectedNodeKey]);
+
+    const pathFinderNodeSet = useMemo(() => {
+        const set = new Set<string>();
+        pathFinderPaths.forEach((path) => {
+            path.forEach((key) => set.add(key));
+        });
+        return set;
+    }, [pathFinderPaths]);
+
+    const nodeNameMap = useMemo(() => {
+        const map = new Map<string, string>();
+        graphNodes.forEach((n) => {
+            if (n.namespace_key) map.set(n.namespace_key, n.name);
+        });
+        return map;
+    }, [graphNodes]);
+
+    const graphNodeMap = useMemo(() => {
+        const map = new Map<string, GraphNode>();
+        graphNodes.forEach((n) => {
+            if (n.namespace_key) map.set(n.namespace_key, n);
+        });
+        return map;
+    }, [graphNodes]);
+
+    const inheritancePayload = useMemo(() => {
+        if (!inheritanceData?.nodes?.length) {
+            return null;
+        }
+        const resolvedNodes = inheritanceData.nodes
+            .map((row) => {
+                if (!row.namespace_key) return null;
+                const existing = graphNodeMap.get(row.namespace_key);
+                return (
+                    existing || {
+                        namespace_key: row.namespace_key,
+                        name: row.name || row.namespace_key,
+                        labels: ['Java_Class'],
+                        layer: row.layer || 'Java_Class',
+                        project: row.project || 'local',
+                    }
+                );
+            })
+            .filter((n): n is GraphNode => Boolean(n));
+
+        const resolvedEdges =
+            inheritanceData.edges?.map((edge, idx) => ({
+                id: `inherit-${idx}`,
+                source: edge.source || '',
+                target: edge.target || '',
+                type: 'INHERITS',
+            })) || [];
+
+        return { nodes: resolvedNodes, edges: resolvedEdges };
+    }, [inheritanceData, graphNodeMap]);
+
     // Build the graph payload dynamically observing expanded clusters
     const { baseNodes, baseEdges } = useMemo(() => {
         if (viewMode === '3d') {
             return { baseNodes: [], baseEdges: [] };
         }
+
+        if (inheritanceMode && inheritancePayload) {
+            const treeNodes: Node[] = inheritancePayload.nodes
+                .filter((node) => Boolean(node.namespace_key))
+                .map((node) => {
+                    const labels = (node as GraphNode).labels || ['Java_Class'];
+                    const highlightClass = node.namespace_key === selectedNodeKey ? 'selected-node' : '';
+                    return {
+                        id: node.namespace_key ?? `inherit-${Math.random()}`,
+                        type: 'custom',
+                        position: { x: 0, y: 0 },
+                        data: {
+                            label: node.name || node.namespace_key,
+                            icon: getNodeIcon(labels),
+                            nodeClass: getNodeClass(labels),
+                            sublabel: node.project || node.layer || '',
+                            highlightClass,
+                        },
+                    } as Node;
+                });
+
+            const treeEdges: Edge[] = inheritancePayload.edges
+                .filter((edge) => edge.source && edge.target)
+                .map((edge, idx) => ({
+                    id: `inherit-edge-${idx}`,
+                    source: edge.source!,
+                    target: edge.target!,
+                    type: 'smoothstep',
+                    label: 'INHERITS',
+                    animated: true,
+                    pathOptions: { offset: 18, borderRadius: 16 },
+                    style: {
+                        stroke: '#22c55e',
+                        strokeWidth: 2,
+                        opacity: 0.9,
+                    },
+                    markerEnd: { type: MarkerType.ArrowClosed, color: '#22c55e', width: 12, height: 12 },
+                }));
+
+            const laid = layoutGraph(treeNodes, treeEdges, 'LR');
+            return { baseNodes: laid.nodes, baseEdges: laid.edges };
+        }
+
         const filteredNodes = searchTerm
             ? graphNodes.filter((n) => n.name.toLowerCase().includes(searchTerm.toLowerCase()))
             : graphNodes;
@@ -331,6 +515,8 @@ function GraphCanvasInner({
 
         filteredNodes.forEach((gn) => {
             const clusterId = gn.layer || gn.project || 'System';
+            const annotationMeta = nodeAnnotations?.get(gn.namespace_key);
+            const matchesTagFilter = selectedTag ? (tagFilterNodes?.has(gn.namespace_key) ?? false) : false;
             
             let highlightClass = '';
             if (aiHighlightedNodes.includes(gn.namespace_key)) highlightClass = 'highlighted-ai';
@@ -346,6 +532,9 @@ function GraphCanvasInner({
                 : hasImpactDistance && highlightClass === ''
                     ? (typeof impactOpacity === 'number' ? impactOpacity : 0.1)
                     : false;
+            const tagDim = selectedTag && !matchesTagFilter ? 0.2 : false;
+            const dimmedValue = tagDim !== false ? tagDim : dimsOther;
+            const highlightTagClass = selectedTag && matchesTagFilter ? 'highlighted-tag' : '';
 
             if (forceExpandAll || expandedClusters.has(clusterId)) {
                 nsNodes.push({
@@ -357,13 +546,17 @@ function GraphCanvasInner({
                         icon: getNodeIcon(gn.labels),
                         sublabel: gn.file || '',
                         nodeClass: getNodeClass(gn.labels),
-                        highlightClass,
+                        highlightClass: [highlightClass, highlightTagClass].filter(Boolean).join(' '),
                         isHeatmap: heatmapEnabled,
                         complexity: gn.complexity,
-                        dimmed: dimsOther,
+                        dimmed: dimmedValue,
                         status: gn.status,
                         impact_distance: gn.impact_distance,
                         impactOpacity,
+                        annotationColor: annotationMeta ? (annotationMeta.color || '#60a5fa') : undefined,
+                        annotationTag: annotationMeta?.tag,
+                        hasAnnotation: Boolean(annotationMeta),
+                        matchesTagFilter,
                     },
                 });
             } else {
@@ -460,10 +653,28 @@ function GraphCanvasInner({
         }
         return { baseNodes: nsNodes, baseEdges: nsEdges };
 
-    }, [graphNodes, graphEdges, expandedClusters, searchTerm, viewMode]); // ONLY structural dependencies
+    }, [
+        graphNodes,
+        graphEdges,
+        expandedClusters,
+        searchTerm,
+        viewMode,
+        inheritanceMode,
+        inheritancePayload,
+        selectedNodeKey,
+        nodeAnnotations,
+        selectedTag,
+        tagFilterNodes,
+        aiHighlightedNodes,
+        highlightedUpstream,
+        highlightedDownstream,
+        heatmapEnabled,
+    ]);
 
     const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
     const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
+    const reactFlowInstanceRef = useRef<ReactFlowInstance | null>(null);
+    const [viewportState, setViewportState] = useState<Viewport>({ x: 0, y: 0, zoom: 1 });
 
     // Visually update nodes and edges when soft properties change (bypassing heavy layout computation)
     useEffect(() => {
@@ -477,11 +688,12 @@ function GraphCanvasInner({
                         : bn;
                 }
 
-                let highlightClass = '';
-                if (aiHighlightedNodes.includes(bn.id)) highlightClass = 'highlighted-ai';
-                else if (bn.id === selectedNodeKey) highlightClass = 'selected-node';
-                else if (highlightedUpstream.has(bn.id)) highlightClass = 'highlighted-upstream';
-                else if (highlightedDownstream.has(bn.id)) highlightClass = 'highlighted-downstream';
+            let highlightClass = '';
+            if (aiHighlightedNodes.includes(bn.id)) highlightClass = 'highlighted-ai';
+            else if (bn.id === selectedNodeKey) highlightClass = 'selected-node';
+            else if (highlightedUpstream.has(bn.id)) highlightClass = 'highlighted-upstream';
+            else if (highlightedDownstream.has(bn.id)) highlightClass = 'highlighted-downstream';
+            if (pathFinderNodeSet.has(bn.id)) highlightClass = 'highlighted-path';
 
                 const baseDimmed = bn.data.dimmed;
                 const dimsOther = aiHighlightedNodes.length > 0 && highlightClass === ''
@@ -517,19 +729,51 @@ function GraphCanvasInner({
                 if (aiHighlightedNodes.length > 0) {
                     opacity = aiHighlightedNodes.includes(be.source) || aiHighlightedNodes.includes(be.target) ? 1 : 0.4;
                 }
+                const isPathEdge = pathFinderEdgeKeys.has(`${be.source}::${be.target}`);
                 
                 const existing = currentEdges.find(e => e.id === be.id);
+                const pathStyle = isPathEdge
+                    ? { stroke: '#38bdf8', strokeWidth: 3, opacity: 1 }
+                    : {};
                 if (existing) {
-                    if (existing.style?.opacity === opacity) return existing;
-                    return { ...existing, style: { ...(existing.style || {}), opacity } };
+                    if (existing.style?.opacity === opacity && !isPathEdge) return existing;
+                    return { ...existing, style: { ...(existing.style || {}), opacity, ...pathStyle } };
                 }
                 
-                return { ...be, style: { ...(be.style || {}), opacity } };
+                return { ...be, style: { ...(be.style || {}), opacity, ...pathStyle } };
             });
         });
-    }, [baseNodes, baseEdges, selectedNodeKey, aiHighlightedNodes, highlightedUpstream, highlightedDownstream, heatmapEnabled, setNodes, setEdges]);
+    }, [baseNodes, baseEdges, selectedNodeKey, aiHighlightedNodes, highlightedUpstream, highlightedDownstream, heatmapEnabled, pathFinderNodeSet, pathFinderEdgeKeys, setNodes, setEdges]);
     
     // NOTE: Removed auto-fit behavior to preserve user viewport context.
+
+    const captureViewState = useCallback((): SavedViewState => ({
+        nodes: nodes.map((node) => ({
+            id: node.id,
+            position: { x: node.position.x, y: node.position.y },
+        })),
+        viewport: viewportState,
+    }), [nodes, viewportState]);
+
+    const applyViewState = useCallback((state: SavedViewState) => {
+        if (!state?.nodes?.length) return;
+        setNodes((current) =>
+            current.map((node) => {
+                const saved = state.nodes.find((n) => n.id === node.id);
+                if (!saved) return node;
+                return { ...node, position: { x: saved.position.x, y: saved.position.y } };
+            })
+        );
+        if (state.viewport && reactFlowInstanceRef.current) {
+            reactFlowInstanceRef.current.setViewport(state.viewport, { duration: 400 });
+            setViewportState(state.viewport);
+        }
+    }, [setNodes]);
+
+    useImperativeHandle(ref, () => ({
+        captureViewState,
+        applyViewState,
+    }), [captureViewState, applyViewState]);
 
     const handleNodeDoubleClick = useCallback(
         (_: React.MouseEvent, node: Node) => {
@@ -545,14 +789,60 @@ function GraphCanvasInner({
         []
     );
 
+    const handlePathFinderNode = useCallback(
+        async (nodeId: string) => {
+            if (!pathFinderOrigin) {
+                setPathFinderOrigin(nodeId);
+                setPathFinderError('Origem definida. Agora clique no destino.');
+                setPathFinderPaths([]);
+                setPathFinderEdgeKeys(new Set());
+                return;
+            }
+            if (nodeId === pathFinderOrigin) {
+                setPathFinderError('Destino deve ser diferente da origem.');
+                return;
+            }
+            setPathFinderLoading(true);
+            setPathFinderError(null);
+            try {
+                const data = await fetchGraphPath(pathFinderOrigin, nodeId, Math.max(1, pathFinderDepth));
+                const newPaths = (data.paths || []).map((path) => path.map((node) => node.key));
+                setPathFinderPaths(newPaths);
+                const newEdges = new Set<string>();
+                (data.edges || []).forEach((edge) => {
+                    if (edge.source && edge.target) {
+                        newEdges.add(`${edge.source}::${edge.target}`);
+                    }
+                });
+                setPathFinderEdgeKeys(newEdges);
+                setPathFinderTarget(nodeId);
+                setPathFinderError(newPaths.length === 0 ? 'Nenhum caminho encontrado.' : null);
+            } catch (error: any) {
+                setPathFinderPaths([]);
+                setPathFinderEdgeKeys(new Set());
+                setPathFinderTarget(null);
+                setPathFinderError(error?.message || 'Falha ao buscar trajetórias.');
+            } finally {
+                setPathFinderLoading(false);
+                setPathFinderMode(false);
+                setPathFinderOrigin(null);
+            }
+        },
+        [pathFinderDepth, pathFinderOrigin]
+    );
+
     const handleNodeClick = useCallback(
         (_: React.MouseEvent, node: Node) => {
             if (!node.id.startsWith('cluster:')) {
+                if (pathFinderMode) {
+                    handlePathFinderNode(node.id);
+                    return;
+                }
                 const gn = graphNodes.find((n) => n.namespace_key === node.id);
                 if (gn) onNodeClick(node.id, gn);
             }
         },
-        [graphNodes, onNodeClick]
+        [graphNodes, onNodeClick, pathFinderMode, handlePathFinderNode]
     );
 
     if (graphNodes.length === 0) {
@@ -587,6 +877,11 @@ function GraphCanvasInner({
                     minZoom={0.05}
                     maxZoom={2.5}
                     proOptions={{ hideAttribution: true }}
+                    onMove={(vp) => setViewportState(vp)}
+                    onInit={(instance) => {
+                        reactFlowInstanceRef.current = instance;
+                        setViewportState(instance.getViewport());
+                    }}
                 >
                     <Controls />
                     <MiniMap
@@ -669,6 +964,48 @@ function GraphCanvasInner({
                     🔥 Mapa de Risco (Heatmap)
                 </button>
 
+                <button
+                  className={`btn ${pathFinderMode ? 'btn-accent' : 'btn-secondary'}`}
+                  onClick={() => {
+                      if (pathFinderMode) {
+                          setPathFinderOrigin(null);
+                          setPathFinderError(null);
+                      }
+                      setPathFinderMode((prev) => !prev);
+                      setPathFinderPaths([]);
+                      setPathFinderEdgeKeys(new Set());
+                  }}
+                  disabled={pathFinderLoading}
+                  style={{ boxShadow: '0 4px 12px rgba(0,0,0,0.2)' }}
+                  title="Ative o modo path finder para selecionar dois nós"
+                >
+                    {pathFinderMode ? 'Cancelar Path Finder' : 'Path Finder'}
+                </button>
+                <input
+                  type="number"
+                  min={3}
+                  max={30}
+                  value={pathFinderDepth}
+                  onChange={(event) => setPathFinderDepth(Math.max(3, Number(event.target.value) || 3))}
+                  className="path-depth-input"
+                  title="Profundidade máxima do path finder"
+                />
+
+                <button
+                  className={`btn ${inheritanceMode ? 'btn-accent' : 'btn-secondary'}`}
+                  onClick={() => setInheritanceMode((prev) => !prev)}
+                  style={{ boxShadow: '0 4px 12px rgba(0,0,0,0.2)' }}
+                  title="Visualização de herança (Reingold-Tilford)"
+                >
+                    {inheritanceMode ? 'Sair da Herança' : 'Vista de Herança'}
+                </button>
+                {inheritanceLoading && (
+                    <span className="path-finder-status" style={{ marginTop: 8 }}>Carregando herança...</span>
+                )}
+                {inheritanceError && (
+                    <span className="path-finder-error" style={{ marginTop: 8 }}>{inheritanceError}</span>
+                )}
+
                 {aiHighlightedNodes.length > 0 && onClearAiHighlights && (
                     <button
                       className="btn btn-secondary"
@@ -687,6 +1024,58 @@ function GraphCanvasInner({
                     </button>
                 )}
             </div>
+
+            {(pathFinderMode || pathFinderPaths.length > 0 || pathFinderError) && (
+                <div className="path-finder-panel">
+                    <div className="path-finder-header">
+                        <span className="path-finder-title">Path Finder</span>
+                        {pathFinderLoading && <span className="path-finder-status">Buscando...</span>}
+                    </div>
+                    <div className="path-finder-body">
+                        {pathFinderMode && !pathFinderOrigin && (
+                            <div>Clique no nó de origem.</div>
+                        )}
+                        {pathFinderMode && pathFinderOrigin && (
+                            <div>Origem: <b>{nodeNameMap.get(pathFinderOrigin) || pathFinderOrigin}</b>. Agora clique no destino.</div>
+                        )}
+                        {pathFinderPaths.length > 0 && (
+                            <>
+                                <div>Paths encontrados: {pathFinderPaths.length}</div>
+                                <div className="path-finder-path-list">
+                                    {pathFinderPaths.slice(0, 3).map((path, idx) => (
+                                        <div key={`path-${idx}`} className="path-finder-path">
+                                            <span className="path-finder-path-label">#{idx + 1}</span>
+                                            <span>{path.map((key) => nodeNameMap.get(key) || key).join(' → ')}</span>
+                                        </div>
+                                    ))}
+                                    {pathFinderPaths.length > 3 && (
+                                        <div className="path-finder-path-ellipsis">... e mais {pathFinderPaths.length - 3} caminho(s)</div>
+                                    )}
+                                </div>
+                            </>
+                        )}
+                        {pathFinderTarget && (
+                            <div>Último destino: <b>{nodeNameMap.get(pathFinderTarget) || pathFinderTarget}</b></div>
+                        )}
+                        {pathFinderError && (
+                            <div className="path-finder-error">{pathFinderError}</div>
+                        )}
+                    </div>
+                    <div className="path-finder-footer">
+                        <button
+                            className="btn btn-secondary"
+                            onClick={() => {
+                                setPathFinderPaths([]);
+                                setPathFinderEdgeKeys(new Set());
+                                setPathFinderTarget(null);
+                                setPathFinderError(null);
+                            }}
+                        >
+                            Limpar destaque
+                        </button>
+                    </div>
+                </div>
+            )}
 
             {heatmapEnabled && (
                 <div className="legend-heatmap">
@@ -762,10 +1151,12 @@ function GraphCanvasInner({
 }
 
 /* ─── Main Export Component with Provider ─── */
-export default function GraphCanvas(props: GraphCanvasProps) {
-    return (
-        <ReactFlowProvider>
-            <GraphCanvasInner {...props} />
-        </ReactFlowProvider>
-    );
-}
+const GraphCanvasInner = forwardRef(GraphCanvasInnerImpl);
+
+const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>((props, ref) => (
+    <ReactFlowProvider>
+        <GraphCanvasInner {...props} ref={ref} />
+    </ReactFlowProvider>
+));
+
+export default GraphCanvas;
