@@ -12,7 +12,7 @@ interface SidebarProps {
     onLayerChange: (layer: string) => void;
     searchTerm: string;
     onSearchChange: (term: string) => void;
-    searchInputRef?: RefObject<HTMLInputElement>;
+    searchInputRef?: RefObject<HTMLInputElement | null>;
     nodeCount: number;
     edgeCount: number;
     tags: Tag[];

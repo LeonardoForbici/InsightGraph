@@ -106,5 +106,29 @@
     "call_total": 15952,
     "call_resolved": 4020,
     "call_unresolved": 11932
+  },
+  {
+    "timestamp": "2026-03-26T20:07:17.131596",
+    "total_nodes": 2193,
+    "total_edges": 28481,
+    "god_classes": 50,
+    "circular_deps": 6,
+    "dead_code": 100,
+    "call_resolution_rate": 25.2,
+    "call_total": 15952,
+    "call_resolved": 4020,
+    "call_unresolved": 11932
+  },
+  {
+    "timestamp": "2026-03-26T20:19:13.436768",
+    "total_nodes": 2169,
+    "total_edges": 28457,
+    "god_classes": 50,
+    "circular_deps": 6,
+    "dead_code": 100,
+    "call_resolution_rate": 25.2,
+    "call_total": 15952,
+    "call_resolved": 4020,
+    "call_unresolved": 11932
   }
 ]

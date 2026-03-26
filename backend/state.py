@@ -26,6 +26,7 @@ class AppState:
         self.rag_index: list[dict] = []
         self.rag_index_metadata: dict = {}
         self.scanned_projects: dict[str, str] = {}
+        self.todos: list[dict] = []
         self.scan_status = ScanStatusModel()
 
         self.scan_lock = asyncio.Lock()

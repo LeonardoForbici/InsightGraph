@@ -124,6 +124,8 @@ export default function ImpactAnalysisPanel({
     const [loadingFragilityTab, setLoadingFragilityTab] = useState(false);
     const [fragilityDetail, setFragilityDetail] = useState<FragilityDetail | null>(null);
     const [fragilityRanking, setFragilityRanking] = useState<FragilityDetail[] | null>(null);
+    const normalizedFragilityRanking = Array.isArray(fragilityRanking) ? fragilityRanking : [];
+    const fragilityRankingInvalid = fragilityRanking && !Array.isArray(fragilityRanking);
     const [fragilityTabError, setFragilityTabError] = useState('');
 
     // Bidirectional tab state
@@ -421,7 +423,7 @@ export default function ImpactAnalysisPanel({
                     { id: 'fragility', label: '🌡 Fragilidade' },
                     { id: 'bidirectional', label: '↕ Bidirecional' },
                     { id: 'security', label: '🔒 Segurança' },
-                ] as { id: Tab; label: string }[]).map((tab) => (
+                ] as { id: ImpactTab; label: string }[]).map((tab) => (
                     <button
                         key={tab.id}
                         onClick={() => setActiveTab(tab.id)}
@@ -934,10 +936,15 @@ export default function ImpactAnalysisPanel({
                                 )}
                             </div>
                         )}
-                        {fragilityRanking && (
+                        {fragilityRankingInvalid && (
+                            <div style={{ fontSize: 12, color: '#f87171', marginBottom: 8 }}>
+                                Ranking de fragilidade retornou dados inesperados.
+                            </div>
+                        )}
+                        {normalizedFragilityRanking.length > 0 && (
                             <div>
                                 <div style={{ fontSize: 12, fontWeight: 600, color: '#8b93b0', marginBottom: 8 }}>Top 20 Mais Frágeis</div>
-                                {fragilityRanking.map((item, i) => (
+                                {normalizedFragilityRanking.map((item, i) => (
                                     <div key={item.node_key} style={{ ...cardStyle, marginBottom: 6, display: 'flex', alignItems: 'center', gap: 8 }}>
                                         <span style={{ fontSize: 11, color: '#8b93b0', width: 20, flexShrink: 0 }}>#{i + 1}</span>
                                         <div style={{ flex: 1, minWidth: 0 }}>

@@ -1,5 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import React from 'react';
+import CodeQLTimeline from './CodeQLTimeline';
+import AnalysisHistory from './AnalysisHistory';
 
 /* ─── Types ─── */
 
@@ -78,6 +80,8 @@ function CodeQLModal({ onClose }: CodeQLModalProps) {
     const [jobs, setJobs] = useState<Map<string, AnalysisJob>>(new Map());
     const [loadingProjects, setLoadingProjects] = useState(true);
     const [error, setError] = useState('');
+    const [historyOpen, setHistoryOpen] = useState(false);
+    const [timelineOpen, setTimelineOpen] = useState(false);
 
     // Load projects on mount
     useEffect(() => {
@@ -291,7 +295,7 @@ function CodeQLModal({ onClose }: CodeQLModalProps) {
                             Execute análise de segurança automatizada em seus projetos
                         </p>
                     </div>
-                    <div style={{ display: 'flex', gap: 8 }}>
+                    <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
                         <button onClick={onClose} className="btn btn-ghost">
                             ✕ Fechar
                         </button>
@@ -315,6 +319,23 @@ function CodeQLModal({ onClose }: CodeQLModalProps) {
                             ⚠ {error}
                         </div>
                     )}
+
+                    <div className="security-section codeql-timeline-section">
+                        <div className="section-title-row">
+                            <div>
+                                <h3 style={{ margin: 0, fontSize: '1rem' }}>Timeline CodeQL</h3>
+                                <p className="section-desc" style={{ margin: '4px 0 0' }}>
+                                    Linha do tempo das últimas análises com status e contagem de vulnerabilidades.
+                                </p>
+                            </div>
+                            <button className="btn btn-ghost" onClick={() => setHistoryOpen(true)}>
+                                Ver histórico completo
+                            </button>
+                            <button className="btn btn-secondary" onClick={() => setTimelineOpen(true)}>
+                                Timeline Visual
+                            </button>
+                        </div>
+                    </div>
 
                     {loadingProjects ? (
                         <div style={{ textAlign: 'center', padding: 40, color: 'var(--text-muted)' }}>
@@ -501,6 +522,8 @@ function CodeQLModal({ onClose }: CodeQLModalProps) {
                     )}
                 </div>
             </div>
+            {historyOpen && <AnalysisHistory onClose={() => setHistoryOpen(false)} />}
+            {timelineOpen && <CodeQLTimeline onClose={() => setTimelineOpen(false)} />}
         </div>
     );
 }

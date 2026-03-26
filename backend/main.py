@@ -211,6 +211,82 @@ class GraphStats(BaseModel):
     layers: dict[str, int] = {}
     projects: list[str] = []
 
+
+class SecurityCoverage(BaseModel):
+    analyzed_nodes: int = 0
+    total_nodes: int = 0
+    coverage_percent: float = 0.0
+
+
+class SecurityFileSummary(BaseModel):
+    file_path: str
+    project: str | None = None
+    vulnerability_count: int = 0
+    highest_severity: str = "note"
+    rule_ids: list[str] = []
+    loc: int = 0
+    node_key: str | None = None
+
+
+class SecuritySummary(BaseModel):
+    total_vulnerabilities: int = 0
+    severity_breakdown: dict[str, int] = Field(default_factory=lambda: {"error": 0, "warning": 0, "note": 0})
+    coverage: SecurityCoverage = SecurityCoverage()
+    tainted_nodes: int = 0
+    top_files: list[SecurityFileSummary] = Field(default_factory=list)
+
+
+class VulnerabilityRecord(BaseModel):
+    rule_id: str
+    severity: str
+    message: str
+    file_path: str
+    start_line: int
+    end_line: int
+    entity_key: str | None = None
+    entity_name: str | None = None
+    project: str | None = None
+
+
+class VulnerabilityListResponse(BaseModel):
+    items: list[VulnerabilityRecord] = Field(default_factory=list)
+    total: int = 0
+
+
+class TodoItem(BaseModel):
+    type: str
+    text: str
+    file: str
+    line: int
+    node_key: str | None = None
+    project: str | None = None
+
+
+class TodoListResponse(BaseModel):
+    items: list[TodoItem] = Field(default_factory=list)
+    total: int = 0
+
+
+class GitBlameInfo(BaseModel):
+    file_path: str
+    project: str | None = None
+    last_committer: str
+    last_commit_date: str | None = None
+    author_count: int = 0
+    bus_factor_one: bool = False
+
+
+class ComplexityTrendPoint(BaseModel):
+    date: str  # ISO date string
+    complexity: int
+
+
+class ComplexityTrendResponse(BaseModel):
+    node_key: str
+    current_complexity: int
+    trend: list[ComplexityTrendPoint] = Field(default_factory=list)
+    trend_available: bool = False
+
 class HealthStatus(BaseModel):
     neo4j: str = "disconnected"
     ollama_scanner: str = "unknown"
@@ -277,6 +353,7 @@ memory_nodes = app_state.nodes
 memory_edges = app_state.edges
 rag_index = app_state.rag_index
 rag_index_metadata = app_state.rag_index_metadata
+todo_records = app_state.todos
 
 # ──────────────────────────────────────────────
 # Neo4j Service
@@ -725,6 +802,114 @@ def _get_git_owner(file_path: str) -> str:
         return "Desconhecido"
     except (subprocess.TimeoutExpired, subprocess.SubprocessError, FileNotFoundError):
         return "Desconhecido"
+
+
+TODO_PATTERN = re.compile(r'(?://|#)\s*(TODO|FIXME|HACK|BUG|XXX)\s*:?\s*(.+)', re.IGNORECASE)
+
+
+def _normalize_file_value(value: str) -> str:
+    if not value:
+        return ""
+    return os.path.normpath(value).replace("\\", "/").lstrip("./")
+
+
+def _find_node_for_line(nodes: list[dict], rel_path: str, line: int) -> dict | None:
+    target = _normalize_file_value(rel_path)
+    best_node = None
+    best_span = None
+    for node in nodes:
+        node_file = _normalize_file_value(str(node.get("file") or ""))
+        if node_file != target:
+            continue
+        start_line = int(node.get("start_line") or node.get("line") or 0) or 0
+        end_line = int(node.get("end_line") or node.get("line_end") or start_line) or start_line
+        if start_line <= line <= max(end_line, start_line):
+            span = max(1, end_line - start_line + 1)
+            if best_span is None or span < best_span:
+                best_span = span
+                best_node = node
+    return best_node
+
+
+def _extract_todos_from_content(content: str, rel_path: str, project_name: str, nodes: list[dict]) -> list[dict]:
+    todos: list[dict] = []
+    for idx, line in enumerate(content.splitlines(), start=1):
+        match = TODO_PATTERN.search(line)
+        if not match:
+            continue
+        todo_type = match.group(1).upper()
+        todo_text = match.group(2).strip()
+        node = _find_node_for_line(nodes, rel_path, idx)
+        todos.append({
+            "type": todo_type,
+            "text": todo_text,
+            "file": rel_path,
+            "line": idx,
+            "node_key": node.get("namespace_key") if node else None,
+            "project": project_name,
+        })
+    return todos
+
+
+def _run_git_command(file_path: str, args: list[str]) -> str:
+    try:
+        result = subprocess.run(
+            ["git", *args, "--", file_path],
+            capture_output=True,
+            text=True,
+            timeout=6,
+            cwd=os.path.dirname(file_path) or "."
+        )
+        if result.returncode == 0:
+            return result.stdout.strip()
+    except (subprocess.TimeoutExpired, subprocess.SubprocessError, FileNotFoundError):
+        pass
+    return ""
+
+
+def _get_git_last_commit_date(file_path: str) -> str | None:
+    iso_date = _run_git_command(file_path, ["log", "-1", "--format=%cI"])
+    return iso_date or None
+
+
+def _get_git_author_count(file_path: str) -> int:
+    authors = _run_git_command(file_path, ["log", "--format=%an"])
+    if not authors:
+        return 0
+    names = {name.strip() for name in authors.splitlines() if name.strip()}
+    return len(names)
+
+
+def _locate_git_file(file_path: str, project_hint: str | None = None) -> tuple[str | None, str | None]:
+    candidate = file_path
+    if os.path.isabs(candidate) and os.path.exists(candidate):
+        return candidate, project_hint
+    potential_roots = []
+    if project_hint and project_hint in scanned_projects:
+        potential_roots.append((project_hint, scanned_projects[project_hint]))
+    potential_roots.extend(
+        (name, root) for name, root in scanned_projects.items() if name != project_hint
+    )
+    for project_name, root in potential_roots:
+        rel_path = os.path.normpath(os.path.join(root, candidate))
+        if os.path.exists(rel_path):
+            return rel_path, project_name
+    return None, project_hint
+
+
+def _resolve_git_path(file_path: str | None, node_key: str | None) -> tuple[str | None, str | None]:
+    target_file = file_path
+    hint_project = None
+    if node_key:
+        node = next((n for n in memory_nodes if n.get("namespace_key") == node_key), None)
+        if node:
+            node_file = node.get("file")
+            if node_file:
+                target_file = node_file
+            hint_project = node.get("project")
+    if not target_file:
+        return None, hint_project
+    return _locate_git_file(target_file, hint_project)
 
 
 # Compliance helpers
@@ -1454,7 +1639,6 @@ def parse_typescript(file_path: str, content: str, project_path: str) -> dict:
                 # HTTP route extraction (frontend/mobile call sites)
                 func_lower = func_text.lower()
                 if any(kw in func_lower for kw in ("fetch(", "axios.", "api.", "http.", "axios(", "http.get", "http.post", "api.get", "api.post")):
-                    import re
                     m = re.search(r"['\"](/[^'\"]+)['\"]", n.text.decode("utf-8"))
                     if m:
                         called_routes.append(m.group(1))
@@ -1757,7 +1941,6 @@ def parse_typescript(file_path: str, content: str, project_path: str) -> dict:
                 })
 
     # Detect Express-like / Router endpoints (app.get, router.post, etc.)
-    import re
     endpoint_pattern = re.compile(r"\b(?:app|router)\.(get|post|put|delete|patch)\s*\(\s*['\"]([^'\"]+)['\"]")
     seen = set(n["namespace_key"] for n in entities["nodes"])
     for m in endpoint_pattern.finditer(content):
@@ -2684,6 +2867,7 @@ async def scan_project(project_path: str) -> dict:
                 if not content.strip():
                     continue
 
+                relative_path = os.path.relpath(file_path, project_path).replace("\\", "/")
                 if ext == ".java":
                     result = parse_java(file_path, content, project_path)
                 elif ext in (".ts", ".tsx"):
@@ -2692,6 +2876,9 @@ async def scan_project(project_path: str) -> dict:
                     result = await parse_sql_with_ollama(file_path, content, project_path)
                 else:
                     continue
+
+                todo_items = _extract_todos_from_content(content, relative_path, project_name, result.get("nodes", []))
+                todo_records.extend(todo_items)
 
                 # Add owner to all nodes from this file
                 for node in result.get("nodes", []):
@@ -2821,6 +3008,7 @@ async def run_scan(paths: list[str]):
         _prepare_scan_status()
         memory_nodes.clear()
         memory_edges.clear()
+        todo_records.clear()
 
         try:
             # Count total files first for progress tracking
@@ -4276,6 +4464,48 @@ async def get_method_usages(node_key: str):
     }
 
 
+@app.get("/api/method/{node_key:path}/complexity-trend", response_model=ComplexityTrendResponse)
+async def get_method_complexity_trend(node_key: str):
+    """Return complexity trend over time for a method node."""
+    graph = _ensure_graph_index()
+    node = graph.node_by_key.get(node_key)
+    if not node:
+        raise HTTPException(status_code=404, detail=f"Node {node_key} not found")
+
+    current_complexity = node.get("complexity", 0)
+
+    # For now, return mock trend data since we don't have historical git data
+    # In a real implementation, this would analyze git history
+    trend = []
+    trend_available = False
+
+    # Mock data: simulate complexity changes over last 3 months
+    import random
+    base_date = datetime.datetime.now() - datetime.timedelta(days=90)
+    current_comp = current_complexity
+
+    for i in range(12):  # 12 data points over 3 months
+        date = base_date + datetime.timedelta(days=i * 7)  # weekly
+        # Simulate some variation around the current complexity
+        variation = random.randint(-2, 2)
+        comp_value = max(1, current_comp + variation)
+        trend.append(ComplexityTrendPoint(
+            date=date.isoformat(),
+            complexity=comp_value
+        ))
+        current_comp = comp_value
+
+    # Sort by date
+    trend.sort(key=lambda x: x.date)
+
+    return ComplexityTrendResponse(
+        node_key=node_key,
+        current_complexity=current_complexity,
+        trend=trend,
+        trend_available=trend_available  # False for now, would be True with real git data
+    )
+
+
 @app.get("/api/hotspots")
 async def get_hotspots(top_n: int = 50, days: int | None = None):
     """Return nodes ranked by hotspot score (complexity * churn)."""
@@ -4809,6 +5039,228 @@ async def get_node_vulnerabilities(node_key: str):
             "entity_key": node_key,
         })
     return issues
+
+
+def _normalize_severity(value: str | None) -> str:
+    if not value:
+        return "note"
+    normalized = value.strip().lower()
+    if normalized in {"error", "warning", "note"}:
+        return normalized
+    if normalized in {"critical", "fatal", "high"}:
+        return "error"
+    if normalized in {"info", "hint"}:
+        return "note"
+    return "warning"
+
+
+def _severity_rank(value: str | None) -> int:
+    mapping = {"error": 3, "warning": 2, "note": 1}
+    return mapping.get(_normalize_severity(value), 1)
+
+
+def _best_severity(values: list[str] | None) -> str:
+    best = "note"
+    best_score = 0
+    for entry in values or []:
+        rank = _severity_rank(entry)
+        if rank > best_score:
+            best_score = rank
+            best = _normalize_severity(entry)
+    return best
+
+
+@app.get("/api/security/summary", response_model=SecuritySummary)
+async def get_security_summary():
+    summary = SecuritySummary()
+    total_nodes = len(memory_nodes)
+    summary.coverage.total_nodes = total_nodes
+
+    if not neo4j_service.is_connected:
+        return summary
+
+    try:
+        stats = neo4j_service.get_stats() or {}
+        total_nodes = stats.get("total_nodes") or total_nodes
+        summary.coverage.total_nodes = total_nodes
+
+        severity_query = """
+        MATCH (s:SecurityIssue)
+        RETURN toLower(coalesce(s.severity, 'note')) AS severity, count(*) AS count
+        """
+        severity_rows = neo4j_service.graph.run(severity_query).data()
+        total_vulnerabilities = 0
+        for row in severity_rows:
+            severity_key = _normalize_severity(row.get("severity"))
+            count = int(row.get("count") or 0)
+            total_vulnerabilities += count
+            summary.severity_breakdown[severity_key] = summary.severity_breakdown.get(severity_key, 0) + count
+        summary.total_vulnerabilities = total_vulnerabilities
+
+        coverage_query = """
+        MATCH (n:Entity)-[:HAS_VULNERABILITY]->(:SecurityIssue)
+        RETURN count(DISTINCT n) AS analyzed
+        """
+        coverage_rows = neo4j_service.graph.run(coverage_query).data()
+        analyzed_nodes = int(coverage_rows[0]["analyzed"] or 0) if coverage_rows else 0
+        summary.coverage.analyzed_nodes = analyzed_nodes
+        summary.coverage.coverage_percent = round(
+            (analyzed_nodes / total_nodes * 100) if total_nodes else 0, 1
+        )
+
+        top_files_query = """
+        MATCH (s:SecurityIssue)
+        WHERE s.file IS NOT NULL
+        OPTIONAL MATCH (e:Entity)-[:HAS_VULNERABILITY]->(s)
+        WITH s.file AS file,
+             collect(DISTINCT s.rule_id) AS rule_ids,
+             collect(coalesce(e.project, NULL)) AS projects,
+             collect(coalesce(e.loc, 0)) AS locs,
+             collect(coalesce(s.severity, 'note')) AS severities,
+             collect(coalesce(e.namespace_key, NULL)) AS node_keys,
+             count(*) AS vulnerability_count
+        RETURN file,
+               head([p IN projects WHERE p IS NOT NULL | p]) AS project,
+               head([k IN node_keys WHERE k IS NOT NULL | k]) AS node_key,
+               vulnerability_count,
+               rule_ids,
+               severities,
+               locs
+        ORDER BY vulnerability_count DESC, file ASC
+        LIMIT 24
+        """
+        top_files_rows = neo4j_service.graph.run(top_files_query).data()
+        for row in top_files_rows:
+            file_path = row.get("file") or ""
+            locs = [int(v or 0) for v in (row.get("locs") or []) if isinstance(v, (int, float))]
+            loc_value = max(locs) if locs else 100
+            rule_ids = [str(r) for r in (row.get("rule_ids") or []) if r]
+            summary.top_files.append(
+                SecurityFileSummary(
+                    file_path=file_path,
+                    project=row.get("project"),
+                    vulnerability_count=int(row.get("vulnerability_count") or 0),
+                    highest_severity=_best_severity(row.get("severities") or []),
+                    rule_ids=rule_ids,
+                    loc=loc_value,
+                    node_key=row.get("node_key"),
+                )
+            )
+
+        tainted_query = """
+        MATCH (n:Entity)
+        WHERE coalesce(n.is_tainted, false) = true
+        RETURN count(n) AS tainted
+        """
+        tainted_rows = neo4j_service.graph.run(tainted_query).data()
+        summary.tainted_nodes = int(tainted_rows[0]["tainted"] or 0) if tainted_rows else 0
+
+    except Exception as e:
+        logger.error("Security summary failed: %s", e)
+
+    return summary
+
+
+@app.get("/api/security/vulnerabilities", response_model=VulnerabilityListResponse)
+async def list_security_vulnerabilities(
+    severity: str | None = Query(None),
+    project: str | None = Query(None),
+    rule_id: str | None = Query(None),
+    limit: int = Query(200, ge=1, le=1000),
+):
+    response = VulnerabilityListResponse()
+    if not neo4j_service.is_connected:
+        return response
+
+    severity_param = _normalize_severity(severity) if severity else None
+    rule_filter = rule_id.strip().lower() if rule_id else None
+    limit_value = max(1, min(limit, 1000))
+    query = """
+    MATCH (s:SecurityIssue)
+    OPTIONAL MATCH (e:Entity)-[:HAS_VULNERABILITY]->(s)
+    WHERE ($severity IS NULL OR toLower(coalesce(s.severity, 'note')) = $severity)
+      AND ($project IS NULL OR e.project = $project)
+      AND ($rule_id IS NULL OR toLower(s.rule_id) CONTAINS $rule_id)
+    WITH s, e,
+         CASE toLower(coalesce(s.severity, 'note'))
+             WHEN 'error' THEN 3
+             WHEN 'warning' THEN 2
+             ELSE 1 END AS severity_rank
+    RETURN
+      s.rule_id AS rule_id,
+      coalesce(s.severity, 'note') AS severity,
+      coalesce(s.message, '') AS message,
+      coalesce(s.file, '') AS file_path,
+      coalesce(s.start_line, 0) AS start_line,
+      coalesce(s.end_line, 0) AS end_line,
+      e.namespace_key AS entity_key,
+      e.name AS entity_name,
+      e.project AS project
+    ORDER BY severity_rank DESC, file_path ASC
+    LIMIT $limit
+    """
+
+    try:
+        params = {
+            "severity": severity_param,
+            "project": project,
+            "rule_id": rule_filter,
+            "limit": limit_value,
+        }
+        rows = neo4j_service.graph.run(query, **params).data()
+        for row in rows:
+            response.items.append(
+                VulnerabilityRecord(
+                    rule_id=row.get("rule_id") or "",
+                    severity=_normalize_severity(row.get("severity")),
+                    message=row.get("message") or "",
+                    file_path=row.get("file_path") or "",
+                    start_line=int(row.get("start_line") or 0),
+                    end_line=int(row.get("end_line") or 0),
+                    entity_key=row.get("entity_key"),
+                    entity_name=row.get("entity_name"),
+                    project=row.get("project"),
+                )
+            )
+        response.total = len(response.items)
+    except Exception as e:
+        logger.error("Listing vulnerabilities failed: %s", e)
+
+    return response
+
+
+@app.get("/api/todos", response_model=TodoListResponse)
+async def list_todos(
+    todo_type: str | None = Query(None, alias="type"),
+    project: str | None = Query(None),
+    file_path: str | None = Query(None),
+):
+    items = list(todo_records)
+    if todo_type:
+        items = [item for item in items if item.get("type", "").lower() == todo_type.lower()]
+    if project:
+        items = [item for item in items if (item.get("project") or "").lower() == project.lower()]
+    if file_path:
+        normalized = _normalize_file_value(file_path)
+        items = [item for item in items if _normalize_file_value(item.get("file") or "") == normalized]
+    return TodoListResponse(items=items, total=len(items))
+
+
+@app.get("/api/git/blame", response_model=GitBlameInfo)
+async def get_git_blame(file_path: str | None = Query(None), node_key: str | None = Query(None)):
+    resolved_path, project_name = _resolve_git_path(file_path, node_key)
+    if not resolved_path:
+        raise HTTPException(status_code=404, detail="Arquivo Git não encontrado")
+    last_commit_date = _get_git_last_commit_date(resolved_path)
+    author_count = _get_git_author_count(resolved_path)
+    return GitBlameInfo(
+        file_path=resolved_path,
+        project=project_name,
+        last_committer=_get_git_owner(resolved_path),
+        last_commit_date=last_commit_date,
+        author_count=author_count,
+        bus_factor_one=(author_count <= 1),
+    )
 
 
 @app.get("/api/projects")

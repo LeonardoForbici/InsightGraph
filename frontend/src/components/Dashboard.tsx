@@ -8,6 +8,7 @@ import {
     fetchRagStatus,
     fetchIso5055,
     fetchOssExposure,
+    fetchTodos,
     type AntipatternData,
     type GraphStats,
     type HotspotItem,
@@ -16,6 +17,7 @@ import {
     type RagStatus,
     type IsoQualityGrade,
     type OssExposureResponse,
+    type TodoItem,
 } from '../api';
 import EvolutionDashboard from './EvolutionDashboard';
 import QualityGatePanel from './QualityGatePanel';
@@ -67,6 +69,12 @@ export default function Dashboard({ onClose, onRefactorRequest, onOpenInventory,
     const [hotspotProjectFilter, setHotspotProjectFilter] = useState<string | null>(null);
     const [loading, setLoading] = useState(true);
     const [selectedHotspots, setSelectedHotspots] = useState<Set<string>>(() => new Set());
+    const [todos, setTodos] = useState<TodoItem[]>([]);
+    const [todoLoading, setTodoLoading] = useState(true);
+    const [todoError, setTodoError] = useState('');
+    const [todoFilterType, setTodoFilterType] = useState('');
+    const [todoFilterProject, setTodoFilterProject] = useState('');
+    const [todoFilterFile, setTodoFilterFile] = useState('');
 
     useEffect(() => {
         const load = async () => {
@@ -97,6 +105,29 @@ export default function Dashboard({ onClose, onRefactorRequest, onOpenInventory,
         };
         load();
     }, []);
+
+    useEffect(() => {
+        let canceled = false;
+        setTodoLoading(true);
+        setTodoError('');
+        fetchTodos({
+            type: todoFilterType || undefined,
+            project: todoFilterProject || undefined,
+            file: todoFilterFile || undefined,
+        })
+            .then((data) => {
+                if (!canceled) setTodos(data.items);
+            })
+            .catch((err: any) => {
+                if (!canceled) setTodoError(err.message || 'Falha ao carregar TODOs');
+            })
+            .finally(() => {
+                if (!canceled) setTodoLoading(false);
+            });
+        return () => {
+            canceled = true;
+        };
+    }, [todoFilterType, todoFilterProject, todoFilterFile]);
 
     const hotspotProjects = useMemo(() => {
         return Array.from(new Set(hotspots.map((h) => h.project).filter(Boolean)));
@@ -425,38 +456,6 @@ export default function Dashboard({ onClose, onRefactorRequest, onOpenInventory,
                     <div className="dashboard-section">
                         <DebtTrackerPanel />
                     </div>
-
-                    {evolutionSummary && (
-                        <div className="dashboard-section">
-                            <h3>Tendência Arquitetural</h3>
-                            <div className="stats-grid">
-                                <div className="stat-card">
-                                    <span className="stat-value" style={{ color: evolutionSummary.trend.risk_delta > 0 ? '#ef4444' : '#22c55e' }}>
-                                        {evolutionSummary.trend.risk_delta > 0 ? '+' : ''}{evolutionSummary.trend.risk_delta}
-                                    </span>
-                                    <span className="stat-label">Variação de Risco</span>
-                                </div>
-                                <div className="stat-card">
-                                    <span className="stat-value" style={{ color: '#60a5fa' }}>
-                                        {evolutionSummary.trend.nodes_delta > 0 ? '+' : ''}{evolutionSummary.trend.nodes_delta}
-                                    </span>
-                                    <span className="stat-label">Variação de Nós</span>
-                                </div>
-                                <div className="stat-card">
-                                    <span className="stat-value" style={{ color: '#a78bfa' }}>
-                                        {evolutionSummary.trend.edges_delta > 0 ? '+' : ''}{evolutionSummary.trend.edges_delta}
-                                    </span>
-                                    <span className="stat-label">Variação de Arestas</span>
-                                </div>
-                                <div className="stat-card">
-                                    <span className="stat-value" style={{ color: (evolutionSummary.trend.call_resolution_delta ?? 0) >= 0 ? '#22c55e' : '#ef4444' }}>
-                                        {(evolutionSummary.trend.call_resolution_delta ?? 0) > 0 ? '+' : ''}{(evolutionSummary.trend.call_resolution_delta ?? 0)}%
-                                    </span>
-                                    <span className="stat-label">Delta Resolução de Calls</span>
-                                </div>
-                            </div>
-                        </div>
-                    )}
 
                     {callResolution && (
                         <div className="dashboard-section">
@@ -1124,6 +1123,105 @@ export default function Dashboard({ onClose, onRefactorRequest, onOpenInventory,
                                     <span style={{ color: 'var(--text-muted)' }}>Nenhuma dependência externa detectada.</span>
                                 )}
                             </div>
+                        </div>
+                    )}
+                </div>
+
+                <div className="dashboard-section">
+                    <div className="section-title-row">
+                        <div>
+                            <h3>📝 TODOs/FIXMEs</h3>
+                            <p className="section-desc">Extraídos do código, filtráveis por tipo, projeto e arquivo.</p>
+                        </div>
+                        <div className="filter-row">
+                            <select value={todoFilterType} onChange={(event) => setTodoFilterType(event.target.value)}>
+                                <option value="">Todos os tipos</option>
+                                {['TODO', 'FIXME', 'HACK', 'BUG', 'XXX'].map((type) => (
+                                    <option key={type} value={type}>{type}</option>
+                                ))}
+                            </select>
+                            <select value={todoFilterProject} onChange={(event) => setTodoFilterProject(event.target.value)}>
+                                <option value="">Todos os projetos</option>
+                                {(stats?.projects || []).map((project) => (
+                                    <option key={project} value={project}>{project}</option>
+                                ))}
+                            </select>
+                            <input
+                                placeholder="Arquivo (parte do caminho)"
+                                value={todoFilterFile}
+                                onChange={(event) => setTodoFilterFile(event.target.value)}
+                            />
+                            <button
+                                className="btn btn-secondary"
+                                onClick={() => {
+                                    setTodoFilterType('');
+                                    setTodoFilterProject('');
+                                    setTodoFilterFile('');
+                                }}
+                            >
+                                Limpar filtros
+                            </button>
+                        </div>
+                    </div>
+                    {todoError && <div className="alert alert-warning">{todoError}</div>}
+                    <div className="security-table-wrapper">
+                        <table className="security-table">
+                            <thead>
+                                <tr>
+                                    <th>Tipo</th>
+                                    <th>Arquivo</th>
+                                    <th>Linha</th>
+                                    <th>Projeto</th>
+                                    <th>Nó</th>
+                                    <th>Texto</th>
+                                    <th>Ações</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {todoLoading ? (
+                                    <tr>
+                                        <td colSpan={7} className="empty-state">
+                                            Carregando TODOs...
+                                        </td>
+                                    </tr>
+                                ) : todos.length ? (
+                                    todos.map((item, index) => (
+                                        <tr key={`${item.file}-${item.line}-${index}`}>
+                                            <td>
+                                                <span className="todo-type-pill">{item.type}</span>
+                                            </td>
+                                            <td>{item.file}</td>
+                                            <td>{item.line}</td>
+                                            <td>{item.project || 'local'}</td>
+                                            <td>{item.node_key ?? '—'}</td>
+                                            <td>{item.text}</td>
+                                            <td className="action-cell">
+                                                {item.node_key && (
+                                                    <>
+                                                        <button className="btn btn-ghost" onClick={() => onFocusNode?.(item.node_key!)}>
+                                                            Ver no grafo
+                                                        </button>
+                                                        <button className="btn btn-ghost" onClick={() => onOpenImpactAnalysis?.(item.node_key!)}>
+                                                            Impacto
+                                                        </button>
+                                                    </>
+                                                )}
+                                            </td>
+                                        </tr>
+                                    ))
+                                ) : (
+                                    <tr>
+                                        <td colSpan={7} className="empty-state">
+                                            Nenhum TODO correspondente aos filtros.
+                                        </td>
+                                    </tr>
+                                )}
+                            </tbody>
+                        </table>
+                    </div>
+                    {!todoLoading && (
+                        <div className="table-footer">
+                            {todos.length} registro(s) exibidos
                         </div>
                     )}
                 </div>

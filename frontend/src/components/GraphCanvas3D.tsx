@@ -30,6 +30,9 @@ type ClusterNode = {
     x?: number;
     y?: number;
     z?: number;
+    vx?: number;
+    vy?: number;
+    vz?: number;
 };
 
 type ClusterLink = {
@@ -164,7 +167,7 @@ export default function GraphCanvas3D({
             const k = alpha * strength;
             graphStructure.nodes.forEach((node) => {
                 const center = clusterCenters.get(node.group);
-                if (!center) return;
+                if (!center || node.x === undefined || node.y === undefined || node.z === undefined) return;
                 node.vx = (node.vx ?? 0) - (node.x - center.x) * k;
                 node.vy = (node.vy ?? 0) - (node.y - center.y) * k;
                 node.vz = (node.vz ?? 0) - (node.z - center.z) * k;
@@ -261,20 +264,6 @@ export default function GraphCanvas3D({
         [determineNodeColor]
     );
 
-    const updateNodeObject = useCallback(
-        (node: ClusterNode, obj: THREE.Object3D) => {
-            const mesh = obj.children[0] as THREE.Mesh;
-            const material = mesh.material as THREE.MeshStandardMaterial;
-            material.color.set(determineNodeColor(node));
-            if (node.hotspot > 70) {
-                pulseMeshes.current.set(node.id, mesh);
-            } else {
-                pulseMeshes.current.delete(node.id);
-            }
-        },
-        [determineNodeColor]
-    );
-
     const animateFocus = useCallback(
         (target: ClusterNode) => {
             if (!fgRef.current) return () => {};
@@ -328,7 +317,6 @@ export default function GraphCanvas3D({
                 linkDirectionalParticleWidth={graphStructure.nodes.length > 1200 ? 0.5 : 1.5}
                 linkColor={(link: ClusterLink) => link.color}
                 nodeThreeObject={createNodeObject}
-                nodeThreeObjectUpdate={updateNodeObject}
                 nodeLabel={(node: ClusterNode) => `${node.name}\nHotspot ${node.hotspot.toFixed(0)}`}
             nodeVal={(node: ClusterNode) => Math.max(node.val, 8)}
                 onNodeClick={(node: ClusterNode) => {

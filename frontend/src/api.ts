@@ -407,6 +407,70 @@ export interface SecurityIssue {
     entity_key?: string;
 }
 
+export interface SecurityCoverage {
+    analyzed_nodes: number;
+    total_nodes: number;
+    coverage_percent: number;
+}
+
+export interface SecurityFileSummary {
+    file_path: string;
+    project?: string | null;
+    vulnerability_count: number;
+    highest_severity: 'error' | 'warning' | 'note' | string;
+    rule_ids: string[];
+    loc: number;
+    node_key?: string | null;
+}
+
+export interface SecuritySummary {
+    total_vulnerabilities: number;
+    severity_breakdown: Record<string, number>;
+    coverage: SecurityCoverage;
+    tainted_nodes: number;
+    top_files: SecurityFileSummary[];
+}
+
+export interface SecurityVulnerabilityRecord {
+    rule_id: string;
+    severity: 'error' | 'warning' | 'note' | string;
+    message: string;
+    file_path: string;
+    start_line: number;
+    end_line: number;
+    entity_key?: string | null;
+    entity_name?: string | null;
+    project?: string | null;
+}
+
+export interface SecurityVulnerabilityListResponse {
+    items: SecurityVulnerabilityRecord[];
+    total: number;
+}
+
+export interface TodoItem {
+    type: string;
+    text: string;
+    file: string;
+    line: number;
+    node_key?: string | null;
+    project?: string | null;
+}
+
+export interface TodoListResponse {
+    items: TodoItem[];
+    total: number;
+}
+
+export interface GitBlameInfo {
+    file_path: string;
+    project?: string | null;
+    last_committer: string;
+    last_commit_date?: string | null;
+    author_count: number;
+    bus_factor_one: boolean;
+}
+
 export interface MethodUsageItem {
     key: string;
     name: string;
@@ -423,6 +487,18 @@ export interface MethodUsageResponse {
     callees: MethodUsageItem[];
     total_callers: number;
     total_callees: number;
+}
+
+export interface ComplexityTrendPoint {
+    date: string;
+    complexity: number;
+}
+
+export interface ComplexityTrendResponse {
+    node_key: string;
+    current_complexity: number;
+    trend: ComplexityTrendPoint[];
+    trend_available: boolean;
 }
 
 export interface CkMetric {
@@ -901,7 +977,11 @@ export async function fetchFragility(nodeKey: string): Promise<FragilityDetail> 
 export async function fetchFragilityRanking(topN: number = 20): Promise<FragilityDetail[]> {
     const res = await fetch(`${BASE}/fragility/ranking?top_n=${encodeURIComponent(String(topN))}`);
     if (!res.ok) throw new Error(await res.text());
-    return res.json();
+    const payload = await res.json();
+    if (!Array.isArray(payload)) {
+        throw new Error(`Ranking de fragilidade inválido: ${JSON.stringify(payload)}`);
+    }
+    return payload;
 }
 
 export async function fetchTaintPropagation(payload: {
@@ -967,8 +1047,58 @@ export async function fetchNodeVulnerabilities(nodeKey: string): Promise<Securit
     return res.json();
 }
 
+export async function fetchSecuritySummary(): Promise<SecuritySummary> {
+    const res = await fetch(`${BASE}/security/summary`);
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function fetchSecurityVulnerabilities(params?: {
+    severity?: string;
+    project?: string;
+    ruleId?: string;
+    limit?: number;
+}): Promise<SecurityVulnerabilityListResponse> {
+    const qs = new URLSearchParams();
+    if (params?.severity) qs.set('severity', params.severity);
+    if (params?.project) qs.set('project', params.project);
+    if (params?.ruleId) qs.set('rule_id', params.ruleId);
+    if (typeof params?.limit === 'number') qs.set('limit', String(params.limit));
+    const suffix = qs.toString();
+    const res = await fetch(`${BASE}/security/vulnerabilities${suffix ? `?${suffix}` : ''}`);
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function fetchTodos(params?: { type?: string; project?: string; file?: string }): Promise<TodoListResponse> {
+    const qs = new URLSearchParams();
+    if (params?.type) qs.set('type', params.type);
+    if (params?.project) qs.set('project', params.project);
+    if (params?.file) qs.set('file_path', params.file);
+    const suffix = qs.toString();
+    const res = await fetch(`${BASE}/todos${suffix ? `?${suffix}` : ''}`);
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function fetchGitBlame(params: { filePath?: string; nodeKey?: string }): Promise<GitBlameInfo> {
+    const qs = new URLSearchParams();
+    if (params.filePath) qs.set('file_path', params.filePath);
+    if (params.nodeKey) qs.set('node_key', params.nodeKey);
+    const suffix = qs.toString();
+    const res = await fetch(`${BASE}/git/blame${suffix ? `?${suffix}` : ''}`);
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
 export async function fetchMethodUsages(nodeKey: string): Promise<MethodUsageResponse> {
     const res = await fetch(`${BASE}/method/${encodeURIComponent(nodeKey)}/usages`);
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function fetchComplexityTrend(nodeKey: string): Promise<ComplexityTrendResponse> {
+    const res = await fetch(`${BASE}/method/${encodeURIComponent(nodeKey)}/complexity-trend`);
     if (!res.ok) throw new Error(await res.text());
     return res.json();
 }

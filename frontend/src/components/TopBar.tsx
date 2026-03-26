@@ -24,6 +24,8 @@ interface TopBarProps {
     inventoryOpen: boolean;
     onToggleInventory: () => void;
     onOpenSearchPanel: () => void;
+    securityOpen: boolean;
+    onToggleSecurity: () => void;
 }
 
 export default function TopBar({
@@ -49,6 +51,8 @@ export default function TopBar({
     inventoryOpen,
     onToggleInventory,
     onOpenSearchPanel,
+    securityOpen,
+    onToggleSecurity,
 }: TopBarProps) {
     const [inputPath, setInputPath] = useState('');
 
@@ -114,6 +118,13 @@ export default function TopBar({
                     title="Open architectural dashboard"
                 >
                     Dashboard
+                </button>
+                <button
+                    className={`btn ${securityOpen ? 'btn-accent' : 'btn-secondary'}`}
+                    onClick={onToggleSecurity}
+                    title="Open Security Intelligence"
+                >
+                    Security
                 </button>
                 <button
                     className={`btn ${codeQLOpen ? 'btn-accent' : 'btn-secondary'}`}

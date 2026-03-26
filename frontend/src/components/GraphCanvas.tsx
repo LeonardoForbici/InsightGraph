@@ -1,4 +1,5 @@
-import { useState, useCallback, useMemo, useEffect, useRef, forwardRef, useImperativeHandle, ForwardedRef } from 'react';
+import { useState, useCallback, useMemo, useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
+import type { ForwardedRef } from 'react';
 import {
     ReactFlow,
     Controls,
@@ -73,6 +74,23 @@ function edgeTypeRank(type: string): number {
     }
 }
 
+const LAYER_ORDER_PRIORITIES = ['Database', 'Service', 'API', 'Frontend', 'Mobile', 'External', 'Other'];
+const LANE_SPACING = 220;
+const CLUSTER_THRESHOLD = 30;
+const CLUSTER_OVERVIEW_LIMIT = 5;
+
+const normalizeLayer = (layer?: string): string => {
+    if (!layer) return 'Other';
+    const normalized = layer.toLowerCase();
+    if (normalized.includes('database') || normalized.includes('sql')) return 'Database';
+    if (normalized.includes('service')) return 'Service';
+    if (normalized.includes('api')) return 'API';
+    if (normalized.includes('frontend') || normalized.includes('ui') || normalized.includes('web')) return 'Frontend';
+    if (normalized.includes('mobile')) return 'Mobile';
+    if (normalized.includes('external') || normalized.includes('third')) return 'External';
+    return 'Other';
+};
+
 /* ─── Dagre Layout ─── */
 function layoutGraph(nodes: Node[], edges: Edge[], direction = 'TB'): { nodes: Node[]; edges: Edge[] } {
     const g = new dagre.graphlib.Graph();
@@ -142,7 +160,7 @@ function CustomNode({ data }: NodeProps) {
                               width: 10,
                               height: 10,
                               borderRadius: 6,
-                              background: data.hotspotColor || '#475569',
+                              background: (data.hotspotColor || '#475569') as any,
                               boxShadow: `0 0 10px ${data.hotspotColor || '#475569'}`,
                           }}
                         />
@@ -160,7 +178,7 @@ function CustomNode({ data }: NodeProps) {
 
     let inlineStyle: React.CSSProperties = {};
     if (data.isHeatmap) {
-        const color = getHeatmapColor(data.complexity);
+        const color = getHeatmapColor(data.complexity as number);
         inlineStyle = {
             ...inlineStyle,
             boxShadow: `0 0 18px ${color}80`,
@@ -222,10 +240,10 @@ function CustomNode({ data }: NodeProps) {
                     {String(data.icon || '')} {String(data.label || '')}
                 </div>
                 {data.sublabel ? <div className="node-sublabel">{String(data.sublabel)}</div> : null}
-                {data.hasAnnotation && (
+                {Boolean(data.hasAnnotation) && (
                     <span
                         className="annotation-dot"
-                        style={{ background: data.annotationColor || '#60a5fa' }}
+                        style={{ background: (data.annotationColor || '#60a5fa') as any }}
                         title={data.annotationTag ? `Tag: ${data.annotationTag}` : 'Anotação disponível'}
                     />
                 )}
@@ -726,7 +744,7 @@ const GraphCanvasInnerImpl = (props: GraphCanvasProps, ref: ForwardedRef<GraphCa
         if (nsNodes.length > 0) {
             const laid = layoutGraph(nsNodes, nsEdges);
             const adjusted = laid.nodes.map((node) => {
-                const laneName = node.data.clusterLayer || node.data.layerCanonical || 'Other';
+                const laneName = String(node.data.clusterLayer || node.data.layerCanonical || 'Other');
                 const laneIndex = layerIndexLookup.get(laneName) ?? 0;
                 return {
                     ...node,
@@ -837,23 +855,6 @@ const GraphCanvasInnerImpl = (props: GraphCanvasProps, ref: ForwardedRef<GraphCa
     
 // NOTE: Removed auto-fit behavior to preserve user viewport context.
 
-const LAYER_ORDER_PRIORITIES = ['Database', 'Service', 'API', 'Frontend', 'Mobile', 'External', 'Other'];
-const LANE_SPACING = 220;
-const CLUSTER_THRESHOLD = 30;
-const CLUSTER_OVERVIEW_LIMIT = 5;
-
-const normalizeLayer = (layer?: string): string => {
-    if (!layer) return 'Other';
-    const normalized = layer.toLowerCase();
-    if (normalized.includes('database') || normalized.includes('sql')) return 'Database';
-    if (normalized.includes('service')) return 'Service';
-    if (normalized.includes('api')) return 'API';
-    if (normalized.includes('frontend') || normalized.includes('ui') || normalized.includes('web')) return 'Frontend';
-    if (normalized.includes('mobile')) return 'Mobile';
-    if (normalized.includes('external') || normalized.includes('third')) return 'External';
-    return 'Other';
-};
-
     const captureViewState = useCallback((): SavedViewState => ({
         nodes: nodes.map((node) => ({
             id: node.id,
@@ -932,7 +933,7 @@ const normalizeLayer = (layer?: string): string => {
             setPathFinderError(null);
             try {
                 const data = await fetchGraphPath(pathFinderOrigin, nodeId, Math.max(1, pathFinderDepth));
-                const newPaths = (data.paths || []).map((path) => path.map((node) => node.key));
+                const newPaths = (data.path || []).map((path: any) => path.map((node: any) => node.key));
                 setPathFinderPaths(newPaths);
                 const newEdges = new Set<string>();
                 (data.edges || []).forEach((edge) => {
@@ -972,7 +973,7 @@ const normalizeLayer = (layer?: string): string => {
             }
             const gn = graphNodes.find((n) => n.namespace_key === node.id);
             if (gn) {
-                const screenPosition = reactFlowInstanceRef.current?.project(node.position);
+                const screenPosition = reactFlowInstanceRef.current?.flowToScreenPosition(node.position);
                 const canvasRect = canvasRef.current?.getBoundingClientRect();
                 const absolutePosition = screenPosition && canvasRect
                     ? { x: canvasRect.left + screenPosition.x, y: canvasRect.top + screenPosition.y }
@@ -1100,7 +1101,11 @@ const normalizeLayer = (layer?: string): string => {
                     minZoom={0.05}
                     maxZoom={2.5}
                     proOptions={{ hideAttribution: true }}
-                    onMove={(vp) => setViewportState(vp)}
+                    onMove={(eventOrViewport) => {
+                        if (eventOrViewport && typeof eventOrViewport === 'object' && 'x' in eventOrViewport) {
+                            setViewportState(eventOrViewport as any);
+                        }
+                    }}
                     onInit={(instance) => {
                         reactFlowInstanceRef.current = instance;
                         setViewportState(instance.getViewport());

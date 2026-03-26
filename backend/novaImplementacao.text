@@ -1,256 +1,223 @@
-Você é o desenvolvedor principal do InsightGraph, uma plataforma CAST local 
-100% offline de análise arquitetural. O projeto já tem:
+Você é o desenvolvedor principal do InsightGraph, uma plataforma CAST local 100% offline de análise arquitetural. O projeto já tem tudo da Fase 1 até Fase 9 implementado:
+JÁ IMPLEMENTADO (não reimplementar):
 
-ESTADO ATUAL (já implementado):
-- Parser AST Java + TypeScript com tree-sitter
-- Parser SQL via Ollama
-- Neo4j + fallback in-memory
-- CALLS_RESOLVED, CALLS_NHOP (N-hop call resolver)
-- CK Metrics (WMC, CBO, RFC, LCOM)
-- Git Churn + Hotspot Score
-- RAG local (lexical + embeddings Ollama)
-- CodeQL integration (database creation + SARIF ingestion)
-- Impact analysis (BFS upstream/downstream + blast radius)
-- Bidirectional analyzer (BOTTOM_UP / TOP_DOWN)
-- Taint propagator
-- Fragility calculator
-- Side effect detector
-- Dashboard com ISO 5055, OSS Exposure, Evolution Timeline
-- 2D graph (ReactFlow + Dagre) + 3D graph (react-force-graph-3d)
-- Path Finder, Transaction View, Inheritance View
-- Saved Views, Annotations, Tags
-- AI Assistant (Ollama qwen)
+Parser AST Java + TypeScript + SQL (via Ollama)
+Neo4j + fallback in-memory completo
+CALLS_RESOLVED, CALLS_NHOP, CK Metrics, Git Churn, Hotspot Score
+RAG local (SQLite + embeddings Ollama) com RagStore persistente
+CodeQL integration (database creation, SARIF ingestion, orchestrator)
+Impact analysis BFS, Bidirectional analyzer, Taint propagator
+Fragility calculator, Side effect detector, Symbol resolver
+Dashboard completo: EvolutionDashboard, QualityGatePanel, DebtTrackerPanel
+Hotspot Deep Analysis com scatter plot e tabela ordenável
+Semantic search panel com modos code/arch/impact
+Command Palette (Ctrl+K), NodeQuickActions flutuante, QuickActionToolbar
+GraphCanvas 2D com swimlanes, clustering por camada, path finder
+GraphCanvas 3D com force-directed + cluster bubbles
+Saved Views, Annotations, Tags (SQLite)
+API Inventory, Transaction View, Method Usage View
+ISO 5055, OSS Exposure, Export CSV/JSON/GraphML
 
-PROBLEMA CRÍTICO IDENTIFICADO NA UI:
-O grafo 2D com 3871 nós está completamente ilegível — nuvem de pontos 
-sem estrutura visual. O layout Dagre não escala para >500 nós. 
-Precisa de solução urgente antes das próximas features.
 
-═══════════════════════════════════════════════════════════
-FASE 5 — GRAPH INTELLIGENCE & SCALABLE VISUALIZATION
-═══════════════════════════════════════════════════════════
+FASE 10 — SECURITY INTELLIGENCE DASHBOARD
+10.1 — Painel Central de Segurança
+Novo componente SecurityDashboard.tsx acessível via botão na TopBar:
+Cards de resumo no topo:
 
-## 5.1 — Smart Clustering 2D (PRIORIDADE MÁXIMA)
-Objetivo: tornar o grafo de 3871 nós navegável em 2D.
+Total de vulnerabilidades (erro/warning/note com cores)
+Arquivos com maior concentração de vulnerabilidades
+Taxa de cobertura CodeQL (nós com análise vs total)
+Nós com is_tainted = true no grafo
 
-Implementar no GraphCanvas.tsx:
-- Layout hierárquico por CAMADA (Database → Service → API → Frontend)
-  usando dagre com grupos: cada camada = um "swimlane" horizontal
-- Auto-collapse: grupos com >30 nós ficam colapsados por padrão,
-  mostrando apenas o nó de maior hotspot_score como representante
-- Expand on click: clicar no cluster expande e usa sub-layout dagre
-  apenas para aquele grupo
-- Indicador visual de cluster: borda tracejada + contador de nós internos
-  + cor do hotspot médio do grupo
-- Mini-overview no canto: mapa dos clusters com seus tamanhos
-  (substituir MiniMap atual)
+Mapa de calor de vulnerabilidades por arquivo:
 
-## 5.2 — Force-Directed Layout com Agrupamento Semântico
-Para o modo 3D, melhorar o ForceGraph3D:
-- Adicionar forceCluster() que atrai nós do mesmo projeto/camada
-  em direção a um ponto central por grupo
-- Mostrar "bolhas" de agrupamento: esferas transparentes ao redor
-  de cada cluster com label flutuante
-- Color-coding consistente: mesma paleta do 2D
-- Nós com hotspot_score > 70 pulsam (animação de escala)
-- Ao selecionar um nó, câmera voa suavemente até ele (já existe, 
-  mas melhorar a trajetória com ease-in-out)
+Grid de retângulos onde tamanho = linhas de código, cor = severidade máxima
+Tooltip com: arquivo, projeto, total de vulns, rule_ids encontrados
+Clique no retângulo: seleciona o nó no grafo principal
 
-## 5.3 — Graph Filtering Avançado (UX)
-No Sidebar e TopBar:
-- Filtro por hotspot_score: slider range (min/max)
-- Filtro por complexity: slider range
-- Filtro por tipo de nó: checkboxes (Java_Class, TS_Function, etc.)
-- Filtro por arquivo: input com autocomplete dos arquivos escaneados
-- Botão "Mostrar apenas impactados": oculta nós sem upstream/downstream
-- Salvar filtros como parte de SavedView
-- Badge no sidebar mostrando quantos nós visíveis vs total
+Tabela de vulnerabilidades:
 
-═══════════════════════════════════════════════════════════
-FASE 6 — CAST-GRADE QUALITY METRICS DASHBOARD
-═══════════════════════════════════════════════════════════
+Colunas: Rule ID, Severidade, Arquivo, Linha, Nó afetado, Mensagem
+Filtros: severidade, projeto, rule_id (autocomplete)
+Ordenação por qualquer coluna
+Botão "Ver no grafo" por linha
+Export CSV das vulnerabilidades filtradas
 
-## 6.1 — Evolution Dashboard Completo
-Novo componente EvolutionDashboard.tsx substituindo a timeline simples:
+10.2 — Correlação Vulnerabilidade × Fragilidade
+No mesmo painel, seção "Risco Combinado":
 
-- Gráfico de linha interativo (sem lib externa, SVG puro):
-  * Eixo X: timestamps dos scans
-  * Eixo Y1: total_nodes (azul), total_edges (roxo)
-  * Eixo Y2: risk_score (vermelho), call_resolution_rate (verde)
-  * Hover: tooltip com todos os valores daquele scan
-  * Click num ponto: abre diff "o que mudou neste scan"
+Scatter plot SVG puro: eixo X = fragility_score, eixo Y = vulnerability_count
+Cada ponto = um nó; cor = camada arquitetural
+Quadrante superior direito destacado como "Zona Crítica"
+Top 10 nós com maior risco combinado em tabela abaixo do gráfico
 
-- Cards de tendência com setas:
-  * "Débito Técnico: +12% esta semana" (com ícone ↑↓)
-  * "God Classes: 716 (+42 desde último scan)"
-  * "Taxa de Resolução: 25.2% (meta: >70%)"
+10.3 — Timeline de Análises CodeQL
+Novo componente CodeQLTimeline.tsx:
 
-- Heatmap calendar (tipo GitHub contributions):
-  * Grid 12x7 mostrando scans por dia
-  * Cor = risk_score do dia
-  * Hover = detalhes do scan
+Linha do tempo horizontal mostrando histórico de análises (codeql_history.json)
+Cada ponto = uma análise; cor = status (completed/failed)
+Hover: mostra duração, suite usada, total de vulnerabilidades encontradas
+Clique: abre modal com detalhes completos da análise (já existe AnalysisHistory.tsx, integrar)
+Badge "última análise há X dias" no painel CodeQL
 
-## 6.2 — Hotspot Deep Analysis Panel
-Nova aba no Dashboard:
 
-Tabela interativa com:
-- Top 50 hotspots com colunas: Nome, Arquivo, Complexidade, 
-  Churn, Score, Tendência (↑↓→), Projeto
-- Ordenação por qualquer coluna (click no header)
-- Filtro por projeto
-- Botão "Ver no Grafo": foca o nó e abre NodeDetail
-- Botão "Analisar Impacto": abre ImpactAnalysisPanel pré-carregado
-- Export CSV dos hotspots selecionados
+FASE 11 — MULTI-PROJECT INTELLIGENCE
+11.1 — Comparação entre Projetos
+Nova aba "Compare" no Dashboard:
 
-Gráfico de dispersão (scatter plot SVG puro):
-- Eixo X: git_churn
-- Eixo Y: complexity
-- Tamanho do ponto: número de dependentes
-- Cor: camada arquitetural
-- Quadrante superior direito = zona crítica (highlight vermelho)
-- Tooltip ao hover com nome do componente
+Selecionar 2 projetos via dropdown
+Radar chart SVG com 6 eixos: god_classes, circular_deps, dead_code, call_resolution, hotspot_médio, iso_score
+Cada projeto = uma cor diferente no radar
+Tabela diff abaixo: métrica | projeto A | projeto B | variação (↑↓→)
 
-## 6.3 — Technical Debt Tracker
-Nova seção no Dashboard:
+11.2 — Dependency Graph entre Projetos
+Visualizar dependências cross-project no GraphCanvas 2D:
 
-Calcular e exibir:
-- Debt Score total (soma ponderada de todos os antipatterns)
-- Projeção: "no ritmo atual, em 30 dias o debt será X"
-- Top 10 "quick wins": nós fáceis de refatorar com alto impacto
-  (baixo número de dependentes + alto hotspot_score)
-- Histórico de debt ao longo dos scans (linha chart)
+Arestas CONSUMES_API entre projetos com cor diferente (laranja)
+Nós de projetos distintos com borda pontilhada por projeto
+Filtro "Mostrar apenas dependências cross-project" no sidebar
+Tooltip na aresta cross-project mostrando: endpoint, método HTTP, contagem de chamadas inferidas
 
-═══════════════════════════════════════════════════════════
-FASE 7 — SEMANTIC LAYER (RAG PERSISTENTE)
-═══════════════════════════════════════════════════════════
+11.3 — Project Health Score
+Novo endpoint GET /api/projects/{name}/health que retorna:
+json{
+  "project": "meuProjeto",
+  "health_score": 72.5,
+  "grade": "B",
+  "metrics": {
+    "god_class_ratio": 0.12,
+    "call_resolution_rate": 0.68,
+    "avg_hotspot": 24.3,
+    "iso_score_percent": 78.0,
+    "vuln_count": 3,
+    "dead_code_ratio": 0.08
+  },
+  "trend": "improving" 
+}
+Card de saúde por projeto no sidebar (badge colorido ao lado do nome do projeto).
 
-## 7.1 — Persistent Embedding Index (SQLite + FAISS-like)
-No backend, substituir rag_index.json por:
+FASE 12 — REFACTORING INTELLIGENCE
+12.1 — Refactoring Suggestions Engine
+Novo endpoint POST /api/refactor/suggest:
 
-Novo arquivo: rag_store.py
-- SQLite table: node_embeddings(key, blob, embedding BLOB, updated_at)
-- Usar numpy arrays serialized como bytes (sem FAISS)
-- Índice em memória: carregar ao startup, atualizar incremental
-- Similaridade coseno: implementação pura numpy (sem deps extras)
-- Threshold de relevância: só retornar se similarity > 0.65
-- Cache LRU para as 1000 consultas mais recentes
-- Background task: re-embedar nós alterados após cada scan
+Recebe node_key + context (métricas do nó)
+Usa Ollama (model complexo) para gerar sugestões estruturadas:
 
-## 7.2 — Context-Aware RAG
-Melhorar /api/ask para:
-- Detectar automaticamente se pergunta é sobre:
-  * Nó específico → buscar vizinhos + fluxo de dados
-  * Padrão arquitetural → buscar todos os exemplos do padrão
-  * Impacto de mudança → pré-carregar blast radius
-  * Análise de segurança → incluir vulnerabilidades CodeQL
+json{
+  "suggestions": [
+    {
+      "type": "extract_method",
+      "priority": "high",
+      "description": "...",
+      "affected_lines": [45, 89],
+      "estimated_complexity_reduction": 8
+    }
+  ]
+}
 
-- Multi-hop context: se pergunta menciona "transação de pagamento",
-  buscar todos os nós no path da transação via transaction view
+Frontend: novo tab "🔧 Refactoring" no ImpactAnalysisPanel
+Exibir sugestões com cards ordenados por prioridade
+Botão "Perguntar à IA" em cada sugestão abre AskPanel com contexto pré-carregado
 
-- Citar fontes no response: "Esta resposta usa contexto de: 
-  [PaymentService.java, OrderRepository.java, ...]"
+12.2 — Pattern Detector
+Detectar automaticamente padrões de design (ou ausência deles):
+Backend: novo endpoint GET /api/patterns/detect que analisa o grafo e retorna:
 
-## 7.3 — Code Search Semântico
-Novo endpoint: GET /api/search/semantic?q=...&mode=code|arch|impact
+Repository Pattern: classes com sufixo Repository + Entity + Service conectados
+Facade Pattern: classe com muitos outgoing CALLS para serviços distintos
+God Service: service com WMC > 40 e CBO > 15
+Anemic Domain: Entity sem métodos (apenas getters/setters)
+Missing Service Layer: Frontend chamando Database diretamente
 
-Frontend: Expandir barra de busca atual para:
-- Modo "Código": busca no conteúdo do código via embeddings
-- Modo "Arquitetura": busca em descrições de padrões
-- Modo "Impacto": "o que é impactado se eu mudar X?"
-- Resultados com preview de código (first 3 lines)
-- Highlight do termo na preview
+Frontend: seção "Padrões Detectados" no Dashboard com chips verde (padrão presente) ou vermelho (antipadrão).
+12.3 — Change Impact Predictor
+Antes de fazer um scan, permitir simular o impacto de refactorings:
 
-═══════════════════════════════════════════════════════════
-FASE 8 — DEVELOPER EXPERIENCE (DX)
-═══════════════════════════════════════════════════════════
+Input: "Quero quebrar a classe X em 2 classes"
+Output: estimativa de nós afetados, risco de quebra de contratos, esforço estimado
+Usa embeddings semânticos + grafo para predição
+Endpoint: POST /api/predict/refactor-impact
 
-## 8.1 — Node Quick Actions
-Ao selecionar um nó no grafo, mostrar mini-toolbar flutuante 
-(tipo Figma) com:
-- 🔍 Análise de Impacto (abre ImpactAnalysisPanel)
-- 🧪 Taint (propaga taint a partir deste nó)
-- 📊 Fragilidade (calcula e exibe score)
-- 🔗 Fluxo de Dados (rastreia coluna→frontend)
-- 💬 Perguntar à IA (abre AskPanel com contexto do nó)
-- 📌 Anotar (abre quick annotation form inline)
 
-Posição: flutua próxima ao nó selecionado (não fixo no canto)
+FASE 13 — DEVELOPER PRODUCTIVITY
+13.1 — Git Blame Integration
+Para cada nó no NodeDetail, mostrar:
 
-## 8.2 — Keyboard Shortcuts
-Implementar atalhos globais:
-- Ctrl+K: abrir Command Palette (busca + ações)
-- Ctrl+/: toggle AI Assistant
-- Ctrl+D: toggle Dashboard  
-- Ctrl+F: focar barra de busca
-- Escape: fechar painéis / deselecionar nó
-- Ctrl+Shift+S: salvar view atual
-- Setas: navegar entre nós conectados ao selecionado
+Último committer (já existe _get_git_owner)
+Data do último commit no arquivo
+Número de autores distintos (indicador de conhecimento compartilhado)
+Badge "Bus Factor = 1" quando apenas 1 pessoa tocou o arquivo
 
-## 8.3 — Command Palette (Ctrl+K)
-Modal centralizado tipo VS Code:
-- Busca fuzzy em: nomes de nós, ações, views salvas, projetos
-- Preview do nó ao hover (mostra layer, complexity, hotspot)
-- Ações rápidas: "Scan projeto X", "Abrir dashboard", 
-  "Analisar impacto de [nó selecionado]"
-- Histórico das últimas 10 buscas/ações
-- Shortcut hints visíveis ao lado de cada ação
+13.2 — TODO/FIXME Scanner
+No scan, extrair automaticamente comentários TODO, FIXME, HACK, BUG:
+Backend: adicionar ao parser Java/TS extração de comentários especiais
+python_TODO_PATTERN = re.compile(r'//\s*(TODO|FIXME|HACK|BUG|XXX)\s*:?\s*(.+)', re.IGNORECASE)
+Novo endpoint GET /api/todos:
+json{
+  "items": [
+    {"type": "TODO", "text": "...", "file": "...", "line": 42, "node_key": "...", "project": "..."}
+  ],
+  "total": 87
+}
+```
 
-## 8.4 — Onboarding Melhorado
-Quando não há nós no grafo:
-- Step-by-step wizard: "1. Adicione um projeto → 2. Clique Scan → 
-  3. Explore o grafo"
-- Demo mode: botão "Ver demo" carrega dados mockados de um projeto
-  exemplo para o usuário explorar sem escanear nada
-- Tooltips contextuais (primeira vez): balões explicando cada botão
+Frontend: nova seção no Dashboard "📝 TODOs/FIXMEs" com tabela filtrável por tipo/projeto/arquivo.
 
-═══════════════════════════════════════════════════════════
-FASE 9 — CI/CD & REPORTS
-═══════════════════════════════════════════════════════════
+### 13.3 — Complexity Trend por Método
+Para métodos com histórico Git disponível:
 
-## 9.1 — Quality Gate
-Novo endpoint: POST /api/quality/gate
-Body: { thresholds: { max_god_classes: 50, min_call_resolution: 0.7, 
-                       max_hotspot_score: 80, min_iso5055: 70 } }
-Response: { passed: bool, violations: [...], score: number }
+- Calcular como a complexidade ciclomática evoluiu nos últimos 3 meses
+- Endpoint: `GET /api/method/{node_key}/complexity-trend`
+- Frontend: mini sparkline (SVG 80x24px) no NodeDetail ao lado do valor de complexidade
 
-Frontend: painel de configuração de quality gates
-- Sliders para cada threshold
-- Salvar como "perfil de qualidade" (strict/balanced/relaxed)
-- Histórico: passou/falhou nos últimos N scans
-- Exportar resultado como JSON para CI/CD pipeline
+---
 
-## 9.2 — Report Generator Melhorado
-Melhorar /api/reports/{type}:
-- Template HTML profissional com CSS embutido
-- Incluir gráficos como SVG embutido (não como imagem)
-- Seção Executive Summary no topo (para gestores)
-- Seção Technical Details (para devs)
-- Comparativo com scan anterior ("o que piorou/melhorou")
-- Logo e nome do projeto configurável
+## FASE 14 — PERFORMANCE & SCALABILITY
 
-═══════════════════════════════════════════════════════════
-ORDEM DE IMPLEMENTAÇÃO SUGERIDA:
-═══════════════════════════════════════════════════════════
+### 14.1 — Lazy Loading do Grafo
+Problema atual: carregar 3871+ nós de uma vez trava o browser.
 
-Sprint 5 (urgente): 5.1 + 5.3 (grafo navegável + filtros)
-Sprint 6: 6.1 + 6.2 (evolution dashboard + hotspot analysis)
-Sprint 7: 8.1 + 8.3 (quick actions + command palette)
-Sprint 8: 7.1 + 7.2 (RAG persistente + context-aware)
-Sprint 9: 9.1 + 9.2 (quality gates + reports)
-Sprint 10: 5.2 + 6.3 + 7.3 (3D melhorado + debt tracker + code search)
+Implementar paginação do grafo:
+- Endpoint `GET /api/graph?page=1&page_size=500` com total_pages
+- Frontend: carregar primeiro os nós mais relevantes (maior hotspot_score)
+- Botão "Carregar mais 500 nós" no canvas
+- Indicador "Exibindo 500/3871 nós (filtro ativo)"
 
-═══════════════════════════════════════════════════════════
-RESTRIÇÕES TÉCNICAS:
-═══════════════════════════════════════════════════════════
-- 100% local/offline: sem chamadas para APIs externas (exceto OSV.dev)
-- Backend: Python/FastAPI, sem novas dependências pesadas
-- Frontend: React + TypeScript, sem novas libs de gráficos 
-  (usar SVG puro para charts simples)
+### 14.2 — Background Scan com SSE
+Substituir o polling de 1.5s por Server-Sent Events:
+
+Backend: novo endpoint `GET /api/scan/stream` que emite eventos:
+```
+data: {"type": "progress", "percent": 42, "current_file": "UserService.java"}
+data: {"type": "completed", "nodes": 3871, "edges": 12043}
+```
+
+Frontend: usar `EventSource` para receber updates em tempo real, eliminando polling.
+
+### 14.3 — Cache Inteligente de Análises
+Não re-calcular métricas que não mudaram:
+
+Backend: hash do arquivo (SHA256) armazenado por node_key no SQLite
+- Se hash não mudou desde último scan: reutilizar métricas existentes
+- Somente reprocessar arquivos modificados
+- Endpoint `GET /api/scan/cache-stats` mostrando hit rate
+
+---
+
+## RESTRIÇÕES TÉCNICAS (manter obrigatoriamente):
+- 100% local/offline (exceto OSV.dev para OSS exposure)
+- Backend Python/FastAPI, zero novas dependências pesadas
+- Frontend React + TypeScript + Tailwind, SVG puro para charts
 - Compatível com Neo4j offline E modo in-memory
-- Performance: operações na UI devem responder em <200ms
-- O grafo deve ser navegável com até 5000 nós sem travar
+- UI responde em < 200ms para operações locais
+- Grafo navegável com até 5000 nós
 
-Implemente fase por fase, começando pela 5.1.
-Sempre que criar um novo componente, garanta que está integrado 
-ao App.tsx e que o estado é gerenciado corretamente.
-Mantenha o estilo visual atual (dark theme, CSS variables do index.css).
+## ORDEM DE IMPLEMENTAÇÃO SUGERIDA:
+```
+Sprint 10: 10.1 + 10.2 (Security Dashboard)
+Sprint 11: 13.2 + 13.1 (TODO scanner + Git blame)
+Sprint 12: 11.1 + 11.3 (Compare projects + Health score)
+Sprint 13: 12.1 + 12.2 (Refactoring suggestions + Pattern detector)
+Sprint 14: 14.1 + 14.2 (Lazy loading + SSE)
+Sprint 15: 11.2 + 12.3 + 14.3 (Cross-project graph + Predictor + Cache)
+Implemente fase por fase, começando pela 10.1. Sempre integre ao App.tsx e mantenha o dark theme com CSS variables do index.css.

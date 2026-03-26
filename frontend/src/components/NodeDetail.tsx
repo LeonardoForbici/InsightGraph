@@ -1,6 +1,7 @@
 import { useState, useCallback, useEffect } from 'react';
-import type { ImpactData, BlastRadiusData, GraphNode, AnnotationPayload, AnnotationRecord, Tag } from '../api';
-import { fetchFileContent, explainComponent, listAnnotations, createAnnotation, listTags } from '../api';
+import type { ImpactData, BlastRadiusData, GraphNode, AnnotationPayload, AnnotationRecord, Tag, GitBlameInfo, ComplexityTrendResponse } from '../api';
+import { fetchFileContent, explainComponent, listAnnotations, createAnnotation, listTags, fetchGitBlame, fetchComplexityTrend } from '../api';
+import type { QuickActionConfig } from './QuickActionToolbar';
 
 interface NodeDetailProps {
     node: GraphNode | null;
@@ -11,6 +12,7 @@ interface NodeDetailProps {
     onQuickImpactScenario?: (scenario: 'delete' | 'signature' | 'data_type', node: GraphNode) => void;
     onOpenTransaction?: (nodeKey: string) => void;
     onAnnotationsChanged?: () => void;
+    quickActions?: QuickActionConfig[];
 }
 
 function getTypeIcon(labels: string[]): { icon: string; bg: string; color: string } {
@@ -24,7 +26,39 @@ function getTypeIcon(labels: string[]): { icon: string; bg: string; color: strin
     return { icon: '◇', bg: 'rgba(139,147,176,0.08)', color: '#8b93b0' };
 }
 
-export default function NodeDetail({ node, impact, blastRadius, onClose, onViewUsages, onQuickImpactScenario, onOpenTransaction, onAnnotationsChanged }: NodeDetailProps) {
+function ComplexitySparkline({ trend, width = 80, height = 24 }: { trend: { date: string; complexity: number }[], width?: number, height?: number }) {
+    if (!trend || trend.length < 2) return null;
+
+    const values = trend.map(p => p.complexity);
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    const range = max - min || 1;
+
+    const points = trend.map((point, i) => {
+        const x = (i / (trend.length - 1)) * width;
+        const y = height - ((point.complexity - min) / range) * height;
+        return `${x},${y}`;
+    }).join(' ');
+
+    return (
+        <svg width={width} height={height} style={{ marginLeft: 8, verticalAlign: 'middle' }}>
+            <polyline
+                fill="none"
+                stroke="#60a5fa"
+                strokeWidth="1.5"
+                points={points}
+            />
+            <circle
+                cx={(trend.length - 1) / (trend.length - 1) * width}
+                cy={height - ((trend[trend.length - 1].complexity - min) / range) * height}
+                r="2"
+                fill="#60a5fa"
+            />
+        </svg>
+    );
+}
+
+export default function NodeDetail({ node, impact, blastRadius, onClose, onViewUsages, onQuickImpactScenario, onOpenTransaction, onAnnotationsChanged, quickActions }: NodeDetailProps) {
     // Todos os hooks DEVEM ser chamados ANTES de qualquer condicional
     const [activeTab, setActiveTab] = useState<'details' | 'code'>('details');
     const [fileContent, setFileContent] = useState<string>('');
@@ -39,6 +73,10 @@ export default function NodeDetail({ node, impact, blastRadius, onClose, onViewU
     const [annotationTag, setAnnotationTag] = useState('');
     const [annotationError, setAnnotationError] = useState<string | null>(null);
     const [tags, setTags] = useState<Tag[]>([]);
+    const [gitBlame, setGitBlame] = useState<GitBlameInfo | null>(null);
+    const [blameLoading, setBlameLoading] = useState(false);
+    const [blameError, setBlameError] = useState<string | null>(null);
+    const [complexityTrend, setComplexityTrend] = useState<ComplexityTrendResponse | null>(null);
 
     const handleLoadCode = useCallback(async () => {
         if (!node?.file || fileContent) return;
@@ -91,10 +129,53 @@ export default function NodeDetail({ node, impact, blastRadius, onClose, onViewU
     }, [refreshAnnotations]);
 
     useEffect(() => {
-        listTags()
-            .then((payload) => setTags(payload.items))
-            .catch((err) => console.error('Failed to load tags:', err));
+            listTags()
+                .then((payload) => setTags(payload.items))
+                .catch((err) => console.error('Failed to load tags:', err));
     }, []);
+
+    useEffect(() => {
+        let canceled = false;
+        if (!node?.file) {
+            setGitBlame(null);
+            setBlameError(null);
+            setBlameLoading(false);
+            return;
+        }
+        setBlameLoading(true);
+        setBlameError(null);
+        fetchGitBlame({ filePath: node.file, nodeKey: node.namespace_key })
+            .then((data) => {
+                if (!canceled) setGitBlame(data);
+            })
+            .catch((err: any) => {
+                if (!canceled) setBlameError(err.message || 'Falha ao carregar histórico Git');
+            })
+            .finally(() => {
+                if (!canceled) setBlameLoading(false);
+            });
+        return () => {
+            canceled = true;
+        };
+    }, [node?.file, node?.namespace_key]);
+
+    useEffect(() => {
+        let canceled = false;
+        if (!node?.namespace_key || !node.labels?.includes('Java_Method') && !node.labels?.includes('TS_Function')) {
+            setComplexityTrend(null);
+            return;
+        }
+        fetchComplexityTrend(node.namespace_key)
+            .then((data) => {
+                if (!canceled) setComplexityTrend(data);
+            })
+            .catch((err: any) => {
+                if (!canceled) console.error('Failed to load complexity trend:', err);
+            });
+        return () => {
+            canceled = true;
+        };
+    }, [node?.namespace_key, node?.labels]);
 
     const handleCreateAnnotation = useCallback(async () => {
         if (!node?.namespace_key) return;
@@ -139,6 +220,7 @@ export default function NodeDetail({ node, impact, blastRadius, onClose, onViewU
     const downstreamCount = impact?.downstream?.length || 0;
     const blastNodeCount = blastRadius?.nodes?.length || 0;
     const quickImpact = upstreamCount + downstreamCount + blastNodeCount;
+    const hasQuickActions = Boolean(quickActions?.length);
 
     return (
         <div className="node-detail">
@@ -201,6 +283,29 @@ export default function NodeDetail({ node, impact, blastRadius, onClose, onViewU
             {/* Details Tab */}
             {activeTab === 'details' && (
                 <>
+                    {hasQuickActions && (
+                        <div className="node-detail-actions">
+                            {quickActions!.map((action) => (
+                                <button
+                                    key={action.id}
+                                    type="button"
+                                    className={`node-detail-action-pill ${action.disabled ? 'disabled' : ''}`}
+                                    onClick={(event) => {
+                                        if (action.disabled) return;
+                                        action.onClick(event);
+                                    }}
+                                    title={action.tooltip}
+                                    disabled={action.disabled}
+                                >
+                                    <span className="node-detail-action-icon">{action.icon}</span>
+                                    <span>{action.label}</span>
+                                    {action.shortcut && (
+                                        <span className="node-detail-action-shortcut">{action.shortcut}</span>
+                                    )}
+                                </button>
+                            ))}
+                        </div>
+                    )}
                     {node.project && (
                         <div className="node-detail-row">
                             <span className="node-detail-label">Projeto</span>
@@ -214,6 +319,45 @@ export default function NodeDetail({ node, impact, blastRadius, onClose, onViewU
                                 {node.file}
                             </span>
                         </div>
+                    )}
+                    {blameLoading && node.file && (
+                        <div className="node-detail-row">
+                            <span className="node-detail-label">Git</span>
+                            <span className="node-detail-value">Carregando histórico...</span>
+                        </div>
+                    )}
+                    {blameError && (
+                        <div className="node-detail-row">
+                            <span className="node-detail-label">Git</span>
+                            <span className="node-detail-value" style={{ color: '#f97316' }}>
+                                {blameError}
+                            </span>
+                        </div>
+                    )}
+                    {gitBlame && (
+                        <>
+                            <div className="node-detail-row">
+                                <span className="node-detail-label">Último committer</span>
+                                <span className="node-detail-value" style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                                    {gitBlame.last_committer}
+                                    {gitBlame.bus_factor_one && (
+                                        <span className="bus-factor-badge">Bus Factor = 1</span>
+                                    )}
+                                </span>
+                            </div>
+                            <div className="node-detail-row">
+                                <span className="node-detail-label">Último commit</span>
+                                <span className="node-detail-value">
+                                    {gitBlame.last_commit_date
+                                        ? new Date(gitBlame.last_commit_date).toLocaleString()
+                                        : '—'}
+                                </span>
+                            </div>
+                            <div className="node-detail-row">
+                                <span className="node-detail-label">Autores distintos</span>
+                                <span className="node-detail-value">{gitBlame.author_count}</span>
+                            </div>
+                        </>
                     )}
                     {node.layer && (
                         <div className="node-detail-row">
@@ -263,6 +407,9 @@ export default function NodeDetail({ node, impact, blastRadius, onClose, onViewU
                             <span className="node-detail-value">
                                 {node.complexity}
                                 {node.complexity > 10 && <span style={{ marginLeft: 6, color: '#ef4444' }}>⚠️ Alta</span>}
+                                {complexityTrend && complexityTrend.trend.length > 0 && (
+                                    <ComplexitySparkline trend={complexityTrend.trend} />
+                                )}
                             </span>
                         </div>
                     )}

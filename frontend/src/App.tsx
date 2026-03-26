@@ -15,9 +15,7 @@ import TransactionPanel from './components/TransactionPanel';
 import SavedViewsPanel from './components/SavedViewsPanel';
 import QuickActionToolbar, { type QuickActionConfig } from './components/QuickActionToolbar';
 import CommandPalette, { type CommandItem } from './components/CommandPalette';
-import NodeQuickActions, { type NodeActionAnchor } from './components/NodeQuickActions';
 import SemanticSearchPanel from './components/SemanticSearchPanel';
-const NODE_QUICK_ACTION_IDS = new Set(['qa-impact', 'qa-taint', 'qa-fragility', 'qa-dataflow', 'qa-ask', 'qa-annotate']);
 import {
   scanProjects,
   getScanStatus,
@@ -47,6 +45,8 @@ import type {
 } from './api';
 import './index.css';
 
+const NODE_QUICK_ACTION_IDS = new Set(['qa-impact', 'qa-taint', 'qa-fragility', 'qa-dataflow', 'qa-annotate']);
+
 const ensureArray = <T,>(value: T[] | Record<string, T> | null | undefined): T[] => {
   if (Array.isArray(value)) return value;
   if (!value) return [];
@@ -62,6 +62,7 @@ const NODE_TYPE_OPTIONS = [
   { value: 'SQL_Procedure', label: 'Procedure SQL' },
 ];
 import APIInventoryPanel from './components/APIInventoryPanel';
+import SecurityDashboard from './components/SecurityDashboard';
 
 export default function App() {
   // ─── Workspace State ───
@@ -111,12 +112,9 @@ export default function App() {
   const [impactAnalysisNode, setImpactAnalysisNode] = useState<GraphNode | null>(null);
   const [impactPanelTab, setImpactPanelTab] = useState<ImpactTab>('analyze');
   const [commandPaletteOpen, setCommandPaletteOpen] = useState(false);
-  const [nodeActionAnchor, setNodeActionAnchor] = useState<NodeActionAnchor | null>(null);
-  const [commandHistory, setCommandHistory] = useState<string[]>([]);
-  const recordCommandHistory = useCallback((entry: string) => {
-    setCommandHistory((prev) => [entry, ...prev].slice(0, 10));
+  const recordCommandHistory = useCallback((_entry: string) => {
+    // Command history recording removed - was unused
   }, []);
-  const clearNodeActionAnchor = useCallback(() => setNodeActionAnchor(null), []);
 
   // ─── Stats & AI Panel State ───
   const [graphStats, setGraphStats] = useState<GraphStats | null>(null);
@@ -139,6 +137,7 @@ export default function App() {
   const [ragReindexing, setRagReindexing] = useState(false);
   const [searchPanelOpen, setSearchPanelOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [securityOpen, setSecurityOpen] = useState(false);
   const [searchMode, setSearchMode] = useState<SemanticSearchMode>('code');
   const [searchResults, setSearchResults] = useState<SemanticSearchResult[]>([]);
   const [searchLoading, setSearchLoading] = useState(false);
@@ -407,7 +406,7 @@ export default function App() {
           fileFilter,
           impactOnly,
         },
-          reactflow_state: viewState,
+          reactflow_state: viewState as unknown as Record<string, unknown>,
         });
         await loadSavedViews();
       } finally {
@@ -504,11 +503,6 @@ export default function App() {
     async (nodeKey: string, nodeData: GraphNode, screenPosition?: { x: number; y: number }) => {
       setSelectedNodeKey(nodeKey);
       setSelectedNode(nodeData);
-      if (screenPosition) {
-        setNodeActionAnchor({ nodeKey, nodeName: nodeData.name, position: screenPosition });
-      } else {
-        setNodeActionAnchor(null);
-      }
 
       try {
         const [impact, br] = await Promise.all([
@@ -1095,6 +1089,10 @@ export default function App() {
     quickActionItems.filter((action) => NODE_QUICK_ACTION_IDS.has(action.id)),
     [quickActionItems]
   );
+  const globalQuickActionItems = useMemo<QuickActionConfig[]>(() =>
+    quickActionItems.filter((action) => !NODE_QUICK_ACTION_IDS.has(action.id)),
+    [quickActionItems]
+  );
 
   useEffect(() => {
     return () => {
@@ -1145,6 +1143,8 @@ export default function App() {
         inventoryOpen={inventoryOpen}
         onToggleInventory={handleToggleInventory}
         onOpenSearchPanel={handleOpenSearchPanel}
+        securityOpen={securityOpen}
+        onToggleSecurity={() => setSecurityOpen((prev) => !prev)}
       />
 
       {isSimulated && (
@@ -1247,14 +1247,8 @@ export default function App() {
         selectedTag={selectedTagFilter}
         tagFilterNodes={tagFilterNodes}
         ref={graphCanvasRef}
-        onCanvasClick={clearNodeActionAnchor}
       />
-      <QuickActionToolbar actions={quickActionItems} />
-      <NodeQuickActions
-        anchor={nodeActionAnchor}
-        actions={nodeQuickActionItems}
-        onClose={clearNodeActionAnchor}
-      />
+      <QuickActionToolbar actions={globalQuickActionItems} />
 
       <NodeDetail
         node={selectedNode}
@@ -1265,6 +1259,7 @@ export default function App() {
         onQuickImpactScenario={handleQuickImpactScenario}
         onOpenTransaction={handleOpenTransaction}
         onAnnotationsChanged={handleAnnotationsChanged}
+        quickActions={nodeQuickActionItems}
       />
 
       {transactionOpen && (
@@ -1318,6 +1313,14 @@ export default function App() {
           onClose={() => setDashboardOpen(false)}
           onRefactorRequest={handleRefactorRequest}
           onOpenInventory={handleOpenInventory}
+          onFocusNode={handleFocusGraphNode}
+          onOpenImpactAnalysis={handleOpenImpactAnalysisPanel}
+        />
+      )}
+
+      {securityOpen && (
+        <SecurityDashboard
+          onClose={() => setSecurityOpen(false)}
           onFocusNode={handleFocusGraphNode}
           onOpenImpactAnalysis={handleOpenImpactAnalysisPanel}
         />
