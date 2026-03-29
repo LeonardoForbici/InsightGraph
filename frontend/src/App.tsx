@@ -6,7 +6,6 @@ import type { GraphCanvasHandle, SavedViewState } from './components/GraphCanvas
 import NodeDetail from './components/NodeDetail';
 import AskPanel from './components/AskPanel';
 import ImpactAnalysisPanel, { type ImpactTab } from './components/ImpactAnalysisPanel';
-import StatsBar from './components/StatsBar';
 import Dashboard from './components/Dashboard';
 import SimulationPanel from './components/SimulationPanel';
 import CodeQLModal from './components/CodeQLModal';
@@ -14,6 +13,9 @@ import MethodUsageView from './components/MethodUsageView';
 import TransactionPanel from './components/TransactionPanel';
 import SavedViewsPanel from './components/SavedViewsPanel';
 import QuickActionToolbar, { type QuickActionConfig } from './components/QuickActionToolbar';
+import InventoryPanel from './components/InventoryPanel';
+import FloatingLegend from './components/FloatingLegend';
+import GuidedActions from './components/GuidedActions';
 import CommandPalette, { type CommandItem } from './components/CommandPalette';
 import SemanticSearchPanel from './components/SemanticSearchPanel';
 import {
@@ -115,6 +117,8 @@ export default function App() {
   const recordCommandHistory = useCallback((_entry: string) => {
     // Command history recording removed - was unused
   }, []);
+  const [legendOpen, setLegendOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
 
   // ─── Stats & AI Panel State ───
   const [graphStats, setGraphStats] = useState<GraphStats | null>(null);
@@ -156,6 +160,15 @@ export default function App() {
   const handleRemoveWorkspace = useCallback((path: string) => {
     setWorkspaces((prev) => prev.filter((p) => p !== path));
   }, []);
+
+  const handleAskButton = useCallback(() => {
+    if (selectedNodeKey && selectedNode) {
+      setAskInitialMessage(`Se eu alterar ${selectedNode.name}, o que quebra?`);
+    } else {
+      setAskInitialMessage(undefined);
+    }
+    setAskOpen(true);
+  }, [selectedNode, selectedNodeKey]);
 
   const loadGraph = useCallback(async () => {
     try {
@@ -537,6 +550,25 @@ export default function App() {
     setImpactAnalysisNode(null);
   }, []);
 
+  const handleGuidedImpact = useCallback(() => {
+    if (selectedNodeKey) {
+      handleOpenImpactAnalysisPanel(selectedNodeKey);
+    }
+  }, [selectedNodeKey, handleOpenImpactAnalysisPanel]);
+
+  const handleGuidedPathFinder = useCallback(() => {
+    setSearchPanelOpen(true);
+    setSearchMode('code');
+  }, []);
+
+  const handleGuidedSimulate = useCallback(() => {
+    setSimulationOpen(true);
+  }, []);
+
+  const toggleLegend = useCallback(() => {
+    setLegendOpen((prev) => !prev);
+  }, []);
+
   const handleCloseDetail = useCallback(() => {
     setSelectedNode(null);
     setSelectedNodeKey(null);
@@ -558,7 +590,18 @@ export default function App() {
         : [...prev, project]
     );
   }, []);
-
+  const lastScanLabel = useMemo(() => {
+    switch (scanStatus) {
+      case 'scanning':
+        return 'Scan em andamento';
+      case 'completed':
+        return 'Último scan concluído';
+      case 'error':
+        return 'Último scan com erro';
+      default:
+        return 'Nenhum scan registrado';
+    }
+  }, [scanStatus]);
   const handleSimulationComplete = useCallback((simData: any) => {
     lastSimData.current = simData;
     setGraphNodes(simData.nodes);
@@ -1118,7 +1161,7 @@ export default function App() {
 
   // ─── Render ───
   return (
-    <div className="app-layout">
+    <div className={`app-layout ${sidebarCollapsed ? 'sidebar-collapsed' : ''}`}>
       <TopBar
         workspaces={workspaces}
         onAddWorkspace={handleAddWorkspace}
@@ -1127,7 +1170,7 @@ export default function App() {
         scanStatus={scanStatus}
         scanStats={scanStats}
         askOpen={askOpen}
-        onToggleAsk={() => setAskOpen((prev) => !prev)}
+        onAsk={handleAskButton}
         dashboardOpen={dashboardOpen}
         onToggleDashboard={() => setDashboardOpen((prev) => !prev)}
         simulationOpen={simulationOpen}
@@ -1145,12 +1188,14 @@ export default function App() {
         onOpenSearchPanel={handleOpenSearchPanel}
         securityOpen={securityOpen}
         onToggleSecurity={() => setSecurityOpen((prev) => !prev)}
+        selectedNodeName={selectedNode?.name ?? null}
+        lastScanLabel={lastScanLabel}
       />
 
       {isSimulated && (
         <div style={{ 
           position: 'fixed', 
-          top: '60px', 
+          top: '92px', 
           left: '50%', 
           transform: 'translateX(-50%)', 
           background: 'rgba(15, 23, 42, 0.95)', 
@@ -1200,9 +1245,9 @@ export default function App() {
         </div>
       )}
 
-<Sidebar
-  workspaces={workspaces}
-  onRemoveWorkspace={handleRemoveWorkspace}
+      <Sidebar
+        workspaces={workspaces}
+        onRemoveWorkspace={handleRemoveWorkspace}
         projects={projects}
         selectedProjects={selectedProjects}
         onToggleProject={handleToggleProject}
@@ -1211,56 +1256,82 @@ export default function App() {
         onLayerChange={setSelectedLayer}
         searchTerm={searchTerm}
         onSearchChange={setSearchTerm}
-  tags={tagsForFilter}
-  selectedTag={selectedTagFilter}
-  onTagSelect={handleSelectTagFilter}
-  nodeCount={graphNodes.length}
-  edgeCount={graphEdges.length}
-  nodeTypeOptions={NODE_TYPE_OPTIONS}
-  selectedNodeTypes={selectedNodeTypes}
-  onToggleNodeType={toggleNodeType}
-  hotspotRange={hotspotRange}
-  complexityRange={complexityRange}
-  onHotspotRangeChange={handleHotspotRangeChange}
-  onComplexityRangeChange={handleComplexityRangeChange}
-  availableFiles={availableFiles}
-  fileFilter={fileFilter}
-  onFileFilterChange={handleFileFilterChange}
-  impactOnly={impactOnly}
-  onImpactOnlyToggle={handleImpactOnlyToggle}
-  visibleNodeCount={visibleNodeCount}
-  totalNodeCount={totalNodeCount}
-  searchInputRef={searchInputRef}
-/>
-
-      <GraphCanvas
-        graphNodes={filteredGraphNodes}
-        graphEdges={filteredGraphEdges}
-        highlightedUpstream={highlightedUpstream}
-        highlightedDownstream={highlightedDownstream}
-        aiHighlightedNodes={aiHighlightedNodes}
-        selectedNodeKey={selectedNodeKey}
-        onNodeClick={handleNodeClick}
-        onClearAiHighlights={handleClearAiHighlights}
-        searchTerm={searchTerm}
-        nodeAnnotations={nodeAnnotationMeta}
+        tags={tagsForFilter}
         selectedTag={selectedTagFilter}
-        tagFilterNodes={tagFilterNodes}
-        ref={graphCanvasRef}
+        onTagSelect={handleSelectTagFilter}
+        nodeCount={graphNodes.length}
+        edgeCount={graphEdges.length}
+        nodeTypeOptions={NODE_TYPE_OPTIONS}
+        selectedNodeTypes={selectedNodeTypes}
+        onToggleNodeType={toggleNodeType}
+        hotspotRange={hotspotRange}
+        complexityRange={complexityRange}
+        onHotspotRangeChange={handleHotspotRangeChange}
+        onComplexityRangeChange={handleComplexityRangeChange}
+        availableFiles={availableFiles}
+        fileFilter={fileFilter}
+        onFileFilterChange={handleFileFilterChange}
+        impactOnly={impactOnly}
+        onImpactOnlyToggle={handleImpactOnlyToggle}
+        visibleNodeCount={visibleNodeCount}
+        totalNodeCount={totalNodeCount}
+        isCollapsed={sidebarCollapsed}
+        onToggleCollapse={() => setSidebarCollapsed(prev => !prev)}
+        searchInputRef={searchInputRef}
       />
-      <QuickActionToolbar actions={globalQuickActionItems} />
 
-      <NodeDetail
-        node={selectedNode}
-        impact={impactData}
-        blastRadius={blastRadius}
-        onClose={handleCloseDetail}
-        onViewUsages={handleViewUsages}
-        onQuickImpactScenario={handleQuickImpactScenario}
-        onOpenTransaction={handleOpenTransaction}
-        onAnnotationsChanged={handleAnnotationsChanged}
-        quickActions={nodeQuickActionItems}
-      />
+      <div className="app-main">
+        <GuidedActions
+          selectedNodeName={selectedNode?.name ?? null}
+          onImpact={handleGuidedImpact}
+          onRunPathFinder={handleGuidedPathFinder}
+          onSimulate={handleGuidedSimulate}
+        />
+        <InventoryPanel
+          stats={graphStats}
+          projects={projects}
+          workspaces={workspaces}
+          scanStatus={scanStatus}
+          scanStats={scanStats}
+        />
+        <div className="graph-layout">
+          <GraphCanvas
+            graphNodes={filteredGraphNodes}
+            graphEdges={filteredGraphEdges}
+            highlightedUpstream={highlightedUpstream}
+            highlightedDownstream={highlightedDownstream}
+            aiHighlightedNodes={aiHighlightedNodes}
+            selectedNodeKey={selectedNodeKey}
+            onNodeClick={handleNodeClick}
+            onClearAiHighlights={handleClearAiHighlights}
+            searchTerm={searchTerm}
+            nodeAnnotations={nodeAnnotationMeta}
+            selectedTag={selectedTagFilter}
+            tagFilterNodes={tagFilterNodes}
+            ref={graphCanvasRef}
+          />
+          <div className="legend-region">
+            <button className="legend-toggle" onClick={toggleLegend} type="button">
+              {legendOpen ? 'Ocultar legenda' : 'Legenda'}
+            </button>
+            {legendOpen && (
+              <FloatingLegend onClose={() => setLegendOpen(false)} />
+            )}
+          </div>
+          <QuickActionToolbar actions={globalQuickActionItems} />
+          <NodeDetail
+            node={selectedNode}
+            impact={impactData}
+            blastRadius={blastRadius}
+            onClose={handleCloseDetail}
+            onViewUsages={handleViewUsages}
+            onQuickImpactScenario={handleQuickImpactScenario}
+            onOpenTransaction={handleOpenTransaction}
+            onAnnotationsChanged={handleAnnotationsChanged}
+            quickActions={nodeQuickActionItems}
+          />
+        </div>
+      </div>
 
       {transactionOpen && (
         <TransactionPanel
@@ -1293,8 +1364,6 @@ export default function App() {
           onNavigateTo={handleNavigateFromUsages}
         />
       )}
-
-      {graphNodes.length > 0 && <StatsBar stats={graphStats} />}
 
       {askOpen && (
         <AskPanel

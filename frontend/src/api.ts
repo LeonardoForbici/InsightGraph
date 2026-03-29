@@ -191,6 +191,9 @@ export interface AskResponse {
     relevant_nodes: string[];
     model: string;
     context_used: number;
+    fallback_summary?: string | null;
+    fallback_generated?: boolean;
+    fallback_source?: string | null;
 }
 
 export interface SimulateResponse {

@@ -6,6 +6,8 @@ interface ChatMessage {
     role: 'user' | 'ai';
     content: string;
     model?: string;
+    fallbackSummary?: string | null;
+    fallbackSource?: string | null;
 }
 
 interface AskPanelProps {
@@ -66,7 +68,13 @@ export default function AskPanel({ onClose, selectedNodeKey, onHighlightNodes, i
 
             setMessages((prev) => [
                 ...prev,
-                { role: 'ai', content: response.answer, model: response.model },
+                {
+                    role: 'ai',
+                    content: response.answer,
+                    model: response.model,
+                    fallbackSummary: response.fallback_summary,
+                    fallbackSource: response.fallback_source,
+                },
             ]);
         } catch (err) {
             setMessages((prev) => [
@@ -119,14 +127,33 @@ export default function AskPanel({ onClose, selectedNodeKey, onHighlightNodes, i
             )}
 
             <div className="ask-panel-messages">
-                {messages.map((msg, i) => (
-                    <div key={i} className={`ask-message ${msg.role}`}>
-                        {msg.content}
-                        {msg.model && (
-                            <span className="model-tag">via {msg.model}</span>
-                        )}
-                    </div>
-                ))}
+                {messages.map((msg, i) => {
+                    const fallbackSummary = msg.fallbackSummary?.trim();
+                    const isFallback = Boolean(fallbackSummary);
+                    const showSummaryBlock =
+                        isFallback &&
+                        fallbackSummary &&
+                        !msg.content.startsWith(fallbackSummary);
+                    return (
+                        <div
+                            key={i}
+                            className={`ask-message ${msg.role} ${isFallback ? 'fallback' : ''}`}
+                        >
+                            {isFallback && (
+                                <div className="fallback-badge">
+                                    Resumo gerado a partir do grafo{msg.fallbackSource ? ` · ${msg.fallbackSource}` : ''}
+                                </div>
+                            )}
+                            {showSummaryBlock && (
+                                <div className="fallback-summary-block">{fallbackSummary}</div>
+                            )}
+                            <div className="ask-message-content">{msg.content}</div>
+                            {msg.model && (
+                                <span className="model-tag">via {msg.model}</span>
+                            )}
+                        </div>
+                    );
+                })}
                 {loading && (
                     <div className="ask-typing">
                         <div className="ask-typing-dot" />

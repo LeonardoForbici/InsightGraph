@@ -1,0 +1,22 @@
+*** Begin Patch
+*** Update File: scripts/reset-insightgraph-state.ps1
+@@
+ param(
+     [switch]
+ )
+
+
++Set-StrictMode -Version Latest
+
++ = Split-Path -Parent System.Management.Automation.InvocationInfo.MyCommand.Path
++ = Resolve-Path (Join-Path   ..)
+
+ function Confirm-Delete {
+@@
+ foreach ( in ) {
+-     = Join-Path (Get-Location) 
++     = Join-Path  
+@@
+    try {
+        Remove-Item -LiteralPath  -Force
+    } catch {

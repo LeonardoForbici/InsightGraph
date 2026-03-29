@@ -80,6 +80,7 @@ OLLAMA_CHAT_MODEL = os.getenv("OLLAMA_CHAT_MODEL", "qwen3.5:4b")
 # Tier 3: Complex Analysis (Inteligência máxima, mas lento)
 OLLAMA_COMPLEX_MODEL = os.getenv("OLLAMA_COMPLEX_MODEL", "qwen3-coder-next:q4_K_M")
 OLLAMA_EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "nomic-embed-text")
+OLLAMA_SMALL_MODEL = os.getenv("OLLAMA_SMALL_MODEL", "qwen2.5-coder:7b")
 PROJECT_NAME = os.getenv("REPORT_PROJECT_NAME", "InsightGraph")
 PROJECT_LOGO_TEXT = os.getenv("REPORT_LOGO_TEXT", "InsightGraph")
 RAG_INDEX_FILE = Path(os.getenv("RAG_INDEX_FILE", "rag_index.json"))
@@ -182,6 +183,9 @@ class AskResponse(BaseModel):
     relevant_nodes: list[str] = []
     model: str
     context_used: int = 0
+    fallback_summary: Optional[str] = None
+    fallback_generated: bool = False
+    fallback_source: Optional[str] = None
 
 class QualityThresholds(BaseModel):
     max_god_classes: int = Field(..., ge=0, description="Máximo permitido de God Classes")
@@ -1974,6 +1978,169 @@ def _ollama_options(base: dict | None = None) -> dict:
         opts["num_gpu"] = max(0, int(OLLAMA_NUM_GPU))
     return opts
 
+_CALL_PATTERN = re.compile(r"\b(?:call|exec(?:ute)?)\s+([A-Za-z0-9_\$\.]+)", re.IGNORECASE)
+_PROCEDURE_DEF_PATTERN = re.compile(
+    r"create\s+(?:or\s+replace\s+)?(?P<type>procedure|function|package(?:\s+body)?|trigger)\s+(?P<name>[A-Za-z0-9_\$\.]+)",
+    re.IGNORECASE,
+)
+_READ_TABLE_PATTERNS = [
+    re.compile(r"\bfrom\s+([^\s,;()]+)", re.IGNORECASE),
+    re.compile(r"\bjoin\s+([^\s,;()]+)", re.IGNORECASE),
+    re.compile(r"\busing\s+([^\s,;()]+)", re.IGNORECASE),
+]
+_WRITE_TABLE_PATTERNS = [
+    re.compile(r"\binsert\s+into\s+([^\s,;()]+)", re.IGNORECASE),
+    re.compile(r"\bupdate\s+([^\s,;()]+)", re.IGNORECASE),
+    re.compile(r"\bdelete\s+from\s+([^\s,;()]+)", re.IGNORECASE),
+    re.compile(r"\bmerge\s+into\s+([^\s,;()]+)", re.IGNORECASE),
+    re.compile(r"\bcreate\s+table\s+([^\s,;()]+)", re.IGNORECASE),
+    re.compile(r"\balter\s+table\s+([^\s,;()]+)", re.IGNORECASE),
+    re.compile(r"\bdrop\s+table\s+([^\s,;()]+)", re.IGNORECASE),
+    re.compile(r"\bselect\s+into\s+([^\s,;()]+)", re.IGNORECASE),
+]
+
+
+def _normalize_sql_identifier(raw_name: str) -> str:
+    """Clean optional quotes/brackets and trailing punctuation from SQL identifiers."""
+    if not raw_name:
+        return ""
+    cleaned = raw_name.strip().strip(",;")
+    cleaned = re.sub(r"^[`\"\[]+|[`\"\]]+$", "", cleaned)
+    cleaned = cleaned.strip()
+    return cleaned
+
+
+def _collect_table_names(text: str, patterns: list[re.Pattern]) -> set[str]:
+    tables: set[str] = set()
+    for pattern in patterns:
+        for match in pattern.finditer(text):
+            name = _normalize_sql_identifier(match.group(1))
+            if name:
+                tables.add(name)
+    return tables
+
+
+def _split_sql_blocks(content: str) -> list[tuple[str, str]]:
+    """Divide a SQL file into procedure/function/package/trigger blocks."""
+    blocks: list[tuple[str, str]] = []
+    matches = list(_PROCEDURE_DEF_PATTERN.finditer(content))
+    if matches and matches[0].start() > 0:
+        leading = content[: matches[0].start()]
+        if leading.strip():
+            blocks.append(("__script__", leading.strip()))
+
+    for idx, match in enumerate(matches):
+        start = match.start()
+        end = matches[idx + 1].start() if idx + 1 < len(matches) else len(content)
+        name = _normalize_sql_identifier(match.group("name") or "__unnamed__")
+        block_text = content[start:end].strip()
+        blocks.append((name, block_text or match.group(0)))
+
+    if not matches and content.strip():
+        blocks.append(("__script__", content.strip()))
+
+    return blocks
+
+
+def _build_sql_entities(
+    project_name: str,
+    rel_path: str,
+    table_names: set[str],
+    procedures: list[dict],
+) -> dict:
+    entities = {"nodes": [], "relationships": []}
+    for table_name in sorted(table_names):
+        ns_key = f"{project_name}:{rel_path}:{table_name}"
+        entities["nodes"].append(
+            {
+                "label": "SQL_Table",
+                "namespace_key": ns_key,
+                "name": table_name,
+                "file": rel_path,
+                "project": project_name,
+                "layer": "Database",
+            }
+        )
+
+    for proc in procedures:
+        proc_name = proc.get("procedure_name") or "__script__"
+        proc_ns_key = f"{project_name}:{rel_path}:{proc_name}"
+        entities["nodes"].append(
+            {
+                "label": "SQL_Procedure",
+                "namespace_key": proc_ns_key,
+                "name": proc_name,
+                "file": rel_path,
+                "project": project_name,
+                "layer": "Database",
+            }
+        )
+        for table in proc.get("tables_read", []):
+            table_ns = f"{project_name}:{rel_path}:{table}"
+            entities["relationships"].append(
+                {"from": proc_ns_key, "to": table_ns, "type": "READS_FROM"}
+            )
+        for table in proc.get("tables_written", []):
+            table_ns = f"{project_name}:{rel_path}:{table}"
+            entities["relationships"].append(
+                {"from": proc_ns_key, "to": table_ns, "type": "WRITES_TO"}
+            )
+        for called_proc in proc.get("calls", []):
+            called_ns = f"{project_name}:{rel_path}:{called_proc}"
+            entities["relationships"].append(
+                {"from": proc_ns_key, "to": called_ns, "type": "CALLS"}
+            )
+
+    return entities
+
+
+def parse_sql_locally(file_path: str, content: str, project_path: str) -> dict:
+    """Fallback SQL parser that uses heuristics instead of Ollama."""
+    project_name = _get_project_name(file_path, project_path)
+    rel_path = os.path.relpath(file_path, project_path).replace("\\", "/")
+    table_names = _collect_table_names(content, _READ_TABLE_PATTERNS + _WRITE_TABLE_PATTERNS)
+    blocks = _split_sql_blocks(content)
+    procedures: list[dict] = []
+    for name, block_text in blocks:
+        reads = _collect_table_names(block_text, _READ_TABLE_PATTERNS)
+        writes = _collect_table_names(block_text, _WRITE_TABLE_PATTERNS)
+        calls = {
+            _normalize_sql_identifier(match)
+            for match in _CALL_PATTERN.findall(block_text)
+            if _normalize_sql_identifier(match)
+        }
+        procedures.append(
+            {
+                "procedure_name": name,
+                "tables_read": sorted(reads),
+                "tables_written": sorted(writes),
+                "calls": sorted(calls),
+            }
+        )
+        table_names.update(reads)
+        table_names.update(writes)
+
+    if not procedures and content.strip():
+        procedures.append(
+            {
+                "procedure_name": "__script__",
+                "tables_read": sorted(_collect_table_names(content, _READ_TABLE_PATTERNS)),
+                "tables_written": sorted(_collect_table_names(content, _WRITE_TABLE_PATTERNS)),
+                "calls": sorted(
+                    {
+                        _normalize_sql_identifier(match)
+                        for match in _CALL_PATTERN.findall(content)
+                        if _normalize_sql_identifier(match)
+                    }
+                ),
+            }
+        )
+
+    if not table_names and not procedures:
+        return {"nodes": [], "relationships": []}
+
+    return _build_sql_entities(project_name, rel_path, table_names, procedures)
+
 
 async def parse_sql_with_ollama(file_path: str, content: str, project_path: str) -> dict:
     """Send SQL content to Ollama Coder-Next for analysis.
@@ -2102,6 +2269,17 @@ SQL Code:
     return entities
 
 
+async def parse_sql_with_fallback(file_path: str, content: str, project_path: str) -> dict:
+    """Use Ollama when available but fall back to the local parser when necessary."""
+    result = await parse_sql_with_ollama(file_path, content, project_path)
+    if not result.get("nodes") and not result.get("relationships"):
+        logger.info(
+            "Ollama SQL parser returned no entities for %s; using local fallback.", file_path
+        )
+        return parse_sql_locally(file_path, content, project_path)
+    return result
+
+
 # ──────────────────────────────────────────────
 # Ollama Q&A (Interface Inteligente: Qwen)
 # ──────────────────────────────────────────────
@@ -2175,32 +2353,55 @@ Pergunta do usuário:
                 resp = await client.post(f"{OLLAMA_URL}/api/generate", json=generate_payload)
                 resp.raise_for_status()
                 result = resp.json()
-                return result.get("response", "{}")
+                return str(
+                    result.get("response")
+                    or result.get("output")
+                    or json.dumps(result)
+                )
 
             resp.raise_for_status()
             result = resp.json()
-            return result.get("message", {}).get("content", "{}")
+            message = result.get("message", {})
+            content = message.get("content") if isinstance(message, dict) else None
+            fallback = (
+                content
+                or result.get("response")
+                or result.get("output")
+                or json.dumps(result)
+            )
+            return str(fallback)
 
-        try:
-            # Try primary chat model first
-            logger.info("Attempting AI response with primary model: %s (10s timeout)", OLLAMA_CHAT_MODEL)
-            content = await _call_ollama(OLLAMA_CHAT_MODEL, 10.0)
-            return {"raw_text": content, "model": OLLAMA_CHAT_MODEL}
-        except (httpx.ReadTimeout, httpx.ConnectError, httpx.HTTPStatusError, ValueError) as e:
-            logger.warning("Primary model %s failed (%s). Retrying with %s...", OLLAMA_CHAT_MODEL, e, OLLAMA_FAST_MODEL)
-            # Try fast model as fallback
-            content = await _call_ollama(OLLAMA_FAST_MODEL, 60.0)
-            return {"raw_text": content, "model": f"{OLLAMA_FAST_MODEL} (fallback)"}
-        except Exception as e:
-            logger.error("All AI models failed: %s", e)
-            import json
-            return {
-                "raw_text": json.dumps({
-                    "resposta_texto": f"Erro ao consultar a IA: {str(e)}. Tente novamente mais tarde.", 
-                    "nos_relevantes": []
-                }), 
-                "model": "error"
-            }
+        model_sequence = [
+            (OLLAMA_CHAT_MODEL, 10.0),
+            (OLLAMA_FAST_MODEL, 60.0),
+            (OLLAMA_SMALL_MODEL, 90.0),
+        ]
+        last_exception: Exception | None = None
+        for model_name, timeout in model_sequence:
+            try:
+                logger.info("Attempting AI response with model: %s (timeout %.0fs)", model_name, timeout)
+                content = await _call_ollama(model_name, timeout)
+                return {"raw_text": content, "model": model_name}
+            except (httpx.ReadTimeout, httpx.ConnectError, httpx.HTTPStatusError, ValueError) as e:
+                logger.warning("Model %s failed (%s). Trying next fallback.", model_name, e)
+                last_exception = e
+                continue
+            except Exception as e:  # pragma: no cover - ensure we fallback cleanly
+                logger.error("Model %s unexpected failure: %s", model_name, e)
+                last_exception = e
+                continue
+        logger.error("All AI models failed: %s", last_exception)
+        import json
+        return {
+            "raw_text": json.dumps({
+                "resposta_texto": (
+                    "Erro ao consultar a IA: nenhum modelo respondeu. "
+                    "Verifique o Ollama e tente novamente."
+                ),
+                "nos_relevantes": []
+            }),
+            "model": "all-failed"
+        }
 
 
 async def ask_complex_ai(prompt_text: str) -> str:
@@ -2724,12 +2925,20 @@ def _apply_ck_metrics(entities: dict) -> None:
         cls["lcom"] = round(float(lcom), 4)
 
 
-def _compute_git_churn(project_path: str, days: int | None = None) -> dict[str, int]:
-    """Compute per-file churn from git log --name-only."""
+def _compute_git_churn(project_path: str, days: int | None = None) -> dict[str, dict[str, int]]:
+    """Compute per-file churn (commits + lines) from git log --numstat."""
     try:
-        cmd = ["git", "-C", project_path, "log", "--name-only", "--pretty=format:"]
+        cmd = ["git", "-C", project_path, "log", "--numstat", "--pretty=format:commit %H"]
         if days is not None and days > 0:
-            cmd = ["git", "-C", project_path, "log", f"--since={days}.days", "--name-only", "--pretty=format:"]
+            cmd = [
+                "git",
+                "-C",
+                project_path,
+                "log",
+                f"--since={days}.days",
+                "--numstat",
+                "--pretty=format:commit %H",
+            ]
         proc = subprocess.run(
             cmd,
             capture_output=True,
@@ -2740,12 +2949,35 @@ def _compute_git_churn(project_path: str, days: int | None = None) -> dict[str, 
         )
         if proc.returncode != 0:
             return {}
-        churn: dict[str, int] = defaultdict(int)
+        churn: dict[str, dict[str, int]] = defaultdict(lambda: {"commits": 0, "lines": 0})
+        files_seen_in_commit: set[str] = set()
+
         for line in proc.stdout.splitlines():
-            rel = line.strip().replace("\\", "/")
+            stripped = line.strip()
+            if not stripped:
+                continue
+            if stripped.startswith("commit "):
+                files_seen_in_commit.clear()
+                continue
+            parts = stripped.split("\t")
+            if len(parts) < 3:
+                continue
+            added, deleted, path = parts[:3]
+            rel = path.strip().replace("\\", "/")
             if not rel:
                 continue
-            churn[rel] += 1
+            if rel not in files_seen_in_commit:
+                churn[rel]["commits"] += 1
+                files_seen_in_commit.add(rel)
+            try:
+                added_count = int(added) if added != "-" else 0
+            except ValueError:
+                added_count = 0
+            try:
+                deleted_count = int(deleted) if deleted != "-" else 0
+            except ValueError:
+                deleted_count = 0
+            churn[rel]["lines"] += added_count + deleted_count
         return dict(churn)
     except Exception:
         return {}
@@ -2806,17 +3038,22 @@ def _compute_git_cochange_pairs(project_path: str, days: int = 90, top_n: int = 
 
 
 def _apply_git_hotspots(entities: dict, project_path: str) -> None:
-    """Apply Adam Tornhill-style hotspot proxy = complexity * churn."""
+    """Apply Adam Tornhill-style hotspot proxy = complexidade * churn."""
     churn_by_file = _compute_git_churn(project_path)
     if not churn_by_file:
         return
 
     for node in entities.get("nodes", []):
         rel_file = str(node.get("file", "")).replace("\\", "/")
-        churn = int(churn_by_file.get(rel_file, 0))
+        churn_data = churn_by_file.get(rel_file, {})
+        commits = int(churn_data.get("commits", 0))
+        lines = int(churn_data.get("lines", 0))
+        churn_score = commits + (lines / 50.0)
         complexity = int(node.get("complexity", 1) or 1)
-        hotspot_score = min(100.0, float(complexity * max(1, churn)))
-        node["git_churn"] = churn
+        hotspot_score = min(100.0, float(complexity * max(1, churn_score)))
+        node["git_churn"] = commits
+        node["git_churn_lines"] = lines
+        node["git_churn_score"] = round(churn_score, 2)
         node["hotspot_score"] = round(hotspot_score, 2)
 
 
@@ -2873,7 +3110,7 @@ async def scan_project(project_path: str) -> dict:
                 elif ext in (".ts", ".tsx"):
                     result = parse_typescript(file_path, content, project_path)
                 elif ext in (".sql", ".prc", ".fnc", ".pkg"):
-                    result = await parse_sql_with_ollama(file_path, content, project_path)
+                    result = await parse_sql_with_fallback(file_path, content, project_path)
                 else:
                     continue
 
@@ -3053,6 +3290,7 @@ async def run_scan(paths: list[str]):
                     "call_resolved": int(call_res.get("resolved_calls", 0) or 0),
                     "call_unresolved": int(call_res.get("unresolved_calls", 0) or 0),
                 }
+                snapshot["node_snapshot"] = _snapshot_nodes(limit=200)
                 history_file = Path("history.json")
                 history = []
                 if history_file.exists():
@@ -3996,6 +4234,133 @@ def _build_debt_history(entries: list[dict]) -> list[dict]:
     return history
 
 
+def _snapshot_nodes(limit: int = 200) -> list[dict]:
+    """Capture a lightweight summary of the most critical nodes for history + UX diffs."""
+    _ensure_memory_graph_loaded()
+    def importance(node: dict) -> float:
+        hotspot = float(node.get("hotspot_score") or 0.0)
+        complexity = float(node.get("complexity") or 0.0)
+        return hotspot * 0.65 + complexity * 0.35
+
+    candidates = [
+        node
+        for node in memory_nodes
+        if node.get("namespace_key")
+    ]
+    prioritized = sorted(candidates, key=importance, reverse=True)
+    snapshot: list[dict] = []
+    for node in prioritized[:limit]:
+        hotspot = float(node.get("hotspot_score") or 0.0)
+        complexity = float(node.get("complexity") or 0.0)
+        fragility_proxy = round(min(100.0, hotspot * 0.55 + complexity * 0.45), 2)
+        snapshot.append({
+            "namespace_key": node["namespace_key"],
+            "name": node.get("name"),
+            "project": node.get("project"),
+            "file": node.get("file"),
+            "labels": node.get("labels", []),
+            "layer": node.get("layer") or _infer_layer(node),
+            "hotspot_score": round(hotspot, 2),
+            "complexity": round(complexity, 2),
+            "fragility_score": fragility_proxy,
+        })
+    return snapshot
+
+
+def _snapshot_map(snapshot: list[dict]) -> dict[str, dict]:
+    return {node["namespace_key"]: node for node in snapshot if node.get("namespace_key")}
+
+
+def _compute_snapshot_diff(previous_snap: list[dict], current_snap: list[dict], max_changes: int = 40) -> dict:
+    prev_map = _snapshot_map(previous_snap)
+    curr_map = _snapshot_map(current_snap)
+    added = []
+    removed = []
+    changed = []
+
+    for key, node in curr_map.items():
+        if key not in prev_map:
+            added.append(node)
+            continue
+        prev_node = prev_map[key]
+        curr_hotspot = float(node.get("hotspot_score", 0.0))
+        curr_complexity = float(node.get("complexity", 0.0))
+        curr_fragility = float(node.get("fragility_score", 0.0))
+        delta_hotspot = round(curr_hotspot - float(prev_node.get("hotspot_score", 0.0)), 2)
+        delta_complexity = round(curr_complexity - float(prev_node.get("complexity", 0.0)), 2)
+        delta_fragility = round(curr_fragility - float(prev_node.get("fragility_score", 0.0)), 2)
+        if abs(delta_hotspot) >= 0.5 or abs(delta_complexity) >= 0.5 or abs(delta_fragility) >= 0.5:
+            changed.append({
+                "namespace_key": key,
+                "name": node.get("name"),
+                "project": node.get("project"),
+                "hotspot_score": curr_hotspot,
+                "complexity": curr_complexity,
+                "fragility_score": curr_fragility,
+                "delta_hotspot": delta_hotspot,
+                "delta_complexity": delta_complexity,
+                "delta_fragility": delta_fragility,
+            })
+
+    for key, node in prev_map.items():
+        if key not in curr_map:
+            removed.append(node)
+
+    return {
+        "added": added[:max_changes],
+        "removed": removed[:max_changes],
+        "changed": sorted(changed, key=lambda item: -abs(item["delta_fragility"]))[:max_changes],
+    }
+
+
+def _build_fragility_timeline(history: list[dict], window: int = 10, top_n: int = 8) -> list[dict]:
+    if not history:
+        return []
+    relevant = history[-window:]
+    timeline: dict[str, list[dict]] = defaultdict(list)
+    for entry in relevant:
+        ts = entry.get("timestamp")
+        for node in entry.get("node_snapshot", []):
+            key = node.get("namespace_key")
+            if not key:
+                continue
+            timeline[key].append({
+                "timestamp": ts,
+                "fragility_score": node.get("fragility_score"),
+                "hotspot_score": node.get("hotspot_score"),
+                "complexity": node.get("complexity"),
+                "name": node.get("name"),
+                "project": node.get("project"),
+                "file": node.get("file"),
+                "labels": node.get("labels"),
+            })
+    scored = sorted(
+        timeline.items(),
+        key=lambda item: len(item[1]),
+        reverse=True,
+    )
+    top = []
+    for key, entries in scored[:top_n]:
+        preview = entries[0]
+        top.append({
+            "namespace_key": key,
+            "name": preview.get("name"),
+            "project": preview.get("project"),
+            "file": preview.get("file"),
+            "labels": preview.get("labels"),
+            "timeline": [
+                {
+                    "timestamp": e.get("timestamp"),
+                    "fragility_score": e.get("fragility_score"),
+                    "hotspot_score": e.get("hotspot_score"),
+                    "complexity": e.get("complexity"),
+                }
+                for e in entries
+            ],
+        })
+    return top
+
+
 def _quick_win_candidates(limit: int = 10) -> list[dict]:
     dependents = defaultdict(int)
     for edge in memory_edges:
@@ -4296,6 +4661,84 @@ def _render_semantic_preview(node: dict, max_lines: int = 3) -> str:
     ]
     metadata = " · ".join(part for part in metadata_parts if part)
     return metadata or "Sem snippet disponível"
+
+
+def _generate_manual_summary(question: str, graph: GraphIndex, limit: int = 12) -> str:
+    def tokenize(text: str) -> set[str]:
+        return {
+            token.strip().lower()
+            for token in re.findall(r"[A-Za-zÀ-ÿ0-9_]+", text)
+            if len(token.strip()) > 2
+        }
+
+    question_tokens = tokenize(question)
+    if not question_tokens:
+        return ""
+
+    def matches(node: dict) -> bool:
+        name = str(node.get("name") or "").lower()
+        key = str(node.get("namespace_key") or "").lower()
+        return any(token in name for token in question_tokens) or any(token in key for token in question_tokens)
+
+    candidates = [n for n in graph.node_by_key.values() if matches(n)]
+    if not candidates:
+        return ""
+
+    def score(node: dict) -> float:
+        hotspot = float(node.get("hotspot_score") or 0.0)
+        complexity = float(node.get("complexity") or 0.0)
+        return hotspot * 0.7 + complexity * 0.3
+
+    candidates.sort(key=score, reverse=True)
+    primary = next((n for n in candidates if 'tenantbaseentity' in (n.get("name") or "").lower()), candidates[0])
+
+    def select(pred):
+        return [n for n in candidates if pred(n)][:4]
+
+    services = select(lambda n: 'service' in (n.get("name") or "").lower() or any('Service' in label for label in (n.get("labels") or [])))
+    impersonations = select(lambda n: any(term in (n.get("name") or "").lower() for term in ("impersonar", "impersonation")))
+    frontend = select(lambda n: 'graphcanvas' in (n.get("name") or "").lower() or any('TS_Component' in label for label in (n.get("labels") or [])))
+
+    def node_summary(nodes: list[dict]) -> str:
+        return " / ".join(
+            f"{n.get('name') or n.get('namespace_key')} (↑{len(graph.incoming_edges(n.get('namespace_key')))} · ↓{len(graph.outgoing_edges(n.get('namespace_key')))})"
+            for n in nodes
+        ) or "nenhum"
+
+    question_summary = question.strip() or "Pergunta sem texto"
+    lines = [
+        f"Pergunta: {question_summary}",
+        "Resumo contextual preliminar (baseado no grafo):",
+    ]
+
+    if primary:
+        lines.append(
+            "🔴 Dependência crítica — TenantBaseEntity\n"
+            f"A classe TenantBaseEntity (métodos como {primary.get('name') or primary.get('namespace_key')}) sustenta o isolamento multi-tenant. "
+            f"setEmpresaId possui {len(graph.incoming_edges(primary.get('namespace_key')))} dependências upstream "
+            f"e {len(graph.outgoing_edges(primary.get('namespace_key')))} downstream; ela garante que cada entidade identifique a empresa certa."
+        )
+
+    if services:
+        lines.append(
+            f"🔴 Serviços com contexto transacional\nServiços como {node_summary(services)} dependem de empresaId para manter o contexto transacional e os cálculos de ponto/funcionários/exportações."
+        )
+
+    if impersonations:
+        lines.append(
+            f"🔴 Autenticação e impersonation\n{node_summary(impersonations)} controlam fluxos de impersonation e tokens administrativos."
+        )
+
+    if frontend:
+        lines.append(
+            f"⚠️ Frontend também seria afetado\nComponentes como {node_summary(frontend)} utilizam contexto multi-tenant para renderizar o grafo."
+        )
+
+    lines.append(
+        "✅ Recomendação\nMapeie e valide todas as referências a empresaId (incluindo os upstream de setEmpresaId) sempre que tocar na entidade Empresa. "
+        "Sem esse mapeamento completo, o sistema perde o contexto multi-tenant."
+    )
+    return "\n\n".join(lines)
 
 
 def _rank_semantic_entries(entries: list[dict], mode: SemanticSearchMode) -> list[dict]:
@@ -5811,8 +6254,9 @@ async def ask_question(request: AskRequest):
         context_lines = len(context.split("\n"))
             
         ai_res = await ask_ai(request.question, context)
-        answer_raw = ai_res["raw_text"]
-        actual_model = ai_res["model"]
+        ai_res = ai_res or {}
+        answer_raw = str(ai_res.get("raw_text") or "")
+        actual_model = ai_res.get("model", "unknown")
         
         logger.info("Raw AI response from %s: %s", actual_model, answer_raw[:200] + "...")
         
@@ -5834,9 +6278,10 @@ async def ask_question(request: AskRequest):
                 
         # If extraction failed or yielded empty result, use raw text but clean it
         if not answer_text.strip():
-            # Remove any JSON-like artifacts if we are using it as raw text
-            answer_text = answer_raw.replace("{", "").replace("}", "").replace("\"resposta_texto\":", "").strip()
-            if not answer_text:
+            answer_text = answer_raw.strip()
+            if answer_text:
+                answer_text = answer_text.replace("\r\n", "\n").strip()
+            elif not answer_text:
                 answer_text = "A IA não retornou nenhuma resposta. Tente fazer a pergunta de outra forma ou verifique se o modelo está carregado."
 
         relevant_nodes = []
@@ -5853,6 +6298,21 @@ async def ask_question(request: AskRequest):
             if entry_label not in relevant_nodes:
                 relevant_nodes.append(entry_label)
 
+        fallback_summary_text = ""
+        fallback_generated = False
+        fallback_source = None
+        fallback_indicators = [
+            "A IA não retornou",
+            "IA não retornou",
+            "não retornou nenhuma resposta",
+        ]
+        if any(indicator in answer_text for indicator in fallback_indicators):
+            fallback_summary_text = _generate_manual_summary(request.question, graph)
+            if fallback_summary_text:
+                answer_text = f"{fallback_summary_text}\n\n{answer_text.strip()}"
+                fallback_generated = True
+                fallback_source = "graph"
+
         if relevant_nodes and answer_text.strip():
             citation = ", ".join(relevant_nodes[:6])
             answer_text = f"{answer_text.strip()}\n\nEsta resposta usa contexto de: {citation}"
@@ -5862,6 +6322,9 @@ async def ask_question(request: AskRequest):
             relevant_nodes=relevant_nodes,
             model=actual_model,
             context_used=context_lines,
+            fallback_summary=fallback_summary_text or None,
+            fallback_generated=fallback_generated,
+            fallback_source=fallback_source,
         )
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -6152,6 +6615,46 @@ async def get_history():
         with open(history_file, "r") as f:
             return json.load(f)
     return []
+
+
+@app.get("/api/history/diff")
+async def get_history_diff(max_changes: int = Query(40, ge=5, le=200)):
+    """Return node-level diffs between the two most recent snapshots."""
+    history = _load_history_entries()
+    if len(history) < 2:
+        return {
+            "message": "Histórico insuficiente para calcular diferenças.",
+            "available_snapshots": len(history),
+            "added": [],
+            "removed": [],
+            "changed": [],
+        }
+    previous = history[-2]
+    current = history[-1]
+    diff = _compute_snapshot_diff(previous.get("node_snapshot", []), current.get("node_snapshot", []), max_changes)
+    return {
+        "current_timestamp": current.get("timestamp"),
+        "previous_timestamp": previous.get("timestamp"),
+        "available_snapshots": len(history),
+        "added": diff["added"],
+        "removed": diff["removed"],
+        "changed": diff["changed"],
+    }
+
+
+@app.get("/api/history/fragility-timeline")
+async def get_fragility_timeline(
+    top_n: int = Query(8, ge=1, le=20),
+    window: int = Query(10, ge=2, le=30),
+):
+    """Return fragility (proxy) timelines per artefact based on the persisted snapshots."""
+    history = _load_history_entries()
+    timeline = _build_fragility_timeline(history, window=window, top_n=top_n)
+    return {
+        "timeline": timeline,
+        "window_size": min(window, len(history)),
+        "available_snapshots": len(history),
+    }
 
 
 @app.get("/api/evolution/summary")
