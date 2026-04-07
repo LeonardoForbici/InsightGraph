@@ -136,3 +136,4 @@ npm run dev
 3. Clique em **“AI Assistant”** e pergunte “O que acontece se eu adicionar ...” após garantir que os modelos estejam carregados.
 
 Para CI/CD: adicione `python backend/main.py scan` ao pipeline, use `--fail-on-risk` como gate e mantenha os arquivos `rag_*` em cache para evitar reembeddings completos.
+![0](https://github.com/user-attachments/assets/f4a18b77-01a5-4b0f-b2bd-2c7950900fe5)
