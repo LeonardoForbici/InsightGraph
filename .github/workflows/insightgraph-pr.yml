@@ -1,0 +1,42 @@
+name: InsightGraph PR Analysis
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  insightgraph-analysis:
+    name: Analyze PR Impact
+    runs-on: ubuntu-latest
+    # Never block the PR — always succeed at the job level
+    continue-on-error: true
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install httpx
+
+      - name: Get changed files
+        id: changed-files
+        run: |
+          # Collect the list of files changed in this PR
+          FILES=$(git diff --name-only origin/${{ github.base_ref }}...HEAD | tr '\n' ' ')
+          echo "files=$FILES" >> "$GITHUB_OUTPUT"
+
+      - name: Run InsightGraph PR Bot
+        env:
+          INSIGHTGRAPH_URL: ${{ secrets.INSIGHTGRAPH_URL }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITHUB_REPOSITORY: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          CHANGED_FILES: ${{ steps.changed-files.outputs.files }}
+        run: python backend/pr_bot.py

@@ -185,3 +185,34 @@ class RagStore:
         with self._lock:
             self.entries.clear()
             self._cache.clear()
+
+    def delete_by_project(self, project_name: str) -> int:
+        """Delete all embeddings for nodes belonging to a specific project.
+        
+        Task 11.4: Remove embeddings when a project is deleted.
+        Returns the number of entries deleted.
+        """
+        with self._lock:
+            # Find entries to delete (namespace_key starts with project_name:)
+            prefix = f"{project_name}:"
+            to_delete = [e.node_key for e in self.entries if e.node_key.startswith(prefix)]
+            
+            if not to_delete:
+                return 0
+            
+            # Delete from database
+            with sqlite3.connect(self.db_path) as conn:
+                placeholders = ",".join("?" * len(to_delete))
+                conn.execute(
+                    f"DELETE FROM node_embeddings WHERE node_key IN ({placeholders})",
+                    to_delete,
+                )
+                conn.commit()
+            
+            # Remove from in-memory entries
+            self.entries = [e for e in self.entries if e.node_key not in to_delete]
+            
+            # Clear cache
+            self._cache.clear()
+            
+            return len(to_delete)

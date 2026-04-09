@@ -1,8 +1,10 @@
-import { useEffect, useMemo, useRef, useCallback } from 'react';
+import { useEffect, useMemo, useRef, useCallback, useState } from 'react';
 import ForceGraph3D from 'react-force-graph-3d';
 import * as THREE from 'three';
 import type { GraphNode, GraphEdge } from '../api';
 import { getHeatmapColor, hotspotColorScale, getTypeColor } from '../utils/graphColors';
+import { getRiskColor, getNodeSize, getBrightness, shouldPulse, applyBrightness } from '../utils/visualEncoding';
+import { WaveAnimationManager } from '../utils/WaveAnimationManager';
 
 interface GraphCanvas3DProps {
     graphNodes: GraphNode[];
@@ -17,6 +19,14 @@ interface GraphCanvas3DProps {
     clustered: boolean;
     focusNodeKey: string | null;
     focusRequestId: number;
+    // NEW: Real-time event handling
+    recentChanges?: Map<string, number>; // nodeKey -> timestamp
+    // NEW: Wave animation trigger
+    waveAnimationTrigger?: {
+        originNodeKey: string;
+        affectedNodes: string[];
+        timestamp: number;
+    } | null;
 }
 
 type ClusterNode = {
@@ -92,10 +102,49 @@ export default function GraphCanvas3D({
     clustered,
     focusNodeKey,
     focusRequestId,
+    recentChanges: externalRecentChanges,
+    waveAnimationTrigger,
 }: GraphCanvas3DProps) {
     const fgRef = useRef<any>(null);
     const pulseMeshes = useRef(new Map<string, THREE.Mesh>());
     const clusterBubbleRefs = useRef<THREE.Object3D[]>([]);
+    
+    // Track recent changes internally if not provided externally
+    const [internalRecentChanges, setInternalRecentChanges] = useState<Map<string, number>>(new Map());
+    const recentChanges = externalRecentChanges ?? internalRecentChanges;
+    
+    // NEW: Wave animation manager
+    const waveManagerRef = useRef<WaveAnimationManager | null>(null);
+    
+    // Initialize wave animation manager
+    useEffect(() => {
+        waveManagerRef.current = new WaveAnimationManager({
+            levelDelay: 200,
+            nodeDuration: 600,
+            waveColor: '#60a5fa',
+            scaleFrom: 1.0,
+            scaleTo: 1.3,
+            maxDepth: 5,
+            maxNodes: 50,
+        });
+        
+        return () => {
+            if (waveManagerRef.current) {
+                waveManagerRef.current.stopAllWaves();
+            }
+        };
+    }, []);
+    
+    // NEW: Start wave animation when trigger changes
+    useEffect(() => {
+        if (!waveAnimationTrigger || !waveManagerRef.current) return;
+        
+        console.log('[GraphCanvas3D] Starting wave animation from', waveAnimationTrigger.originNodeKey);
+        waveManagerRef.current.startWave(
+            waveAnimationTrigger.originNodeKey,
+            waveAnimationTrigger.affectedNodes
+        );
+    }, [waveAnimationTrigger]);
 
     const graphStructure = useMemo<GraphStructure>(() => {
         const term = searchTerm.trim().toLowerCase();
@@ -108,10 +157,19 @@ export default function GraphCanvas3D({
         const groups = new Map<string, ClusterNode[]>();
         const nodes = filteredNodes.map((node) => {
             const group = getClusterGroup(node);
-            const baseColor = heatmapEnabled ? getHeatmapColor(node.complexity ?? 0) : getTypeColor(node.labels ?? []);
-        const hotspotBoost = Math.min(12, (node.hotspot_score ?? 0) / 6);
-        const complexityBase = (node.complexity ?? 2) + 4;
-        const val = Math.max(6, Math.min(28, complexityBase + hotspotBoost));
+            
+            // Use visual encoding for color - risk-based when not in heatmap mode
+            let baseColor: string;
+            if (heatmapEnabled) {
+                baseColor = getHeatmapColor(node.complexity ?? 0);
+            } else {
+                // Use risk color from visual encoding, fallback to type color
+                baseColor = getRiskColor(node);
+            }
+            
+            // Use visual encoding for size
+            const val = getNodeSize(node);
+            
             const clusterNode: ClusterNode = {
                 id: node.namespace_key,
                 name: node.name,
@@ -143,6 +201,18 @@ export default function GraphCanvas3D({
             clusterGroupEntries: Array.from(groups.entries()),
         };
     }, [graphNodes, graphEdges, searchTerm, heatmapEnabled]);
+    
+    // Update wave manager graph structure when edges change
+    useEffect(() => {
+        if (waveManagerRef.current) {
+            waveManagerRef.current.updateGraphStructure(
+                graphStructure.links.map(link => ({
+                    source: link.source,
+                    target: link.target,
+                }))
+            );
+        }
+    }, [graphStructure.links]);
 
     const clusterCenters = useMemo(() => {
         const entries = graphStructure.clusterGroupEntries;
@@ -225,17 +295,82 @@ export default function GraphCanvas3D({
         frameId = requestAnimationFrame(animate);
         return () => cancelAnimationFrame(frameId);
     }, []);
+    
+    // NEW: Animation loop for wave animations
+    useEffect(() => {
+        let frameId: number;
+        const animateWaves = () => {
+            // Trigger re-render if there are active waves
+            if (waveManagerRef.current && waveManagerRef.current.getActiveWaves().length > 0) {
+                if (fgRef.current) {
+                    fgRef.current.refresh();
+                }
+            }
+            frameId = requestAnimationFrame(animateWaves);
+        };
+        frameId = requestAnimationFrame(animateWaves);
+        return () => cancelAnimationFrame(frameId);
+    }, []);
+    
+    // Cleanup effect for brightness fade - trigger re-render when brightness changes
+    useEffect(() => {
+        if (recentChanges.size === 0) return;
+        
+        const interval = setInterval(() => {
+            // Check if any nodes need brightness update
+            let needsUpdate = false;
+            recentChanges.forEach((timestamp, nodeKey) => {
+                const elapsed = Date.now() - timestamp;
+                if (elapsed < 10000) {
+                    needsUpdate = true;
+                }
+            });
+            
+            if (needsUpdate && fgRef.current) {
+                // Force re-render of node objects to update colors
+                fgRef.current.refresh();
+            }
+        }, 100); // Check every 100ms for smooth fade
+        
+        return () => clearInterval(interval);
+    }, [recentChanges]);
 
     const determineNodeColor = useCallback(
         (node: ClusterNode) => {
-            if (aiHighlightedNodes.includes(node.id)) return '#f472b6';
-            if (node.id === selectedNodeKey) return '#facc15';
-            if (highlightedUpstream.has(node.id)) return '#22c55e';
-            if (highlightedDownstream.has(node.id)) return '#f97316';
-            if (aiHighlightedNodes.length > 0) return '#475569';
-            return node.color;
+            // Check if node is part of active wave animation
+            if (waveManagerRef.current && waveManagerRef.current.isAnimating(node.id)) {
+                const animState = waveManagerRef.current.getAnimationState(node.id);
+                if (animState) {
+                    return animState.color; // Use wave color (#60a5fa)
+                }
+            }
+            
+            let color: string;
+            
+            // Priority-based color selection
+            if (aiHighlightedNodes.includes(node.id)) {
+                color = '#f472b6';
+            } else if (node.id === selectedNodeKey) {
+                color = '#facc15';
+            } else if (highlightedUpstream.has(node.id)) {
+                color = '#22c55e';
+            } else if (highlightedDownstream.has(node.id)) {
+                color = '#f97316';
+            } else if (aiHighlightedNodes.length > 0) {
+                color = '#475569';
+            } else {
+                color = node.color;
+            }
+            
+            // Apply brightness boost for recently changed nodes
+            const brightness = getBrightness(node.id, recentChanges);
+            if (brightness > 0) {
+                color = applyBrightness(color, brightness);
+            }
+            
+            return color;
         },
-        [aiHighlightedNodes, highlightedUpstream, highlightedDownstream, selectedNodeKey]
+        [aiHighlightedNodes, highlightedUpstream, highlightedDownstream, selectedNodeKey, recentChanges]
     );
 
     const createNodeObject = useCallback(
@@ -252,13 +387,25 @@ export default function GraphCanvas3D({
             );
             const group = new THREE.Group();
             group.add(sphere);
-            const scale = Math.min(2.4, 0.6 + node.val / 10);
+            
+            // Base scale from node size
+            let scale = Math.min(2.4, 0.6 + node.val / 10);
+            
+            // Apply wave animation scale if active
+            if (waveManagerRef.current && waveManagerRef.current.isAnimating(node.id)) {
+                const waveScale = waveManagerRef.current.getCurrentScale(node.id);
+                scale *= waveScale;
+            }
+            
             sphere.scale.setScalar(scale);
-            if (node.hotspot > 70) {
+            
+            // Apply pulse animation to high hotspot nodes using visual encoding
+            if (node.raw && shouldPulse(node.raw)) {
                 pulseMeshes.current.set(node.id, sphere);
             } else {
                 pulseMeshes.current.delete(node.id);
             }
+            
             return group;
         },
         [determineNodeColor]

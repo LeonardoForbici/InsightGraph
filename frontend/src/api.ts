@@ -1427,3 +1427,44 @@ export async function fetchCodeQLHistory(params?: {
     if (!res.ok) throw new Error(await res.text());
     return res.json();
 }
+
+// ──────────────────────────────────────────────
+// Temporal Analysis (Requirement 5)
+// ──────────────────────────────────────────────
+
+export interface AnalysisSnapshotItem {
+    id: string;
+    timestamp: number;
+    total_nodes: number;
+    total_edges: number;
+    god_classes: number;
+    circular_deps: number;
+    dead_code: number;
+    call_resolution_rate: number;
+    metrics: Record<string, unknown>;
+    created_at: number;
+}
+
+export interface AnalysisHistoryResponse {
+    items: AnalysisSnapshotItem[];
+    total: number;
+    page: number;
+    limit: number;
+}
+
+export async function getAnalysisHistory(page = 1, limit = 20): Promise<AnalysisHistoryResponse> {
+    const res = await fetch(`${BASE}/analysis/history?page=${page}&limit=${limit}`);
+    return res.json();
+}
+
+export async function getAnalysisDiff(fromId: string, toId: string): Promise<Record<string, unknown>> {
+    const res = await fetch(`${BASE}/analysis/diff?from_id=${encodeURIComponent(fromId)}&to_id=${encodeURIComponent(toId)}`);
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function getAnalysisTrend(metric: string, window = 10): Promise<Record<string, unknown>> {
+    const res = await fetch(`${BASE}/analysis/trend?metric=${encodeURIComponent(metric)}&window=${window}`);
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}

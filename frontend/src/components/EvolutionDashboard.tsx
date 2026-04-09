@@ -2,6 +2,8 @@ import { useEffect, useMemo, useState } from 'react';
 import {
     fetchEvolutionSummary,
     fetchHistory,
+    getAnalysisHistory,
+    type AnalysisSnapshotItem,
     type EvolutionSummary,
     type HistorySnapshot,
 } from '../api';
@@ -94,18 +96,30 @@ const getTrendCards = (
 export default function EvolutionDashboard() {
     const [summary, setSummary] = useState<EvolutionSummary | null>(null);
     const [history, setHistory] = useState<HistorySnapshot[]>([]);
+    const [snapshots, setSnapshots] = useState<AnalysisSnapshotItem[]>([]);
     const [loading, setLoading] = useState(true);
     const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
 
     useEffect(() => {
-        Promise.all([fetchEvolutionSummary(20), fetchHistory()])
-            .then(([summaryData, historyData]) => {
+        Promise.all([
+            fetchEvolutionSummary(20),
+            fetchHistory(),
+            getAnalysisHistory(1, 50),
+        ])
+            .then(([summaryData, historyData, analysisHistory]) => {
                 setSummary(summaryData);
                 setHistory(historyData || []);
+                setSnapshots(analysisHistory?.items ?? []);
                 setSelectedIdx(summaryData.series.length ? summaryData.series.length - 1 : null);
             })
             .catch((err) => {
                 console.error('Failed to load evolution dashboard data', err);
+                // Fallback: try loading just the analysis history
+                getAnalysisHistory(1, 50)
+                    .then((analysisHistory) => {
+                        setSnapshots(analysisHistory?.items ?? []);
+                    })
+                    .catch(() => {/* ignore */});
             })
             .finally(() => setLoading(false));
     }, []);
@@ -113,13 +127,22 @@ export default function EvolutionDashboard() {
     const series = useMemo(() => summary?.series ?? [], [summary]);
     const historyMap = useMemo(() => {
         const map = new Map<string, number>();
+        // Legacy history.json snapshots
         history.forEach((snapshot) => {
             const dateKey = snapshot.timestamp.slice(0, 10);
             const risk = (snapshot.god_classes * 5) + (snapshot.circular_deps * 5) + snapshot.dead_code;
             map.set(dateKey, risk);
         });
+        // New SQLite-backed snapshots (timestamp is a Unix float)
+        snapshots.forEach((snapshot) => {
+            const dateKey = new Date(snapshot.timestamp * 1000).toISOString().slice(0, 10);
+            const risk = (snapshot.god_classes * 5) + (snapshot.circular_deps * 5) + snapshot.dead_code;
+            // Prefer the higher risk value if both sources have data for the same day
+            const existing = map.get(dateKey) ?? 0;
+            map.set(dateKey, Math.max(existing, risk));
+        });
         return map;
-    }, [history]);
+    }, [history, snapshots]);
 
     const heatmapCells = useMemo(() => {
         const cells: Array<{ date: Date; value: number | null }> = [];

@@ -1,98 +1,199 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
 <head>
-  <meta charset="utf-8" />
-  <title>{{ title }}</title>
-  <style>
-    body { font-family: 'Inter', Verdana, sans-serif; background: #f5f7fb; color: #0f172a; margin: 0; padding: 32px; }
-    h1 { font-size: 32px; margin-bottom: 4px; }
-    h2 { margin-top: 32px; font-size: 20px; color: #1e3a8a; }
-    table { width: 100%; border-collapse: collapse; margin-top: 8px; }
-    th, td { border: 1px solid #cbd5f5; padding: 8px 10px; text-align: left; font-size: 12px; }
-    th { background: #e0e7ff; }
-    .section, .executive-summary, .technical-details { margin-top: 24px; }
-    .section-desc { color: #475569; font-size: 13px; margin: 8px 0; }
-    .pill { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; background: #e0f2fe; border-radius: 999px; color: #0f172a; font-size: 12px; font-weight: 600; }
-    .report-title-group { display: flex; flex-direction: column; gap: 4px; }
-    .report-meta { color: #475569; font-size: 12px; margin-top: 6px; text-transform: uppercase; letter-spacing: 0.08em; }
-    .executive-summary ul,
-    .technical-details ul { list-style: none; padding: 0; margin: 12px 0 0; display: flex; flex-direction: column; gap: 6px; }
-    .executive-summary ul li,
-    .technical-details ul li { background: #fff; border-radius: 8px; padding: 8px 12px; box-shadow: 0 6px 16px rgba(15,23,42,0.08); font-size: 13px; }
-    .comparison { font-size: 12px; color: #0f172a; margin-top: 10px; font-weight: 600; }
-    .report-chart { margin-top: 18px; padding: 12px; background: #fff; border-radius: 16px; box-shadow: 0 12px 28px rgba(15,23,42,0.15); }
-    .footer { margin-top: 48px; font-size: 11px; color: #475569; border-top: 1px solid #cbd5f5; padding-top: 12px; }
-  </style>
+    <meta charset="UTF-8">
+    <title>Relatório Executivo InsightGraph</title>
 </head>
 <body>
-  <header>
-    <div class="pill">{{ project_logo }}</div>
-    <div class="report-title-group">
-      <h1>{{ title }}</h1>
-      {% if subtitle %}
-        <p class="section-desc">{{ subtitle }}</p>
-      {% endif %}
-      <p class="report-meta">Projeto: {{ project_name }} · Gerado em {{ generated_at }}</p>
+    <h1>Relatório Executivo de Arquitetura</h1>
+    
+    <div class="metadata">
+        <p><strong>Projeto:</strong> {{ project }}</p>
+        <p><strong>Data de Geração:</strong> {{ generated_at }}</p>
     </div>
-  </header>
 
-  <section class="executive-summary">
-    <h2>Executive Summary</h2>
-    <ul>
-      {% for item in executive_summary %}
-        <li>{{ item }}</li>
-      {% endfor %}
-    </ul>
-    {% if comparison %}
-      <p class="comparison">{{ comparison }}</p>
-    {% endif %}
-  </section>
+    <!-- Executive Summary (Task 13.4) -->
+    <h2>Resumo Executivo</h2>
+    <div class="metric">
+        <p>{{ executive_summary }}</p>
+    </div>
 
-  {% if chart_svg %}
-    <section class="report-chart">
-      {{ chart_svg | safe }}
-    </section>
-  {% endif %}
+    <!-- Current Metrics -->
+    <h2>Métricas Atuais</h2>
+    <div class="metric">
+        <p><strong>Total de Componentes:</strong> {{ format_number(current_stats.total_nodes) }}</p>
+        <p><strong>Total de Dependências:</strong> {{ format_number(current_stats.total_edges) }}</p>
+        <p><strong>Projetos:</strong> {{ current_stats.projects|length }}</p>
+    </div>
 
-  <section class="technical-details">
-    <h2>Technical Details</h2>
-    <ul>
-      {% for item in technical_details %}
-        <li>{{ item }}</li>
-      {% endfor %}
-    </ul>
-  </section>
-  {% for section in sections %}
-    <section class="section">
-      <h2>{{ section.title }}</h2>
-      {% if section.description %}
-        <p class="section-desc">{{ section.description }}</p>
-      {% endif %}
-      {% if section.table %}
-        <table>
-          <thead>
+    {% if current_stats.nodes_by_type %}
+    <h3>Distribuição por Tipo</h3>
+    <table>
+        <thead>
             <tr>
-              {% for column in section.table.columns %}
-                <th>{{ column }}</th>
-              {% endfor %}
+                <th>Tipo</th>
+                <th>Quantidade</th>
             </tr>
-          </thead>
-          <tbody>
-            {% for row in section.table.rows %}
-              <tr>
-                {% for column in section.table.columns %}
-                  <td>{{ row[column] }}</td>
-                {% endfor %}
-              </tr>
+        </thead>
+        <tbody>
+            {% for type, count in current_stats.nodes_by_type.items() %}
+            <tr>
+                <td>{{ type }}</td>
+                <td>{{ format_number(count) }}</td>
+            </tr>
             {% endfor %}
-          </tbody>
+        </tbody>
+    </table>
+    {% endif %}
+
+    {% if current_stats.layers %}
+    <h3>Distribuição por Camada</h3>
+    <table>
+        <thead>
+            <tr>
+                <th>Camada</th>
+                <th>Componentes</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for layer, count in current_stats.layers.items() %}
+            <tr>
+                <td>{{ layer }}</td>
+                <td>{{ format_number(count) }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% endif %}
+
+    <!-- Historical Evolution (Task 13.9 - handle no snapshots case) -->
+    <h2>Evolução Histórica</h2>
+    {% if has_snapshots %}
+        {% if trend %}
+        <div class="metric">
+            <p><strong>Mudança de Componentes:</strong> 
+                {% if trend.nodes_change > 0 %}
+                    +{{ format_number(trend.nodes_change) }} (crescimento)
+                {% elif trend.nodes_change < 0 %}
+                    {{ format_number(trend.nodes_change) }} (redução)
+                {% else %}
+                    Sem mudanças
+                {% endif %}
+            </p>
+            <p><strong>Tendência de Complexidade:</strong> 
+                {% if trend.complexity_trend == 'increasing' %}
+                    ⚠️ Aumentando
+                {% elif trend.complexity_trend == 'decreasing' %}
+                    ✓ Diminuindo
+                {% else %}
+                    → Estável
+                {% endif %}
+            </p>
+        </div>
+        {% endif %}
+
+        <h3>Histórico de Análises</h3>
+        <table>
+            <thead>
+                <tr>
+                    <th>Data</th>
+                    <th>Componentes</th>
+                    <th>Dependências</th>
+                    <th>God Classes</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for snapshot in snapshots[:5] %}
+                <tr>
+                    <td>{{ format_date(snapshot.timestamp) }}</td>
+                    <td>{{ format_number(snapshot.total_nodes) }}</td>
+                    <td>{{ format_number(snapshot.total_edges) }}</td>
+                    <td>{{ snapshot.god_classes }}</td>
+                </tr>
+                {% endfor %}
+            </tbody>
         </table>
-      {% endif %}
-      {% if section.metric %}
-        <div class="section-desc">{{ section.metric }}</div>
-      {% endif %}
-    </section>
-  {% endfor %}
-  <footer class="footer">Relatório gerado em {{ generated_at }} — InsightGraph / CAST parity plan</footer>
+    {% else %}
+        <div class="no-data">
+            <p>Este é o primeiro relatório gerado. Não há dados históricos disponíveis para comparação.</p>
+            <p>Execute análises periódicas para acompanhar a evolução do sistema ao longo do tempo.</p>
+        </div>
+    {% endif %}
+
+    <!-- Critical Alerts -->
+    <h2>Alertas Críticos</h2>
+    {% if critical_alerts %}
+        <p>Foram identificados <strong>{{ critical_alerts|length }}</strong> alertas que requerem atenção imediata:</p>
+        {% for alert in critical_alerts[:10] %}
+        <div class="alert-{{ alert.severity }}">
+            <p><strong>{{ alert.antipattern_type }}</strong></p>
+            <p>Componente: {{ alert.node_key }}</p>
+            <p>Severidade: {{ alert.severity }}</p>
+        </div>
+        {% endfor %}
+    {% else %}
+        <div class="metric">
+            <p>✓ Não há alertas críticos no momento. O sistema está operando dentro dos parâmetros esperados.</p>
+        </div>
+    {% endif %}
+
+    <!-- Top Hotspots -->
+    <h2>Top 10 Pontos de Atenção</h2>
+    {% if top_hotspots %}
+    <p>Componentes com maior risco (alta complexidade ou alto acoplamento):</p>
+    <table>
+        <thead>
+            <tr>
+                <th>Componente</th>
+                <th>Camada</th>
+                <th>Complexidade</th>
+                <th>Dependências (In/Out)</th>
+                <th>Score de Risco</th>
+            </tr>
+        </thead>
+        <tbody>
+            {% for hotspot in top_hotspots %}
+            <tr>
+                <td>{{ hotspot.name }}</td>
+                <td>{{ hotspot.layer }}</td>
+                <td>{{ hotspot.complexity }}</td>
+                <td>{{ hotspot.in_degree }} / {{ hotspot.out_degree }}</td>
+                <td>{{ hotspot.risk_score }}</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+    {% else %}
+        <div class="no-data">
+            <p>Nenhum ponto de atenção identificado.</p>
+        </div>
+    {% endif %}
+
+    <!-- Recommendations -->
+    <h2>Recomendações</h2>
+    <div class="metric">
+        <ul>
+            {% if critical_alerts %}
+            <li>Priorize a resolução dos {{ critical_alerts|length }} alertas críticos identificados</li>
+            {% endif %}
+            {% if top_hotspots %}
+            <li>Revise os componentes de alto risco listados acima para reduzir complexidade</li>
+            {% endif %}
+            {% if trend and trend.complexity_trend == 'increasing' %}
+            <li>A complexidade está aumentando - considere refatoração preventiva</li>
+            {% endif %}
+            {% if not has_snapshots %}
+            <li>Execute análises periódicas para acompanhar a evolução do sistema</li>
+            {% endif %}
+            <li>Mantenha a documentação arquitetural atualizada</li>
+            <li>Realize revisões de código regulares para manter a qualidade</li>
+        </ul>
+    </div>
+
+    <hr>
+    <p style="text-align: center; color: #6b7280; font-size: 9pt; margin-top: 2cm;">
+        Relatório gerado automaticamente pelo InsightGraph<br>
+        Para mais informações, acesse o dashboard completo
+    </p>
 </body>
 </html>

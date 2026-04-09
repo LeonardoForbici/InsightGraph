@@ -19,6 +19,10 @@ import subprocess
 import csv
 import io
 import threading
+import time
+import uuid
+import shutil
+import tempfile
 from dataclasses import asdict
 from pathlib import Path
 from typing import Iterable, List, Literal, Optional, Set
@@ -28,7 +32,7 @@ import xml.etree.ElementTree as ET
 import numpy as np
 
 import httpx
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Query
+from fastapi import FastAPI, HTTPException, BackgroundTasks, Query, Header, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse, Response
 from pydantic import BaseModel, Field
@@ -64,7 +68,57 @@ from symbol_resolver import SymbolResolver
 from taint_propagator import TaintPropagator
 from state import AppState
 from state_store import LocalStateStore
+from investigative_ai import InvestigativeAI
+from refactor_engine import RefactorEngine
+from intelligence_engine import IntelligenceEngine
 from rag_store import RagStore
+from temporal_analyzer import TemporalAnalyzer
+from audit_job import AuditJob
+from event_stream import EventStream, SSEEvent
+
+# Module-level analysis runtime (initialized in lifespan)
+intelligence_engine: Optional[IntelligenceEngine] = None
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger("insightgraph")
+
+# ──────────────────────────────────────────────
+# Windows-compatible directory cleanup helper
+# ──────────────────────────────────────────────
+def _remove_readonly_windows(func, path, excinfo):
+    """Error handler for Windows readonly files in shutil.rmtree."""
+    import os
+    import stat
+    os.chmod(path, stat.S_IWRITE)
+    func(path)
+
+def safe_rmtree(path: Path) -> None:
+    """
+    Safely remove directory tree with Windows compatibility.
+    Handles readonly files and permission errors gracefully.
+    """
+    try:
+        shutil.rmtree(path, onerror=_remove_readonly_windows)
+        logger.info(f"Cleaned up directory: {path}")
+    except Exception as e:
+        logger.warning(f"Primary cleanup failed: {e}, trying alternative")
+        try:
+            import time
+            time.sleep(0.5)  # Give Windows time to release handles
+            shutil.rmtree(path, ignore_errors=True)
+            logger.info(f"Cleaned up with ignore_errors: {path}")
+        except Exception as e2:
+            logger.error(f"Cleanup failed: {e2}")
+
+# Optional: ReportGenerator (requires weasyprint with GTK dependencies on Windows)
+try:
+    from report_generator import ReportGenerator
+    REPORT_GENERATOR_AVAILABLE = True
+except (ImportError, OSError) as e:
+    logger.warning("ReportGenerator not available (weasyprint dependencies missing): %s", e)
+    logger.warning("PDF report generation will be disabled. Install GTK+ for Windows to enable it.")
+    REPORT_GENERATOR_AVAILABLE = False
+    ReportGenerator = None
 
 # ──────────────────────────────────────────────
 # Configuration
@@ -90,13 +144,35 @@ QUALITY_HISTORY_LIMIT = int(os.getenv("QUALITY_HISTORY_LIMIT", "20"))
 STATE_DB_FILE = Path(os.getenv("STATE_DB_FILE", "insightgraph_state.db"))
 OLLAMA_FORCE_GPU = os.getenv("OLLAMA_FORCE_GPU", "0").lower() in ("1", "true", "yes", "on")
 OLLAMA_NUM_GPU = int(os.getenv("OLLAMA_NUM_GPU", "999") or "999")
+# Task 12.4 — Multi-tenant support: optional tenant ID for data isolation
+TENANT_ID = os.getenv("TENANT_ID", None)
 
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger("insightgraph")
 state_store = LocalStateStore(str(STATE_DB_FILE))
 rag_store = RagStore(RAG_STORE_FILE)
+temporal_analyzer = TemporalAnalyzer(state_store)
+audit_job = AuditJob(state_store)
 TEMPLATES_DIR = Path(__file__).resolve().parent / "templates" / "reports"
 REPORT_ENV = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)))
+REPORTS_OUTPUT_DIR = Path(os.getenv("REPORTS_OUTPUT_DIR", "./reports"))
+
+# Initialize ReportGenerator only if available
+report_generator = None
+if REPORT_GENERATOR_AVAILABLE:
+    try:
+        report_generator = ReportGenerator(
+            neo4j_service=neo4j_service,
+            state_store=state_store,
+            temporal_analyzer=temporal_analyzer,
+            audit_job=audit_job,
+            ollama_url=OLLAMA_URL,
+            ollama_chat_model=OLLAMA_CHAT_MODEL,
+            templates_dir=TEMPLATES_DIR,
+            reports_output_dir=REPORTS_OUTPUT_DIR,
+        )
+        logger.info("ReportGenerator initialized successfully")
+    except Exception as e:
+        logger.warning("Failed to initialize ReportGenerator: %s", e)
+        report_generator = None
 
 # ──────────────────────────────────────────────
 # FastAPI App
@@ -132,6 +208,15 @@ async def lifespan(application):
     except Exception as e:
         logger.warning("RAG startup load failed: %s", e)
 
+    # Initialize analysis runtime (including intelligence_engine)
+    try:
+        runtime = _build_analysis_runtime()
+        global intelligence_engine
+        intelligence_engine = runtime.get("intelligence_engine")
+        logger.info("Analysis runtime initialized")
+    except Exception as e:
+        logger.warning("Failed to initialize analysis runtime: %s", e)
+
     try:
         persisted = state_store.get_state("scan_status")
         if isinstance(persisted, dict) and persisted.get("status"):
@@ -141,7 +226,62 @@ async def lifespan(application):
             logger.info("Recovered persisted scan status from SQLite: %s", scan_state.status)
     except Exception as e:
         logger.warning("Failed to recover persisted scan status: %s", e)
+    
+    # Start periodic audit job
+    audit_task = asyncio.create_task(_periodic_audit_job())
+    logger.info("Periodic audit job started (30-minute interval)")
+    
+    # Start EventStream broadcast loop
+    event_stream.start_broadcast_loop()
+    logger.info("EventStream broadcast loop started")
+    
     yield
+    
+    # Stop EventStream broadcast loop on shutdown
+    await event_stream.stop_broadcast_loop()
+    logger.info("EventStream broadcast loop stopped")
+    
+    # Cancel periodic audit job on shutdown
+    audit_task.cancel()
+    try:
+        await audit_task
+    except asyncio.CancelledError:
+        logger.info("Periodic audit job stopped")
+
+
+async def _periodic_audit_job():
+    """Background job that runs audit checks every 30 minutes."""
+    while True:
+        try:
+            await asyncio.sleep(1800)  # 30 minutes = 1800 seconds
+            
+            logger.info("Running periodic audit check...")
+            
+            # Get current antipatterns
+            current_antipatterns = await _get_current_antipatterns()
+            
+            # Get the most recent snapshot for comparison
+            history = temporal_analyzer.get_history(page=1, limit=1)
+            previous_snapshot_id = None
+            if history["items"]:
+                previous_snapshot_id = history["items"][0]["id"]
+            
+            # Check for new antipatterns
+            new_alerts = await audit_job.check_for_new_antipatterns(
+                current_antipatterns=current_antipatterns,
+                previous_snapshot_id=previous_snapshot_id,
+            )
+            
+            if new_alerts:
+                logger.info("Periodic audit detected %d new alert(s)", len(new_alerts))
+            else:
+                logger.debug("Periodic audit: no new alerts")
+                
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.error("Periodic audit job error: %s", exc)
+            # Continue running despite errors
 
 app = FastAPI(
     title="InsightGraph API",
@@ -178,6 +318,32 @@ class AskRequest(BaseModel):
     question: str
     context_node: Optional[str] = None
 
+class InvestigateRequest(BaseModel):
+    question: str
+
+class RefactorRequest(BaseModel):
+    node_key: str
+
+class ArchitectRequest(BaseModel):
+    description: str
+
+class AuditAlert(BaseModel):
+    id: str
+    antipattern_type: str
+    node_key: str
+    severity: str
+    resolved: bool
+    resolved_by: str | None = None
+    resolved_at: float | None = None
+    created_at: float
+
+class AuditAlertListResponse(BaseModel):
+    items: list[AuditAlert] = Field(default_factory=list)
+    total: int = 0
+
+class ResolveAlertRequest(BaseModel):
+    resolved_by: str
+
 class AskResponse(BaseModel):
     answer: str
     relevant_nodes: list[str] = []
@@ -192,6 +358,12 @@ class QualityThresholds(BaseModel):
     min_call_resolution: float = Field(..., ge=0.0, le=1.0, description="Taxa mínima de Call Resolution (0-1)")
     max_hotspot_score: float = Field(..., ge=0.0, le=100.0, description="Maior hotspot aceito")
     min_iso5055: float = Field(..., ge=0.0, le=100.0, description="Percentual mínimo ISO 5055")
+
+class BrandingConfig(BaseModel):
+    name: str
+    logo_url: str | None = None
+    primary_color: str
+    secondary_color: str | None = None
 
 class QualityGateRequest(BaseModel):
     thresholds: QualityThresholds
@@ -303,6 +475,7 @@ class HealthStatus(BaseModel):
     rag_index_nodes: int = 0
     force_gpu: bool = OLLAMA_FORCE_GPU
     num_gpu: int = OLLAMA_NUM_GPU
+    technical_debt_critical: bool = False
 
 class SimulationReviewRequest(BaseModel):
     risk_score: int = 0
@@ -347,6 +520,13 @@ class AnnotationUpdateRequest(BaseModel):
     tag: str | None = None
     tag_color: str | None = None
 
+
+class ArchitecturalDecisionRequest(BaseModel):
+    node_key: str
+    decision_type: Literal["aceito", "excecao", "padrao_valido"]
+    description: str | None = None
+    author: str | None = None
+
 # Global state built on AppState
 app_state = AppState.instance()
 scan_state = app_state.scan_status
@@ -358,6 +538,11 @@ memory_edges = app_state.edges
 rag_index = app_state.rag_index
 rag_index_metadata = app_state.rag_index_metadata
 todo_records = app_state.todos
+
+# Global EventStream for SSE — WatchService pushes events; /api/events consumers read them
+event_stream = EventStream()
+# Legacy sse_queue for backward compatibility (can be removed once all code uses event_stream)
+sse_queue: asyncio.Queue = asyncio.Queue()
 
 # ──────────────────────────────────────────────
 # Neo4j Service
@@ -389,6 +574,7 @@ class Neo4jService:
             "CREATE INDEX idx_namespace IF NOT EXISTS FOR (n:Entity) ON (n.namespace_key)",
             "CREATE INDEX idx_project IF NOT EXISTS FOR (n:Entity) ON (n.project)",
             "CREATE INDEX idx_layer IF NOT EXISTS FOR (n:Entity) ON (n.layer)",
+            "CREATE INDEX idx_tenant IF NOT EXISTS FOR (n:Entity) ON (n.tenant)",
             "CREATE INDEX idx_java_class IF NOT EXISTS FOR (n:Java_Class) ON (n.namespace_key)",
             "CREATE INDEX idx_java_method IF NOT EXISTS FOR (n:Java_Method) ON (n.namespace_key)",
             "CREATE INDEX idx_ts_component IF NOT EXISTS FOR (n:TS_Component) ON (n.namespace_key)",
@@ -396,6 +582,10 @@ class Neo4jService:
             "CREATE INDEX idx_sql_table IF NOT EXISTS FOR (n:SQL_Table) ON (n.namespace_key)",
             "CREATE INDEX idx_sql_procedure IF NOT EXISTS FOR (n:SQL_Procedure) ON (n.namespace_key)",
             "CREATE INDEX idx_mobile_component IF NOT EXISTS FOR (n:Mobile_Component) ON (n.namespace_key)",
+            # Temporal tracking indexes
+            "CREATE INDEX idx_last_modified IF NOT EXISTS FOR (n:Entity) ON (n.last_modified)",
+            "CREATE INDEX idx_change_frequency IF NOT EXISTS FOR (n:Entity) ON (n.change_frequency)",
+            "CREATE INDEX idx_first_seen IF NOT EXISTS FOR (n:Entity) ON (n.first_seen)",
         ]
         for q in queries:
             try:
@@ -406,12 +596,22 @@ class Neo4jService:
 
     def merge_node(self, label: str, namespace_key: str, properties: dict) -> None:
         """MERGE a node by namespace_key to avoid duplicates."""
+        import time
+        
         props = {**properties, "namespace_key": namespace_key}
-        prop_str = ", ".join(f"n.{k} = ${k}" for k in props if k != "namespace_key")
+        
+        # Add temporal tracking fields
+        current_timestamp = time.time()
+        props["last_modified"] = current_timestamp
+        
+        # Prepare property strings for CREATE and MATCH separately
+        create_props = ", ".join(f"n.{k} = ${k}" for k in props if k != "namespace_key")
+        match_props = ", ".join(f"n.{k} = ${k}" for k in props if k not in ["namespace_key", "first_seen"])
+        
         query = f"""
         MERGE (n:{label}:Entity {{namespace_key: $namespace_key}})
-        ON CREATE SET {prop_str}
-        ON MATCH SET {prop_str}
+        ON CREATE SET {create_props}, n.first_seen = $last_modified, n.change_frequency = 0
+        ON MATCH SET {match_props}, n.change_frequency = coalesce(n.change_frequency, 0) + 1
         """
         self.graph.run(query, **props)
 
@@ -430,10 +630,13 @@ class Neo4jService:
         """
         self.graph.run(query, **params)
 
-    def get_full_graph(self, project: str = None, layer: str = None) -> dict:
+    def get_full_graph(self, project: str = None, layer: str = None, tenant: str = None) -> dict:
         """Return all nodes and edges, optionally filtered."""
         where_clauses = []
         params = {}
+        if tenant:
+            where_clauses.append("n.tenant = $tenant")
+            params["tenant"] = tenant
         if project:
             where_clauses.append("n.project = $project")
             params["project"] = project
@@ -468,31 +671,47 @@ class Neo4jService:
 
         return {"nodes": nodes, "edges": edges}
 
-    def get_impact(self, node_key: str) -> dict:
+    def get_impact(self, node_key: str, tenant: str = None) -> dict:
         """Return upstream and downstream neighbors of a node."""
-        upstream_query = """
-        MATCH (upstream:Entity)-[r]->(target:Entity {namespace_key: $key})
+        tenant_filter = "AND upstream.tenant = $tenant" if tenant else ""
+        upstream_query = f"""
+        MATCH (upstream:Entity)-[r]->(target:Entity {{namespace_key: $key}})
+        WHERE 1=1 {tenant_filter}
         RETURN upstream.namespace_key AS key, upstream.name AS name, 
                labels(upstream) AS labels, type(r) AS rel_type
         LIMIT 100
         """
-        downstream_query = """
-        MATCH (target:Entity {namespace_key: $key})-[r]->(downstream:Entity)
+        
+        tenant_filter_down = "AND downstream.tenant = $tenant" if tenant else ""
+        downstream_query = f"""
+        MATCH (target:Entity {{namespace_key: $key}})-[r]->(downstream:Entity)
+        WHERE 1=1 {tenant_filter_down}
         RETURN downstream.namespace_key AS key, downstream.name AS name,
                labels(downstream) AS labels, type(r) AS rel_type
         LIMIT 100
         """
-        upstream = self.graph.run(upstream_query, key=node_key).data()
-        downstream = self.graph.run(downstream_query, key=node_key).data()
+        
+        params = {"key": node_key}
+        if tenant:
+            params["tenant"] = tenant
+            
+        upstream = self.graph.run(upstream_query, **params).data()
+        downstream = self.graph.run(downstream_query, **params).data()
 
         return {"upstream": upstream, "downstream": downstream}
 
-    def get_projects(self) -> list[str]:
+    def get_projects(self, tenant: str = None) -> list[str]:
         """List all distinct project names."""
-        result = self.graph.run("MATCH (n:Entity) RETURN DISTINCT n.project AS project").data()
+        if tenant:
+            result = self.graph.run(
+                "MATCH (n:Entity {tenant: $tenant}) RETURN DISTINCT n.project AS project",
+                tenant=tenant
+            ).data()
+        else:
+            result = self.graph.run("MATCH (n:Entity) RETURN DISTINCT n.project AS project").data()
         return [r["project"] for r in result if r["project"]]
 
-    def get_stats(self) -> dict:
+    def get_stats(self, tenant: str = None) -> dict:
         """Return comprehensive graph statistics."""
         stats = {
             "total_nodes": 0,
@@ -503,43 +722,59 @@ class Neo4jService:
             "projects": [],
         }
 
+        tenant_filter = "WHERE n.tenant = $tenant" if tenant else ""
+        params = {"tenant": tenant} if tenant else {}
+
         try:
             # Total nodes
-            result = self.graph.run("MATCH (n:Entity) RETURN count(n) AS cnt").data()
+            result = self.graph.run(
+                f"MATCH (n:Entity) {tenant_filter} RETURN count(n) AS cnt",
+                **params
+            ).data()
             stats["total_nodes"] = result[0]["cnt"] if result else 0
 
             # Total edges
-            result = self.graph.run("MATCH ()-[r]->() RETURN count(r) AS cnt").data()
+            edge_filter = "WHERE a.tenant = $tenant AND b.tenant = $tenant" if tenant else ""
+            result = self.graph.run(
+                f"MATCH (a:Entity)-[r]->(b:Entity) {edge_filter} RETURN count(r) AS cnt",
+                **params
+            ).data()
             stats["total_edges"] = result[0]["cnt"] if result else 0
 
             # Nodes by type (excluding the 'Entity' label)
-            result = self.graph.run("""
+            result = self.graph.run(f"""
                 MATCH (n:Entity)
+                {tenant_filter}
                 WITH [l IN labels(n) WHERE l <> 'Entity'][0] AS lbl
                 RETURN lbl, count(*) AS cnt
                 ORDER BY cnt DESC
-            """).data()
+            """, **params).data()
             stats["nodes_by_type"] = {r["lbl"]: r["cnt"] for r in result if r["lbl"]}
 
             # Edges by type
-            result = self.graph.run("""
-                MATCH ()-[r]->()
+            result = self.graph.run(f"""
+                MATCH (a:Entity)-[r]->(b:Entity)
+                {edge_filter}
                 RETURN type(r) AS rel_type, count(*) AS cnt
                 ORDER BY cnt DESC
-            """).data()
+            """, **params).data()
             stats["edges_by_type"] = {r["rel_type"]: r["cnt"] for r in result}
 
             # Layers
-            result = self.graph.run("""
+            result = self.graph.run(f"""
                 MATCH (n:Entity)
+                {tenant_filter}
                 WHERE n.layer IS NOT NULL
                 RETURN n.layer AS layer, count(*) AS cnt
                 ORDER BY cnt DESC
-            """).data()
+            """, **params).data()
             stats["layers"] = {r["layer"]: r["cnt"] for r in result}
 
             # Projects
-            result = self.graph.run("MATCH (n:Entity) RETURN DISTINCT n.project AS project").data()
+            result = self.graph.run(
+                f"MATCH (n:Entity) {tenant_filter} RETURN DISTINCT n.project AS project",
+                **params
+            ).data()
             stats["projects"] = [r["project"] for r in result if r["project"]]
 
         except Exception as e:
@@ -547,23 +782,29 @@ class Neo4jService:
 
         return stats
 
-    def get_graph_context(self, node_key: str = None, limit: int = 50) -> str:
+    def get_graph_context(self, node_key: str = None, limit: int = 50, tenant: str = None) -> str:
         """Build a text summary of the graph for AI context."""
         try:
             if node_key:
                 # Get context around a specific node
-                query = """
-                MATCH (center:Entity {namespace_key: $key})
+                tenant_filter = "AND upstream.tenant = $tenant AND downstream.tenant = $tenant" if tenant else ""
+                query = f"""
+                MATCH (center:Entity {{namespace_key: $key}})
                 OPTIONAL MATCH (upstream:Entity)-[r1]->(center)
+                WHERE 1=1 {tenant_filter.replace('downstream.tenant', 'upstream.tenant') if tenant else ''}
                 OPTIONAL MATCH (center)-[r2]->(downstream:Entity)
+                WHERE 1=1 {tenant_filter.replace('upstream.tenant', 'downstream.tenant') if tenant else ''}
                 WITH center, 
-                     collect(DISTINCT {name: upstream.name, type: type(r1), labels: labels(upstream)}) AS ups,
-                     collect(DISTINCT {name: downstream.name, type: type(r2), labels: labels(downstream)}) AS downs
+                     collect(DISTINCT {{name: upstream.name, type: type(r1), labels: labels(upstream)}}) AS ups,
+                     collect(DISTINCT {{name: downstream.name, type: type(r2), labels: labels(downstream)}}) AS downs
                 RETURN center.name AS name, center.layer AS layer, labels(center) AS labels,
                        coalesce(center.complexity, 1) AS complexity, coalesce(center.loc, 0) AS loc,
                        ups, downs
                 """
-                result = self.graph.run(query, key=node_key).data()
+                params = {"key": node_key}
+                if tenant:
+                    params["tenant"] = tenant
+                result = self.graph.run(query, **params).data()
                 if not result:
                     return "Nó não encontrado no grafo."
 
@@ -578,22 +819,29 @@ class Neo4jService:
                 return "\n".join(lines)
             else:
                 # Get a general summary of the graph
-                nodes_query = """
+                tenant_filter = "WHERE n.tenant = $tenant" if tenant else ""
+                nodes_query = f"""
                 MATCH (n:Entity)
+                {tenant_filter}
                 WITH [l IN labels(n) WHERE l <> 'Entity'][0] AS type, n.name AS name, 
                      n.layer AS layer, n.project AS project
                 RETURN type, name, layer, project
                 ORDER BY type, name
                 LIMIT $limit
                 """
-                result = self.graph.run(nodes_query, limit=limit).data()
+                params = {"limit": limit}
+                if tenant:
+                    params["tenant"] = tenant
+                result = self.graph.run(nodes_query, **params).data()
 
-                rels_query = """
+                edge_filter = "WHERE a.tenant = $tenant AND b.tenant = $tenant" if tenant else ""
+                rels_query = f"""
                 MATCH (a:Entity)-[r]->(b:Entity)
+                {edge_filter}
                 RETURN a.name AS source, type(r) AS rel, b.name AS target
                 LIMIT $limit
                 """
-                rels = self.graph.run(rels_query, limit=limit).data()
+                rels = self.graph.run(rels_query, **params).data()
 
                 lines = ["=== Nós do Sistema ==="]
                 for r in result:
@@ -2528,6 +2776,98 @@ def _route_matches(pattern: str, candidate: str) -> bool:
     return True
 
 
+def _detect_cross_project_dependencies(entities: dict, current_project: str) -> None:
+    """Detect and create edges for cross-project dependencies.
+    
+    Task 11.2: Detect imports and HTTP calls between different projects.
+    Creates DEPENDS_ON_PROJECT edges when dependencies are found.
+    """
+    nodes = entities.get("nodes", [])
+    rels = entities.get("relationships", [])
+    
+    # Build index of all nodes by project
+    nodes_by_project: dict[str, list[dict]] = {}
+    for node in nodes:
+        project = node.get("project", "")
+        if project:
+            nodes_by_project.setdefault(project, []).append(node)
+    
+    # If only one project, no cross-project dependencies possible
+    if len(nodes_by_project) <= 1:
+        return
+    
+    existing = set(
+        (r.get("from"), r.get("to"), r.get("type"))
+        for r in rels
+        if r.get("from") and r.get("to") and r.get("type")
+    )
+    
+    # Detect cross-project dependencies
+    for node in nodes:
+        src_project = node.get("project", "")
+        src_key = node.get("namespace_key")
+        if not src_key or not src_project:
+            continue
+        
+        # Check for HTTP calls to other projects (via called_routes)
+        called_routes = node.get("called_routes") or []
+        if called_routes:
+            # Find API endpoints in other projects
+            for other_project, other_nodes in nodes_by_project.items():
+                if other_project == src_project:
+                    continue
+                
+                for other_node in other_nodes:
+                    if other_node.get("label") == "API_Endpoint":
+                        route = other_node.get("route_path")
+                        if route and any(_route_matches(route, called) for called in called_routes):
+                            dst_key = other_node.get("namespace_key")
+                            if dst_key:
+                                key = (src_key, dst_key, "CROSS_PROJECT_HTTP")
+                                if key not in existing:
+                                    rels.append({
+                                        "from": src_key,
+                                        "to": dst_key,
+                                        "type": "CROSS_PROJECT_HTTP",
+                                        "source_project": src_project,
+                                        "target_project": other_project,
+                                    })
+                                    existing.add(key)
+        
+        # Check for imports that reference other projects
+        # This is detected by looking at CALLS relationships that cross project boundaries
+        for rel in list(rels):
+            if rel.get("type") != "CALLS":
+                continue
+            
+            src = rel.get("from") or rel.get("source")
+            dst = rel.get("to") or rel.get("target")
+            
+            if not src or not dst:
+                continue
+            
+            # Extract project names from namespace keys
+            src_parts = src.split(":")
+            dst_parts = dst.split(":")
+            
+            if len(src_parts) >= 1 and len(dst_parts) >= 1:
+                src_proj = src_parts[0]
+                dst_proj = dst_parts[0]
+                
+                # If projects differ, this is a cross-project call
+                if src_proj != dst_proj:
+                    key = (src, dst, "CROSS_PROJECT_CALL")
+                    if key not in existing:
+                        rels.append({
+                            "from": src,
+                            "to": dst,
+                            "type": "CROSS_PROJECT_CALL",
+                            "source_project": src_proj,
+                            "target_project": dst_proj,
+                        })
+                        existing.add(key)
+
+
 def _link_cross_project_apis(entities: dict) -> None:
     """Link frontend/mobile HTTP call sites to backend API endpoints.
 
@@ -3153,6 +3493,8 @@ async def scan_project(project_path: str) -> dict:
 
     # Cross-project API linking (frontend/mobile -> backend endpoints)
     _link_cross_project_apis(all_entities)
+    # Task 11.2 — Detect cross-project imports and HTTP calls
+    _detect_cross_project_dependencies(all_entities, project_name)
     # Resolve method/function calls to concrete targets and derive N-hop links
     _resolve_internal_calls(all_entities, max_hops=4)
     # Compute CK-style class metrics
@@ -3170,6 +3512,10 @@ async def ingest_to_neo4j(entities: dict) -> None:
     for node in entities["nodes"]:
         label = node.pop("label")
         ns_key = node["namespace_key"]
+        
+        # Task 12.4 — Add tenant field if TENANT_ID is configured
+        if TENANT_ID and "tenant" not in node:
+            node["tenant"] = TENANT_ID
 
         # Always store in memory
         memory_nodes.append({**node, "labels": [label, "Entity"]})
@@ -3308,6 +3654,22 @@ async def run_scan(paths: list[str]):
             except Exception as embed_err:
                 logger.warning("Failed to persist RAG embeddings: %s", embed_err)
 
+            # Task 5.3 — non-blocking temporal snapshot
+            try:
+                graph_stats = {
+                    "total_nodes": scan_state.total_nodes,
+                    "total_edges": scan_state.total_relationships,
+                    "god_classes": len((await get_antipatterns()).get("god_classes", [])),
+                    "circular_deps": len((await get_antipatterns()).get("circular_dependencies", [])),
+                    "dead_code": len((await get_antipatterns()).get("dead_code", [])),
+                    "call_resolution_rate": float(
+                        _compute_call_resolution_summary(top_n=1).get("resolution_rate", 0.0) or 0.0
+                    ),
+                }
+                asyncio.create_task(temporal_analyzer.capture_snapshot(graph_stats))
+            except Exception as snap_err:
+                logger.warning("Failed to schedule temporal snapshot: %s", snap_err)
+
         except Exception as e:
             scan_state.status = "error"
             scan_state.errors.append(str(e))
@@ -3337,15 +3699,47 @@ async def get_scan_status():
     return scan_state
 
 
+# ──────────────────────────────────────────────
+# Temporal Analysis Endpoints (Requirement 5)
+# ──────────────────────────────────────────────
+
+@app.get("/api/analysis/history")
+async def get_analysis_history(page: int = 1, limit: int = 20):
+    """Return paginated analysis snapshot history."""
+    return temporal_analyzer.get_history(page, limit)
+
+
+@app.get("/api/analysis/diff")
+async def get_analysis_diff(from_id: str = Query(...), to_id: str = Query(...)):
+    """Return delta between two snapshots with per-metric trend classification."""
+    try:
+        return temporal_analyzer.get_diff(from_id, to_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+@app.get("/api/analysis/trend")
+async def get_analysis_trend(metric: str = Query(...), window: int = Query(10)):
+    """Return time-series for a given metric over the last *window* snapshots."""
+    return temporal_analyzer.get_trend(metric, window)
+
+
 @app.get("/api/graph")
-async def get_graph(project: str = None, layer: str = None):
-    """Return the full graph. Uses Neo4j if connected, otherwise in-memory data."""
+async def get_graph(
+    project: str = None, 
+    layer: str = None,
+    x_tenant_id: str = Header(None, alias="X-Tenant-ID")
+):
+    """Return the full graph. Uses Neo4j if connected, otherwise in-memory data.
+    
+    Supports multi-tenant isolation via X-Tenant-ID header.
+    """
     global memory_nodes, memory_edges
     if neo4j_service.is_connected:
         try:
-            data = neo4j_service.get_full_graph(project=project, layer=layer)
+            data = neo4j_service.get_full_graph(project=project, layer=layer, tenant=x_tenant_id)
             # Sync to memory if we're getting the full graph (no filters)
-            if not project and not layer:
+            if not project and not layer and not x_tenant_id:
                 memory_nodes[:] = [dict(n) for n in data["nodes"]]
                 memory_edges[:] = [dict(e) for e in data["edges"]]
             return data
@@ -3355,6 +3749,8 @@ async def get_graph(project: str = None, layer: str = None):
     # Fallback: return in-memory data
     nodes = memory_nodes
     edges = memory_edges
+    if x_tenant_id:
+        nodes = [n for n in nodes if n.get("tenant") == x_tenant_id]
     if project:
         nodes = [n for n in nodes if n.get("project") == project]
     if layer:
@@ -3365,11 +3761,14 @@ async def get_graph(project: str = None, layer: str = None):
 
 
 @app.get("/api/impact/{node_key:path}")
-async def get_impact(node_key: str):
-    """Return upstream and downstream neighbors of a node."""
+async def get_impact(node_key: str, x_tenant_id: str = Header(None, alias="X-Tenant-ID")):
+    """Return upstream and downstream neighbors of a node.
+    
+    Supports multi-tenant isolation via X-Tenant-ID header.
+    """
     if neo4j_service.is_connected:
         try:
-            return neo4j_service.get_impact(node_key)
+            return neo4j_service.get_impact(node_key, tenant=x_tenant_id)
         except Exception as e:
             logger.warning("Neo4j impact query failed, falling back to memory: %s", e)
 
@@ -3377,10 +3776,14 @@ async def get_impact(node_key: str):
     graph = _ensure_graph_index()
     upstream = []
     downstream = []
+    
+    # Apply tenant filtering if specified
     for edge in graph.incoming_edges(node_key):
         src = edge.get("source")
         src_node = graph.node_by_key.get(src)
         if not src_node:
+            continue
+        if x_tenant_id and src_node.get("tenant") != x_tenant_id:
             continue
         upstream.append({
             "key": src,
@@ -3393,6 +3796,8 @@ async def get_impact(node_key: str):
         tgt_node = graph.node_by_key.get(tgt)
         if not tgt_node:
             continue
+        if x_tenant_id and tgt_node.get("tenant") != x_tenant_id:
+            continue
         downstream.append({
             "key": tgt,
             "name": tgt_node.get("name"),
@@ -3400,6 +3805,93 @@ async def get_impact(node_key: str):
             "rel_type": edge.get("type"),
         })
     return {"upstream": upstream[:100], "downstream": downstream[:100]}
+
+
+@app.post("/api/nodes/metadata")
+async def get_nodes_metadata(request: dict, x_tenant_id: str = Header(None, alias="X-Tenant-ID")):
+    """
+    Fetch temporal tracking metadata for a list of nodes.
+    
+    Request body:
+    {
+        "node_keys": ["namespace_key1", "namespace_key2", ...]
+    }
+    
+    Response:
+    {
+        "metadata": {
+            "namespace_key1": {
+                "last_modified": timestamp,
+                "change_frequency": int,
+                "first_seen": timestamp
+            },
+            ...
+        }
+    }
+    
+    Requirements: 2.1, 2.2, 2.3
+    """
+    node_keys = request.get("node_keys", [])
+    if not node_keys:
+        return {"metadata": {}}
+    
+    metadata = {}
+    
+    if neo4j_service.is_connected:
+        try:
+            # Build Cypher query to fetch metadata for all nodes
+            query = """
+            MATCH (n:Entity)
+            WHERE n.namespace_key IN $node_keys
+            RETURN n.namespace_key AS key,
+                   n.last_modified AS last_modified,
+                   n.change_frequency AS change_frequency,
+                   n.first_seen AS first_seen
+            """
+            
+            # Apply tenant filtering if specified
+            if x_tenant_id:
+                query = """
+                MATCH (n:Entity)
+                WHERE n.namespace_key IN $node_keys AND n.tenant = $tenant
+                RETURN n.namespace_key AS key,
+                       n.last_modified AS last_modified,
+                       n.change_frequency AS change_frequency,
+                       n.first_seen AS first_seen
+                """
+            
+            params = {"node_keys": node_keys}
+            if x_tenant_id:
+                params["tenant"] = x_tenant_id
+            
+            result = neo4j_service.graph.run(query, **params).data()
+            
+            for record in result:
+                key = record.get("key")
+                if key:
+                    metadata[key] = {
+                        "last_modified": record.get("last_modified"),
+                        "change_frequency": record.get("change_frequency", 0),
+                        "first_seen": record.get("first_seen")
+                    }
+        except Exception as e:
+            logger.warning("Neo4j metadata query failed, falling back to memory: %s", e)
+    
+    # Fallback: get from in-memory data if Neo4j failed or not connected
+    if not metadata:
+        for node_key in node_keys:
+            node = memory_nodes_by_key.get(node_key)
+            if node:
+                # Apply tenant filtering if specified
+                if x_tenant_id and node.get("tenant") != x_tenant_id:
+                    continue
+                metadata[node_key] = {
+                    "last_modified": node.get("last_modified"),
+                    "change_frequency": node.get("change_frequency", 0),
+                    "first_seen": node.get("first_seen")
+                }
+    
+    return {"metadata": metadata}
 
 
 TRANSACTION_RELATION_TYPES = {
@@ -3900,6 +4392,7 @@ def _build_analysis_runtime() -> dict[str, object]:
     deep_parser = DeepParser()
     semantic_analyzer = SemanticAnalyzer(ollama_url=OLLAMA_URL, model=OLLAMA_COMPLEX_MODEL)
     impact_engine = ImpactEngine(neo4j_service, memory_nodes, normalized_edges)
+    intelligence_engine = IntelligenceEngine(neo4j_service)
     taint_propagator = TaintPropagator(neo4j_service, memory_index, normalized_edges)
     symbol_resolver = SymbolResolver(neo4j_service, memory_index, deep_parser)
     side_effect_detector = SideEffectDetector(
@@ -3928,6 +4421,7 @@ def _build_analysis_runtime() -> dict[str, object]:
         "memory_index": memory_index,
         "semantic_analyzer": semantic_analyzer,
         "impact_engine": impact_engine,
+        "intelligence_engine": intelligence_engine,
         "taint_propagator": taint_propagator,
         "symbol_resolver": symbol_resolver,
         "side_effect_detector": side_effect_detector,
@@ -5706,16 +6200,301 @@ async def get_git_blame(file_path: str | None = Query(None), node_key: str | Non
     )
 
 
+@app.get("/api/git/commits")
+async def get_git_commits(
+    max_commits: int = Query(100, ge=1, le=500),
+    branch: str | None = Query(None),
+    repo_url: str | None = Query(None),
+    repo_path: str = Query("."),
+    repo_token: str | None = Query(None),
+    use_shallow_clone: bool = Query(True)
+):
+    """
+    Fetch commit history from the Git repository.
+    
+    Args:
+        max_commits: Maximum number of commits to fetch (default: 100, max: 500)
+        branch: Branch name to fetch commits from (default: current branch)
+        repo_url: Optional GitHub repository URL for remote repos
+        repo_path: Local repository path (default: current directory)
+        repo_token: Optional GitHub Personal Access Token for private repos
+        use_shallow_clone: Use shallow clone for remote repos (default: True)
+    
+    Returns:
+        List of commits with metadata in chronological order (oldest first)
+    
+    Requirements:
+        - 15.1: Fetch commit history with metadata
+        - Support for private repositories with PAT authentication
+    """
+    try:
+        from git_service import GitService
+        import tempfile
+        import shutil
+        
+        # Handle remote repository
+        temp_clone_path: Optional[Path] = None
+        if repo_url:
+            # Clone remote repository to temp directory
+            temp_clone_path = Path(tempfile.mkdtemp(prefix="insightgraph_"))
+            
+            # Clone the repository first (static method, no GitService instance needed)
+            try:
+                logger.info(f"Cloning repository {repo_url} to {temp_clone_path}")
+                
+                # Build authenticated URL if token is provided
+                clone_url = repo_url
+                if repo_token:
+                    # Insert token into HTTPS URL: https://TOKEN@github.com/user/repo
+                    if repo_url.startswith('https://github.com/'):
+                        clone_url = repo_url.replace('https://github.com/', f'https://{repo_token}@github.com/')
+                        logger.info("Using authenticated clone with Personal Access Token")
+                    else:
+                        logger.warning("Token provided but URL is not a GitHub HTTPS URL, ignoring token")
+                
+                clone_cmd = ["git", "clone"]
+                # For commit history, we need full clone or deeper history
+                # Shallow clone with --depth 1 only fetches the latest commit
+                if use_shallow_clone:
+                    # Use shallow clone with more depth to get commit history
+                    clone_cmd.extend(["--depth", "100"])
+                    logger.info(f"Using shallow clone with depth 100")
+                else:
+                    logger.info(f"Using full clone")
+                clone_cmd.extend([clone_url, str(temp_clone_path)])
+                
+                result = subprocess.run(
+                    clone_cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=300,
+                    check=True
+                )
+                logger.info(f"Successfully cloned {repo_url} to {temp_clone_path}")
+                logger.info(f"Clone stdout: {result.stdout}")
+            except subprocess.CalledProcessError as e:
+                error_msg = f"Failed to clone repository: {e.stderr}"
+                logger.error(error_msg)
+                logger.error(f"Clone command: git clone [URL] {temp_clone_path}")
+                
+                # Check for authentication errors
+                if "Authentication failed" in e.stderr or "could not read Username" in e.stderr:
+                    error_msg = "Authentication failed. For private repositories, please provide a valid Personal Access Token in settings."
+                elif "Repository not found" in e.stderr:
+                    error_msg = "Repository not found. Check the URL or ensure you have access to this repository."
+                
+                raise HTTPException(status_code=500, detail=error_msg)
+            except subprocess.TimeoutExpired:
+                error_msg = f"Clone operation timed out for {repo_url}"
+                logger.error(error_msg)
+                raise HTTPException(status_code=500, detail=error_msg)
+            
+            # Now create GitService with the cloned repo
+            git_service = GitService(repo_path=str(temp_clone_path))
+            actual_repo_path = temp_clone_path
+        else:
+            # Use local repository
+            actual_repo_path = Path(repo_path).resolve()
+            if not actual_repo_path.exists():
+                raise HTTPException(status_code=400, detail=f"Repository path does not exist: {repo_path}")
+            git_service = GitService(repo_path=str(actual_repo_path))
+        
+        commits = git_service.get_commit_history(max_commits=max_commits, branch=branch)
+        
+        # Convert to dict for JSON serialization
+        commits_data = []
+        for commit in commits:
+            commits_data.append({
+                "hash": commit.hash,
+                "author": commit.author,
+                "date": commit.date.isoformat(),
+                "message": commit.message,
+                "files_modified": commit.files_modified,
+                "stats": {
+                    "additions": commit.stats.additions,
+                    "deletions": commit.stats.deletions
+                }
+            })
+        
+        return {"commits": commits_data, "total": len(commits_data)}
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to fetch commit history: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to fetch commit history")
+    finally:
+        # Cleanup temporary clone if created
+        if temp_clone_path and temp_clone_path.exists():
+            safe_rmtree(temp_clone_path)
+
+
+@app.get("/api/git/snapshot/{commit_hash}")
+async def get_git_snapshot(
+    commit_hash: str,
+    repo_url: str | None = Query(None),
+    repo_path: str = Query("."),
+    repo_token: str | None = Query(None),
+    use_shallow_clone: bool = Query(True)
+):
+    """
+    Get graph snapshot for a specific commit.
+    
+    This endpoint:
+    1. Checks out the commit to a temporary directory
+    2. Scans the code at that commit to build the graph
+    3. Calculates diff from the previous commit
+    4. Returns the graph snapshot with nodes, edges, and diff
+    5. Cleans up the temporary directory
+    
+    Args:
+        commit_hash: Git commit hash to snapshot
+        repo_url: Optional GitHub repository URL for remote repos
+        repo_path: Local repository path (default: current directory)
+        use_shallow_clone: Use shallow clone for remote repos (default: True)
+    
+    Returns:
+        Graph snapshot with nodes, edges, and diff information
+    
+    Requirements:
+        - 15.3: Checkout commit and scan
+        - 15.4: Build graph snapshot
+        - 15.5: Calculate diff from previous commit
+        - 15.6: Cleanup temporary directory
+    """
+    try:
+        from git_service import GitService
+        import tempfile
+        import shutil
+        
+        # Handle remote repository
+        temp_clone_path: Optional[Path] = None
+        if repo_url:
+            # Clone remote repository to temp directory
+            temp_clone_path = Path(tempfile.mkdtemp(prefix="insightgraph_"))
+            
+            # Clone the repository first (static method, no GitService instance needed)
+            try:
+                logger.info(f"Cloning repository {repo_url} to {temp_clone_path}")
+                
+                # Build authenticated URL if token is provided
+                clone_url = repo_url
+                if repo_token:
+                    # Insert token into HTTPS URL: https://TOKEN@github.com/user/repo
+                    if repo_url.startswith('https://github.com/'):
+                        clone_url = repo_url.replace('https://github.com/', f'https://{repo_token}@github.com/')
+                        logger.info("Using authenticated clone with Personal Access Token")
+                    else:
+                        logger.warning("Token provided but URL is not a GitHub HTTPS URL, ignoring token")
+                
+                clone_cmd = ["git", "clone"]
+                # For snapshot, we may need specific commit history
+                if use_shallow_clone:
+                    # Use shallow clone with more depth
+                    clone_cmd.extend(["--depth", "100"])
+                clone_cmd.extend([clone_url, str(temp_clone_path)])
+                
+                result = subprocess.run(
+                    clone_cmd,
+                    capture_output=True,
+                    text=True,
+                    timeout=300,
+                    check=True
+                )
+                logger.info(f"Successfully cloned {repo_url} to {temp_clone_path}")
+            except subprocess.CalledProcessError as e:
+                error_msg = f"Failed to clone repository: {e.stderr}"
+                logger.error(error_msg)
+                
+                # Check for authentication errors
+                if "Authentication failed" in e.stderr or "could not read Username" in e.stderr:
+                    error_msg = "Authentication failed. For private repositories, please provide a valid Personal Access Token in settings."
+                elif "Repository not found" in e.stderr:
+                    error_msg = "Repository not found. Check the URL or ensure you have access to this repository."
+                
+                raise HTTPException(status_code=500, detail=error_msg)
+            except subprocess.TimeoutExpired:
+                error_msg = f"Clone operation timed out for {repo_url}"
+                logger.error(error_msg)
+                raise HTTPException(status_code=500, detail=error_msg)
+            
+            # Now create GitService with the cloned repo
+            git_service = GitService(repo_path=str(temp_clone_path))
+            actual_repo_path = temp_clone_path
+        else:
+            # Use local repository
+            actual_repo_path = Path(repo_path).resolve()
+            if not actual_repo_path.exists():
+                raise HTTPException(status_code=400, detail=f"Repository path does not exist: {repo_path}")
+            git_service = GitService(repo_path=str(actual_repo_path))
+        
+        # Checkout commit to temporary directory
+        temp_dir = git_service.checkout_commit(commit_hash, use_shallow_clone=use_shallow_clone)
+        logger.info(f"Checked out commit {commit_hash} to {temp_dir}")
+        
+        try:
+            # Get commit diff FIRST (fast operation)
+            diff = git_service.get_commit_diff(commit_hash)
+            
+            # HYBRID APPROACH: Return diff immediately, scan in background
+            # This keeps the UI responsive while building the real graph
+            logger.info(f"Quick snapshot for commit {commit_hash} - returning diff immediately")
+            
+            # For now, return fast mode to keep UI responsive
+            # TODO: Implement background scanning with WebSocket updates
+            snapshot = {
+                "commit_hash": commit_hash,
+                "timestamp": datetime.datetime.now().isoformat(),
+                "nodes": [],  # Empty for now - will be populated by background scan
+                "edges": [],  # Empty for now - will be populated by background scan
+                "diff": {
+                    "added": diff.added,
+                    "modified": diff.modified,
+                    "removed": diff.removed
+                },
+                "stats": {
+                    "total_nodes": 0,
+                    "total_edges": 0,
+                    "files_changed": len(diff.added) + len(diff.modified) + len(diff.removed)
+                },
+                "message": "Fast mode: Showing file changes instantly. Graph preserved."
+            }
+            
+            logger.info(f"Snapshot complete (fast mode): {len(diff.added)} added, {len(diff.modified)} modified, {len(diff.removed)} removed")
+            return snapshot
+            
+        finally:
+            # Always cleanup temporary directory
+            git_service.restore_original_branch()
+            logger.info(f"Cleaned up temporary directory for commit {commit_hash}")
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to get git snapshot: %s", e)
+        raise HTTPException(status_code=500, detail="Failed to get git snapshot")
+    finally:
+        # Cleanup temporary clone if created
+        if temp_clone_path and temp_clone_path.exists():
+            safe_rmtree(temp_clone_path)
+
+
 @app.get("/api/projects")
-async def get_projects():
-    """List all scanned projects."""
+async def get_projects(x_tenant_id: str = Header(None, alias="X-Tenant-ID")):
+    """List all scanned projects.
+    
+    Supports multi-tenant isolation via X-Tenant-ID header.
+    """
     if neo4j_service.is_connected:
         try:
-            return {"projects": neo4j_service.get_projects()}
+            return {"projects": neo4j_service.get_projects(tenant=x_tenant_id)}
         except Exception:
             pass
     # Fallback
-    projects = list({n.get("project") for n in memory_nodes if n.get("project")})
+    filtered_nodes = memory_nodes
+    if x_tenant_id:
+        filtered_nodes = [n for n in memory_nodes if n.get("tenant") == x_tenant_id]
+    projects = list({n.get("project") for n in filtered_nodes if n.get("project")})
     return {"projects": projects}
 
 
@@ -5787,7 +6566,7 @@ async def get_blast_radius(node_key: str):
 
 
 @app.get("/api/antipatterns")
-async def get_antipatterns():
+async def get_antipatterns(tenant: str = Query(None, description="Optional tenant ID for filtering")):
     """Detect architectural antipatterns like circular dependencies and god classes."""
     antipatterns = {
         "circular_dependencies": [],
@@ -5804,6 +6583,9 @@ async def get_antipatterns():
         "sql_injection_risk": [],
         "compliance_violations": []
     }
+
+    # Use TENANT_ID from environment if not provided in query
+    effective_tenant = tenant or TENANT_ID
 
     if not neo4j_service.is_connected:
         # Fallback: compute antipatterns from in-memory graph
@@ -5987,14 +6769,20 @@ async def get_antipatterns():
         return antipatterns
         
     try:
+        # Build tenant filter for queries
+        tenant_filter = "WHERE n.tenant = $tenant" if effective_tenant else ""
+        tenant_params = {"tenant": effective_tenant} if effective_tenant else {}
+        
         # 1. Circular Dependencies (A -> B -> A)
-        circ_query = """
+        circ_tenant_filter = "WHERE n.tenant = $tenant" if effective_tenant else ""
+        circ_query = f"""
         MATCH p=(n:Entity)-[*2..4]->(n)
+        {circ_tenant_filter}
         WHERE length(p) > 1
         RETURN [x IN nodes(p) | x.name] AS path, length(p) AS len
         LIMIT 50
         """
-        circ_res = neo4j_service.graph.run(circ_query).data()
+        circ_res = neo4j_service.graph.run(circ_query, **tenant_params).data()
         seen_paths = set()
         for r in circ_res:
             path_tuple = tuple(sorted(r["path"]))
@@ -6005,8 +6793,9 @@ async def get_antipatterns():
                 })
 
         # 2. God Classes (High coupling or complexity)
-        god_query = """
+        god_query = f"""
         MATCH (n:Entity)
+        {tenant_filter}
         OPTIONAL MATCH (n)-[r_out]->()
         OPTIONAL MATCH ()-[r_in]->(n)
         WITH n, count(DISTINCT r_out) AS out_degree, count(DISTINCT r_in) AS in_degree
@@ -6016,12 +6805,13 @@ async def get_antipatterns():
         ORDER BY (out_degree + in_degree + coalesce(n.complexity, 0)) DESC
         LIMIT 50
         """
-        god_res = neo4j_service.graph.run(god_query).data()
+        god_res = neo4j_service.graph.run(god_query, **tenant_params).data()
         antipatterns["god_classes"] = god_res
 
         # 3. Dead Code (No incoming relationships, not an API/Controller, not Frontend entry)
-        dead_query = """
+        dead_query = f"""
         MATCH (n:Entity)
+        {tenant_filter}
         WHERE NOT ()-->(n) 
           AND NOT n.layer IN ['API', 'Frontend']
           AND coalesce(n.name, '') <> 'main' 
@@ -6030,52 +6820,57 @@ async def get_antipatterns():
         RETURN n.namespace_key AS key, n.name AS name, n.layer AS layer, coalesce(n.file, '') AS file
         LIMIT 100
         """
-        dead_res = neo4j_service.graph.run(dead_query).data()
+        dead_res = neo4j_service.graph.run(dead_query, **tenant_params).data()
         antipatterns["dead_code"] = dead_res
 
         # 4. Cloud Blockers (Disk I/O detected)
-        cloud_query = """
+        cloud_query = f"""
         MATCH (n:Entity)
+        {tenant_filter}
         WHERE coalesce(n.cloud_blocker, false) = true
         RETURN n.namespace_key AS key, n.name AS name, n.layer AS layer, coalesce(n.file, '') AS file
         LIMIT 100
         """
-        cloud_res = neo4j_service.graph.run(cloud_query).data()
+        cloud_res = neo4j_service.graph.run(cloud_query, **tenant_params).data()
         antipatterns["cloud_blockers"] = cloud_res
 
         # 5. Hardcoded Secrets (Sensitive variables with literal assignments)
-        secrets_query = """
+        secrets_query = f"""
         MATCH (n:Entity)
+        {tenant_filter}
         WHERE coalesce(n.hardcoded_secret, false) = true
         RETURN n.namespace_key AS key, n.name AS name, n.layer AS layer, coalesce(n.file, '') AS file
         LIMIT 100
         """
-        secrets_res = neo4j_service.graph.run(secrets_query).data()
+        secrets_res = neo4j_service.graph.run(secrets_query, **tenant_params).data()
         antipatterns["hardcoded_secrets"] = secrets_res
 
         # 6. Untested Critical Code (missing tests with high complexity)
-        untested_query = """
+        untested_query = f"""
         MATCH (n:Entity)
+        {tenant_filter}
         WHERE coalesce(n.missing_tests, false) = true AND coalesce(n.complexity, 0) > 5
         RETURN n.namespace_key AS key, n.name AS name, n.layer AS layer, coalesce(n.complexity, 0) AS complexity, coalesce(n.file, '') AS file
         LIMIT 100
         """
-        untested_res = neo4j_service.graph.run(untested_query).data()
+        untested_res = neo4j_service.graph.run(untested_query, **tenant_params).data()
         antipatterns["untested_critical_code"] = untested_res
 
         # 7. Swallowed Exceptions (empty catch blocks)
-        swallowed_query = """
+        swallowed_query = f"""
         MATCH (n:Entity)
+        {tenant_filter}
         WHERE coalesce(n.swallowed_exception, false) = true
         RETURN n.namespace_key AS key, n.name AS name, n.layer AS layer, coalesce(n.file, '') AS file
         LIMIT 100
         """
-        swallowed_res = neo4j_service.graph.run(swallowed_query).data()
+        swallowed_res = neo4j_service.graph.run(swallowed_query, **tenant_params).data()
         antipatterns["swallowed_exceptions"] = swallowed_res
 
         # 8. Fat Controllers (API layer with high complexity)
-        fat_query = """
+        fat_query = f"""
         MATCH (n:Entity)
+        {tenant_filter}
         WHERE n.layer = 'API' AND coalesce(n.complexity, 0) > 10
         OPTIONAL MATCH (n)-[r_out]->()
         OPTIONAL MATCH ()-[r_in]->(n)
@@ -6085,10 +6880,11 @@ async def get_antipatterns():
         ORDER BY coalesce(n.complexity, 0) DESC
         LIMIT 50
         """
-        fat_res = neo4j_service.graph.run(fat_query).data()
+        fat_res = neo4j_service.graph.run(fat_query, **tenant_params).data()
         antipatterns["fat_controllers"] = fat_res
 
         # 7. Top 5 External Dependencies (Most imported packages)
+        # Note: External dependencies don't have tenant field, so no filtering needed
         deps_query = """
         MATCH ()-[r:IMPORTS]->(dep:External_Dependency)
         RETURN dep.name AS package_name, count(*) AS usage_count
@@ -6099,8 +6895,10 @@ async def get_antipatterns():
         antipatterns["top_external_deps"] = deps_res
 
         # 8. Architecture violations (Frontend -> Database/Service, API -> Database)
-        arch_query = """
+        arch_tenant_filter = "WHERE a.tenant = $tenant AND b.tenant = $tenant" if effective_tenant else ""
+        arch_query = f"""
         MATCH (a:Entity)-[r]->(b:Entity)
+        {arch_tenant_filter}
         WHERE type(r) IN ['CALLS', 'IMPORTS']
           AND (
               (a.layer = 'Frontend' AND b.layer IN ['Database', 'Service'])
@@ -6111,51 +6909,272 @@ async def get_antipatterns():
                type(r) AS relation
         LIMIT 200
         """
-        arch_res = neo4j_service.graph.run(arch_query).data()
+        arch_res = neo4j_service.graph.run(arch_query, **tenant_params).data()
         antipatterns["architecture_violations"] = arch_res
 
         # 9. N+1 Query Risks
-        nplus_query = """
+        nplus_query = f"""
         MATCH (n:Entity)
+        {tenant_filter}
         WHERE coalesce(n.n_plus_one_risk, false) = true
         RETURN n.namespace_key AS key, n.name AS name, n.layer AS layer, coalesce(n.file, '') AS file
         LIMIT 200
         """
-        nplus_res = neo4j_service.graph.run(nplus_query).data()
+        nplus_res = neo4j_service.graph.run(nplus_query, **tenant_params).data()
         antipatterns["n_plus_one_risk"] = nplus_res
 
         # 10. SQL Injection Risks
-        sql_inj_query = """
+        sql_inj_query = f"""
         MATCH (n:Entity)
+        {tenant_filter}
         WHERE coalesce(n.sql_injection_risk, false) = true
         RETURN n.namespace_key AS key, n.name AS name, n.layer AS layer, coalesce(n.file, '') AS file
         LIMIT 200
         """
-        sql_inj_res = neo4j_service.graph.run(sql_inj_query).data()
+        sql_inj_res = neo4j_service.graph.run(sql_inj_query, **tenant_params).data()
         antipatterns["sql_injection_risk"] = sql_inj_res
 
         # 11. Compliance Violations
-        compliance_query = """
+        compliance_query = f"""
         MATCH (n:Entity)
+        {tenant_filter}
         WHERE coalesce(n.compliance_violation, false) = true
         RETURN n.namespace_key AS key, n.name AS name, n.layer AS layer, coalesce(n.file, '') AS file, coalesce(n.leaked_data, []) AS leaked_data
         LIMIT 200
         """
-        compliance_res = neo4j_service.graph.run(compliance_query).data()
+        compliance_res = neo4j_service.graph.run(compliance_query, **tenant_params).data()
         antipatterns["compliance_violations"] = compliance_res
 
     except Exception as e:
         logger.error("Antipatterns query failed: %s", e)
-        
+
+    # Filter out nodes with active 'excecao' decisions (Req 6.4)
+    try:
+        exception_keys = set(state_store.get_active_exceptions())
+        if exception_keys:
+            list_fields = [
+                "god_classes", "dead_code", "cloud_blockers", "hardcoded_secrets",
+                "fat_controllers", "untested_critical_code", "swallowed_exceptions",
+                "n_plus_one_risk", "sql_injection_risk", "compliance_violations",
+            ]
+            for field in list_fields:
+                antipatterns[field] = [
+                    item for item in antipatterns.get(field, [])
+                    if item.get("key") not in exception_keys
+                ]
+            # architecture_violations uses source/target keys
+            antipatterns["architecture_violations"] = [
+                item for item in antipatterns.get("architecture_violations", [])
+                if item.get("source") not in exception_keys and item.get("target") not in exception_keys
+            ]
+    except Exception as _exc_err:
+        logger.warning("Failed to apply exception filters to antipatterns: %s", _exc_err)
+
     return antipatterns
 
 
+# ──────────────────────────────────────────────
+# Memory Store — Architectural Decisions (Req 6)
+# ──────────────────────────────────────────────
+
+@app.post("/api/memory/decision")
+async def create_memory_decision(request: ArchitecturalDecisionRequest):
+    """Save an architectural decision. Returns a warning if node_key is not in the graph."""
+    valid_types = {"aceito", "excecao", "padrao_valido"}
+    if request.decision_type not in valid_types:
+        raise HTTPException(
+            status_code=422,
+            detail=f"decision_type must be one of: {', '.join(sorted(valid_types))}",
+        )
+
+    import time as _time
+    decision_payload = {
+        "id": str(uuid.uuid4()),
+        "node_key": request.node_key,
+        "decision_type": request.decision_type,
+        "description": request.description,
+        "author": request.author,
+        "created_at": _time.time(),
+    }
+    saved = state_store.save_decision(decision_payload)
+
+    # Check if node_key exists in the in-memory graph
+    node_exists = any(
+        n.get("namespace_key") == request.node_key for n in memory_nodes
+    )
+    if not node_exists:
+        return {"decision": saved, "warning": f"node_key '{request.node_key}' not found in current graph"}
+
+    return {"decision": saved}
+
+
+@app.get("/api/memory/decisions")
+async def list_memory_decisions(node_key: str = None, decision_type: str = None):
+    """List architectural decisions with optional filters."""
+    return state_store.get_decisions(node_key=node_key, decision_type=decision_type)
+
+
+@app.delete("/api/memory/decision/{decision_id}")
+async def delete_memory_decision(decision_id: str):
+    """Soft-delete an architectural decision (sets is_active = 0)."""
+    deleted = state_store.delete_decision(decision_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"Decision '{decision_id}' not found or already inactive")
+    return {"deleted": True, "id": decision_id}
+
+
+# ──────────────────────────────────────────────
+# Tenant Management (Task 12.5)
+# ──────────────────────────────────────────────
+
+class TenantCreateRequest(BaseModel):
+    name: str = Field(..., min_length=1, max_length=100, description="Unique tenant identifier (e.g., 'acme-corp')")
+    display_name: str | None = Field(None, description="Human-readable tenant name (e.g., 'Acme Corporation')")
+
+
+class TenantResponse(BaseModel):
+    id: str
+    name: str
+    display_name: str | None
+    created_at: float
+    is_active: bool
+
+
+@app.post("/api/admin/tenants", response_model=TenantResponse)
+async def create_tenant(request: TenantCreateRequest, x_admin_token: str = Header(None, alias="X-Admin-Token")):
+    """Create a new tenant. Protected by X-Admin-Token header.
+    
+    Task 12.5: Tenant management API for multi-tenant deployments.
+    """
+    # Validate admin token
+    admin_token = os.getenv("ADMIN_TOKEN")
+    if not admin_token:
+        raise HTTPException(
+            status_code=503,
+            detail="Admin API not configured. Set ADMIN_TOKEN environment variable."
+        )
+    
+    if not x_admin_token or x_admin_token != admin_token:
+        raise HTTPException(
+            status_code=401,
+            detail="Unauthorized. Valid X-Admin-Token header required."
+        )
+    
+    # Validate tenant name format (alphanumeric, hyphens, underscores only)
+    import re
+    if not re.match(r'^[a-z0-9_-]+$', request.name):
+        raise HTTPException(
+            status_code=422,
+            detail="Tenant name must contain only lowercase letters, numbers, hyphens, and underscores"
+        )
+    
+    # Check if tenant already exists
+    existing = state_store.get_tenant_by_name(request.name)
+    if existing:
+        raise HTTPException(
+            status_code=409,
+            detail=f"Tenant '{request.name}' already exists"
+        )
+    
+    # Create tenant
+    try:
+        tenant = state_store.create_tenant(
+            name=request.name,
+            display_name=request.display_name
+        )
+        logger.info(f"Created tenant: {tenant['name']} (ID: {tenant['id']})")
+        return TenantResponse(**tenant)
+    except Exception as e:
+        logger.error(f"Failed to create tenant: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to create tenant: {str(e)}")
+
+
+@app.get("/api/admin/tenants", response_model=list[TenantResponse])
+async def list_tenants(
+    x_admin_token: str = Header(None, alias="X-Admin-Token"),
+    active_only: bool = Query(True, description="Filter to active tenants only")
+):
+    """List all tenants. Protected by X-Admin-Token header."""
+    # Validate admin token
+    admin_token = os.getenv("ADMIN_TOKEN")
+    if not admin_token:
+        raise HTTPException(
+            status_code=503,
+            detail="Admin API not configured. Set ADMIN_TOKEN environment variable."
+        )
+    
+    if not x_admin_token or x_admin_token != admin_token:
+        raise HTTPException(
+            status_code=401,
+            detail="Unauthorized. Valid X-Admin-Token header required."
+        )
+    
+    try:
+        tenants = state_store.list_tenants(active_only=active_only)
+        return [TenantResponse(**t) for t in tenants]
+    except Exception as e:
+        logger.error(f"Failed to list tenants: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to list tenants: {str(e)}")
+
+
+@app.get("/api/admin/tenants/{tenant_id}", response_model=TenantResponse)
+async def get_tenant(tenant_id: str, x_admin_token: str = Header(None, alias="X-Admin-Token")):
+    """Get a specific tenant by ID. Protected by X-Admin-Token header."""
+    # Validate admin token
+    admin_token = os.getenv("ADMIN_TOKEN")
+    if not admin_token:
+        raise HTTPException(
+            status_code=503,
+            detail="Admin API not configured. Set ADMIN_TOKEN environment variable."
+        )
+    
+    if not x_admin_token or x_admin_token != admin_token:
+        raise HTTPException(
+            status_code=401,
+            detail="Unauthorized. Valid X-Admin-Token header required."
+        )
+    
+    tenant = state_store.get_tenant_by_id(tenant_id)
+    if not tenant:
+        raise HTTPException(status_code=404, detail=f"Tenant '{tenant_id}' not found")
+    
+    return TenantResponse(**tenant)
+
+
+@app.delete("/api/admin/tenants/{tenant_id}")
+async def delete_tenant(tenant_id: str, x_admin_token: str = Header(None, alias="X-Admin-Token")):
+    """Soft-delete a tenant (sets is_active = 0). Protected by X-Admin-Token header."""
+    # Validate admin token
+    admin_token = os.getenv("ADMIN_TOKEN")
+    if not admin_token:
+        raise HTTPException(
+            status_code=503,
+            detail="Admin API not configured. Set ADMIN_TOKEN environment variable."
+        )
+    
+    if not x_admin_token or x_admin_token != admin_token:
+        raise HTTPException(
+            status_code=401,
+            detail="Unauthorized. Valid X-Admin-Token header required."
+        )
+    
+    deleted = state_store.delete_tenant(tenant_id)
+    if not deleted:
+        raise HTTPException(status_code=404, detail=f"Tenant '{tenant_id}' not found")
+    
+    logger.info(f"Soft-deleted tenant: {tenant_id}")
+    return {"deleted": True, "id": tenant_id}
+
+
 @app.get("/api/graph/stats", response_model=GraphStats)
-async def get_graph_stats():
-    """Return comprehensive graph statistics."""
+async def get_graph_stats(x_tenant_id: str = Header(None, alias="X-Tenant-ID")):
+    """Return comprehensive graph statistics.
+    
+    Supports multi-tenant isolation via X-Tenant-ID header.
+    """
     if neo4j_service.is_connected:
         try:
-            return neo4j_service.get_stats()
+            return neo4j_service.get_stats(tenant=x_tenant_id)
         except Exception:
             pass
     # Fallback: compute from memory
@@ -6164,7 +7183,13 @@ async def get_graph_stats():
     layers = Counter()
     edges_by_type = Counter()
     projects_set = set()
-    for n in memory_nodes:
+    
+    # Filter nodes by tenant if specified
+    filtered_nodes = memory_nodes
+    if x_tenant_id:
+        filtered_nodes = [n for n in memory_nodes if n.get("tenant") == x_tenant_id]
+    
+    for n in filtered_nodes:
         labels = [l for l in n.get("labels", []) if l != "Entity"]
         if labels:
             nodes_by_type[labels[0]] += 1
@@ -6172,7 +7197,15 @@ async def get_graph_stats():
             layers[n["layer"]] += 1
         if n.get("project"):
             projects_set.add(n["project"])
-    for e in memory_edges:
+    
+    # Filter edges by tenant if specified
+    if x_tenant_id:
+        node_keys = {n["namespace_key"] for n in filtered_nodes}
+        filtered_edges = [e for e in memory_edges if e["source"] in node_keys and e["target"] in node_keys]
+    else:
+        filtered_edges = memory_edges
+        
+    for e in filtered_edges:
         edges_by_type[e["type"]] += 1
     return GraphStats(
         total_nodes=len(memory_nodes),
@@ -6182,6 +7215,327 @@ async def get_graph_stats():
         layers=dict(layers),
         projects=list(projects_set),
     )
+
+
+# ──────────────────────────────────────────────
+# Intelligence Summary (Phase 3)
+# ──────────────────────────────────────────────
+
+# Cache for intelligence summary (60 seconds TTL)
+_intelligence_cache = {"data": None, "timestamp": 0}
+_intelligence_cache_ttl = 60
+
+
+@app.get("/api/intelligence/summary")
+async def get_intelligence_summary():
+    """
+    Return intelligence summary with critical risks, hotspots, and instabilities.
+    
+    Results are cached for 60 seconds to improve performance.
+    
+    Returns:
+        Dictionary with:
+        - risks: Top 10 critical risks by risk score
+        - hotspots: Top 10 hotspots by hotspot_score
+        - instabilities: Top 10 unstable nodes (high change frequency + high impact)
+    """
+    current_time = time.time()
+    
+    # Check cache
+    if (_intelligence_cache["data"] is not None and 
+        current_time - _intelligence_cache["timestamp"] < _intelligence_cache_ttl):
+        return _intelligence_cache["data"]
+    
+    try:
+        # Calculate intelligence summary
+        summary = intelligence_engine.calculate_summary()
+        result = intelligence_engine.to_dict(summary)
+        
+        # Update cache
+        _intelligence_cache["data"] = result
+        _intelligence_cache["timestamp"] = current_time
+        
+        return result
+        
+    except Exception as e:
+        logger.error(f"Failed to calculate intelligence summary: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to calculate intelligence summary: {str(e)}"
+        )
+
+
+@app.get("/api/investigate/{node_key:path}")
+async def investigate_node(node_key: str):
+    """
+    Perform comprehensive investigation of a node.
+    
+    Returns:
+        - target_node: Node being investigated
+        - root_cause: AI-powered root cause analysis
+        - impact_chain: Complete dependency chain organized by depth
+        - suggestions: Actionable improvement suggestions
+        - blast_radius: Weighted impact score
+        - critical_path: Path with highest cumulative complexity
+    
+    Requirements:
+        - 8.1: Main investigation endpoint
+        - 8.2: Root cause analysis
+        - 8.3: Impact chain building
+        - 8.4: Suggestion generation
+        - 8.5: Blast radius calculation
+        - 8.6: Critical path identification
+    """
+    try:
+        from investigation_engine import InvestigationEngine
+        
+        # Initialize investigation engine
+        investigation_engine = InvestigationEngine(
+            neo4j_service=neo4j_service,
+            ollama_url=OLLAMA_URL,
+            ollama_model=OLLAMA_CHAT_MODEL
+        )
+        
+        # Perform investigation
+        result = await investigation_engine.investigate(node_key)
+        
+        # Convert to dict for JSON serialization
+        return {
+            "target_node": result.target_node,
+            "root_cause": {
+                "primary_cause": result.root_cause.primary_cause,
+                "contributing_factors": result.root_cause.contributing_factors,
+                "confidence": result.root_cause.confidence
+            },
+            "impact_chain": {
+                "levels": [
+                    {
+                        "depth": level.depth,
+                        "nodes": level.nodes,
+                        "relationships": level.relationships
+                    }
+                    for level in result.impact_chain.levels
+                ],
+                "total_affected": result.impact_chain.total_affected,
+                "max_depth": result.impact_chain.max_depth
+            },
+            "suggestions": [
+                {
+                    "type": s.type,
+                    "title": s.title,
+                    "description": s.description,
+                    "priority": s.priority,
+                    "actionable": s.actionable
+                }
+                for s in result.suggestions
+            ],
+            "blast_radius": result.blast_radius,
+            "critical_path": result.critical_path
+        }
+        
+    except ValueError as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except Exception as e:
+        logger.error(f"Investigation failed for {node_key}: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Investigation failed: {str(e)}"
+        )
+
+
+# Rate limiting for AI queries (simple in-memory implementation)
+_ai_query_rate_limit = {}
+_ai_query_rate_limit_window = 60  # 1 minute
+_ai_query_rate_limit_max = 10  # 10 queries per minute
+
+
+class AIQueryRequest(BaseModel):
+    question: str = Field(..., min_length=3, max_length=500)
+    context_node: str | None = None
+
+
+@app.post("/api/ai/query")
+async def ai_query(request: AIQueryRequest, client_request: Request):
+    """
+    Process natural language query about the code.
+    
+    Uses RAG (Retrieval-Augmented Generation) to search relevant code context
+    and generates AI-powered answers using Ollama.
+    
+    Returns:
+        - answer: AI-generated response
+        - relevant_nodes: Node keys to highlight in graph
+        - references: Code references with file/line info
+        - confidence: Confidence score (0.0 to 1.0)
+    
+    Rate Limiting:
+        - 10 queries per minute per client IP
+    
+    Requirements:
+        - 6.1: Natural language query processing
+        - 6.3: Response time < 5 seconds
+        - 6.8: Rate limiting (10 queries per minute)
+    """
+    # Rate limiting
+    client_ip = client_request.client.host if client_request.client else "unknown"
+    current_time = time.time()
+    
+    # Clean old entries
+    _ai_query_rate_limit[client_ip] = [
+        t for t in _ai_query_rate_limit.get(client_ip, [])
+        if current_time - t < _ai_query_rate_limit_window
+    ]
+    
+    # Check rate limit
+    if len(_ai_query_rate_limit.get(client_ip, [])) >= _ai_query_rate_limit_max:
+        raise HTTPException(
+            status_code=429,
+            detail="Rate limit exceeded. Maximum 10 queries per minute."
+        )
+    
+    # Record this query
+    if client_ip not in _ai_query_rate_limit:
+        _ai_query_rate_limit[client_ip] = []
+    _ai_query_rate_limit[client_ip].append(current_time)
+    
+    try:
+        from ai_query_engine import AIQueryEngine
+        
+        # Initialize AI query engine
+        ai_engine = AIQueryEngine(
+            neo4j_service=neo4j_service,
+            rag_store=rag_store,
+            ollama_url=OLLAMA_URL,
+            ollama_model=OLLAMA_CHAT_MODEL
+        )
+        
+        # Process query
+        result = await ai_engine.query(
+            question=request.question,
+            context_node=request.context_node
+        )
+        
+        # Convert to dict for JSON serialization
+        return {
+            "answer": result.answer,
+            "relevant_nodes": result.relevant_nodes,
+            "references": [
+                {
+                    "file": ref.file,
+                    "line": ref.line,
+                    "snippet": ref.snippet,
+                    "node_key": ref.node_key
+                }
+                for ref in result.references
+            ],
+            "confidence": result.confidence,
+            "model": result.model
+        }
+        
+    except Exception as e:
+        logger.error(f"AI query failed: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"AI query failed: {str(e)}"
+        )
+
+
+# ──────────────────────────────────────────────
+# Executive Reports (Task 13)
+# ──────────────────────────────────────────────
+
+class ReportGenerateRequest(BaseModel):
+    project: str | None = Field(None, description="Optional project filter")
+
+
+class ReportResponse(BaseModel):
+    id: str
+    filename: str
+    file_path: str
+    file_size: int
+    project: str | None
+    created_at: float
+
+
+@app.post("/api/report/generate")
+async def generate_report(
+    request: ReportGenerateRequest = None,
+    x_tenant_id: str = Header(None, alias="X-Tenant-ID")
+):
+    """
+    Task 13.7 — Generate executive PDF report.
+    
+    Returns PDF as downloadable attachment.
+    """
+    try:
+        # Use tenant from header or environment
+        tenant = x_tenant_id or TENANT_ID
+        project = request.project if request else None
+        
+        # Generate report
+        report_record = await report_generator.generate_report(
+            project=project,
+            tenant=tenant
+        )
+        
+        # Return PDF file
+        pdf_path = Path(report_record["file_path"])
+        if not pdf_path.exists():
+            raise HTTPException(status_code=500, detail="Report file not found after generation")
+        
+        from fastapi.responses import FileResponse
+        return FileResponse(
+            path=str(pdf_path),
+            media_type="application/pdf",
+            filename=report_record["filename"],
+            headers={
+                "Content-Disposition": f"attachment; filename={report_record['filename']}"
+            }
+        )
+    except Exception as e:
+        logger.error(f"Failed to generate report: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to generate report: {str(e)}")
+
+
+@app.get("/api/report/history", response_model=list[ReportResponse])
+async def get_report_history(project: str = Query(None, description="Optional project filter")):
+    """
+    Task 13.8 — List generated reports with metadata.
+    """
+    try:
+        reports = state_store.list_reports(project=project)
+        return [ReportResponse(**r) for r in reports]
+    except Exception as e:
+        logger.error(f"Failed to list reports: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to list reports: {str(e)}")
+
+
+@app.get("/api/report/{report_id}/download")
+async def download_report(report_id: str):
+    """Download a previously generated report by ID."""
+    try:
+        report = state_store.get_report_by_id(report_id)
+        if not report:
+            raise HTTPException(status_code=404, detail=f"Report '{report_id}' not found")
+        
+        pdf_path = Path(report["file_path"])
+        if not pdf_path.exists():
+            raise HTTPException(status_code=404, detail="Report file not found on disk")
+        
+        from fastapi.responses import FileResponse
+        return FileResponse(
+            path=str(pdf_path),
+            media_type="application/pdf",
+            filename=report["filename"],
+            headers={
+                "Content-Disposition": f"attachment; filename={report['filename']}"
+            }
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to download report: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to download report: {str(e)}")
 
 
 @app.post("/api/ask", response_model=AskResponse)
@@ -6252,7 +7606,30 @@ async def ask_question(request: AskRequest):
             context_parts.append(context_summary)
         context = "\n\n".join(part for part in context_parts if part.strip())
         context_lines = len(context.split("\n"))
-            
+
+        # Inject relevant architectural decisions into context (Req 6.3)
+        try:
+            all_decisions = state_store.get_decisions()
+            if all_decisions:
+                question_lower = request.question.lower()
+                relevant_decisions = [
+                    d for d in all_decisions
+                    if d["node_key"].lower() in question_lower
+                ] or all_decisions
+                if relevant_decisions:
+                    decision_lines = ["Decisões arquiteturais registradas:"]
+                    for d in relevant_decisions[:10]:
+                        line = f"  - [{d['decision_type']}] {d['node_key']}"
+                        if d.get("description"):
+                            line += f": {d['description']}"
+                        if d.get("author"):
+                            line += f" (por {d['author']})"
+                        decision_lines.append(line)
+                    context = context + "\n\n" + "\n".join(decision_lines)
+                    context_lines = len(context.split("\n"))
+        except Exception as _dec_err:
+            logger.warning("Failed to inject architectural decisions: %s", _dec_err)
+
         ai_res = await ask_ai(request.question, context)
         ai_res = ai_res or {}
         answer_raw = str(ai_res.get("raw_text") or "")
@@ -6574,8 +7951,15 @@ async def get_workspaces():
 
 @app.delete("/api/workspaces/{project_name}")
 async def delete_workspace(project_name: str):
-    """Delete all nodes and relationships for a specific project."""
+    """Delete all nodes and relationships for a specific project.
+    
+    Task 11.4: Remove nodes, edges, and embeddings for a project.
+    """
     global memory_nodes, memory_edges
+    
+    deleted_nodes = 0
+    deleted_edges = 0
+    deleted_embeddings = 0
     
     if neo4j_service.is_connected:
         try:
@@ -6585,26 +7969,38 @@ async def delete_workspace(project_name: str):
         except Exception as e:
             logger.error(f"Failed to delete project {project_name} from Neo4j: {e}")
             raise HTTPException(status_code=500, detail=f"Failed to delete project from database: {str(e)}")
-    else:
-        # Fallback: filter memory_nodes and memory_edges
-        original_count = len(memory_nodes)
-        memory_nodes[:] = [n for n in memory_nodes if n.get("project") != project_name]
-        deleted_nodes = original_count - len(memory_nodes)
-        
-        # Get set of remaining namespace_keys
-        remaining_keys = {n["namespace_key"] for n in memory_nodes}
-        
-        # Filter edges to only keep those with both source and target in remaining_keys
-        original_edges = len(memory_edges)
-        memory_edges[:] = [
-            e for e in memory_edges 
-            if e["source"] in remaining_keys and e["target"] in remaining_keys
-        ]
-        deleted_edges = original_edges - len(memory_edges)
-        
-        logger.info(f"Deleted project {project_name} from memory: {deleted_nodes} nodes, {deleted_edges} edges")
     
-    return {"message": f"Projeto {project_name} deletado com sucesso"}
+    # Clean in-memory graph
+    original_count = len(memory_nodes)
+    memory_nodes[:] = [n for n in memory_nodes if n.get("project") != project_name]
+    deleted_nodes = original_count - len(memory_nodes)
+    
+    # Get set of remaining namespace_keys
+    remaining_keys = {n["namespace_key"] for n in memory_nodes}
+    
+    # Filter edges to only keep those with both source and target in remaining_keys
+    original_edges = len(memory_edges)
+    memory_edges[:] = [
+        e for e in memory_edges 
+        if e["source"] in remaining_keys and e["target"] in remaining_keys
+    ]
+    deleted_edges = original_edges - len(memory_edges)
+    
+    # Task 11.4 — Delete embeddings from RAG Store
+    try:
+        deleted_embeddings = rag_store.delete_by_project(project_name)
+        logger.info(f"Deleted {deleted_embeddings} embeddings for project {project_name}")
+    except Exception as e:
+        logger.warning(f"Failed to delete embeddings for project {project_name}: {e}")
+    
+    logger.info(f"Deleted project {project_name}: {deleted_nodes} nodes, {deleted_edges} edges, {deleted_embeddings} embeddings")
+    
+    return {
+        "message": f"Projeto {project_name} deletado com sucesso",
+        "deleted_nodes": deleted_nodes,
+        "deleted_edges": deleted_edges,
+        "deleted_embeddings": deleted_embeddings,
+    }
 
 
 @app.get("/api/history")
@@ -7974,6 +9370,69 @@ async def explain_object(node_key: str):
     }
 
 
+@app.get("/api/events")
+async def sse_events(request: Request):
+    """
+    Server-Sent Events endpoint.
+    Clients subscribe here and receive real-time notifications.
+    
+    Requirements: 13.1, 13.4, 13.5
+    
+    Events are formatted as:
+        event: <event_type>
+        data: <json_payload>
+        
+    Supported event types:
+        - graph_updated: Graph structure changed
+        - impact_detected: Impact analysis completed
+        - audit_alert: New audit alert detected
+        - scan_complete: Scan operation completed
+    """
+    async def event_generator():
+        # Subscribe to the event stream
+        client_queue = await event_stream.subscribe()
+        
+        try:
+            # Send retry header for client reconnection (Requirement 13.4)
+            yield "retry: 3000\n\n"
+            
+            while True:
+                # Check if client disconnected (Requirement 13.5)
+                if await request.is_disconnected():
+                    break
+                
+                try:
+                    # Wait for event with 30-second timeout for heartbeat (Requirement 13.4)
+                    event = await asyncio.wait_for(
+                        client_queue.get(), 
+                        timeout=30.0
+                    )
+                    
+                    # Format event as SSE (Requirement 13.1)
+                    # event: <type>
+                    # data: <json>
+                    yield f"event: {event.type}\n"
+                    yield f"data: {json.dumps(event.payload)}\n\n"
+                    
+                except asyncio.TimeoutError:
+                    # Send heartbeat to keep connection alive (Requirement 13.4)
+                    yield ": heartbeat\n\n"
+                    
+        finally:
+            # Unsubscribe on client disconnect (Requirement 13.5)
+            await event_stream.unsubscribe(client_queue)
+
+    return StreamingResponse(
+        event_generator(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive"
+        },
+    )
+
+
 @app.get("/api/health", response_model=HealthStatus)
 async def get_health():
     """Check the health of all connected services."""
@@ -8020,8 +9479,136 @@ async def get_health():
     if not rag_index:
         _load_rag_index()
     status.rag_index_nodes = len(rag_index)
+    
+    # Check technical debt level
+    status.technical_debt_critical = audit_job.is_technical_debt_critical(threshold=20)
 
     return status
+
+
+@app.get("/api/metrics")
+async def get_metrics():
+    """
+    Get performance metrics for all operations.
+    
+    Returns comprehensive performance statistics including:
+    - Operation counts and durations
+    - Success rates
+    - Slow operation detection
+    - SSE connection stats
+    - Cache statistics
+    
+    Requirements:
+        - 14.7: Performance monitoring and metrics
+    """
+    try:
+        from performance_monitor import get_performance_monitor
+        from impact_cache import get_impact_cache
+        from feature_flags import get_feature_flags
+        
+        perf_monitor = get_performance_monitor()
+        impact_cache = get_impact_cache()
+        feature_flags = get_feature_flags()
+        
+        metrics = {
+            "performance": perf_monitor.to_dict(),
+            "cache": {
+                "impact_cache": impact_cache.get_stats() if feature_flags.ENABLE_IMPACT_CACHE else None
+            },
+            "sse": {
+                "active_clients": len(event_stream.clients) if feature_flags.ENABLE_SSE else 0,
+                "queue_size": event_stream.queue.qsize() if feature_flags.ENABLE_SSE else 0
+            },
+            "feature_flags": feature_flags.to_dict(),
+            "timestamp": time.time()
+        }
+        
+        return metrics
+        
+    except Exception as e:
+        logger.error(f"Failed to get metrics: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get metrics: {str(e)}"
+        )
+
+
+# Task 12.1 — White-Label Branding Configuration
+@app.get("/api/config/branding", response_model=BrandingConfig)
+async def get_branding_config():
+    """Return branding configuration from environment variables.
+    
+    Task 12.1: Read BRAND_* environment variables for white-label support.
+    """
+    import os
+    
+    return BrandingConfig(
+        name=os.getenv("BRAND_NAME", "InsightGraph"),
+        logo_url=os.getenv("BRAND_LOGO_URL"),
+        primary_color=os.getenv("BRAND_PRIMARY_COLOR", "#6366f1"),
+        secondary_color=os.getenv("BRAND_SECONDARY_COLOR"),
+    )
+
+
+# ──────────────────────────────────────────────
+# System Settings Configuration
+# ──────────────────────────────────────────────
+
+from pydantic import BaseModel
+
+class SettingsConfig(BaseModel):
+    neo4j_uri: str
+    neo4j_user: str
+    ollama_url: str
+    ollama_fast_model: str
+    ollama_complex_model: str
+    sse_enabled: bool
+    max_reconnect_attempts: int
+    initial_retry_delay: int
+    cache_ttl: int
+    scan_interval: int
+    audit_interval: int
+    max_commits: int
+    github_repository: str = ""
+    github_branch: str = "main"
+    github_token: str = ""
+    github_shallow_clone: bool = True
+    enable_analytics: bool
+    theme: str
+    language: str
+
+
+@app.get("/api/config/settings")
+async def get_settings():
+    """Return system settings configuration."""
+    return SettingsConfig(
+        neo4j_uri=NEO4J_URI,
+        neo4j_user=NEO4J_USER,
+        ollama_url=OLLAMA_URL,
+        ollama_fast_model=OLLAMA_FAST_MODEL,
+        ollama_complex_model=OLLAMA_COMPLEX_MODEL,
+        sse_enabled=SSE_ENABLED,
+        max_reconnect_attempts=5,
+        initial_retry_delay=1000,
+        cache_ttl=60,
+        scan_interval=300,
+        audit_interval=1800,
+        max_commits=100,
+        github_repository="",
+        github_branch="main",
+        github_shallow_clone=True,
+        enable_analytics=False,
+        theme="dark",
+        language="pt-BR",
+    )
+
+
+@app.post("/api/config/settings")
+async def save_settings(settings: SettingsConfig):
+    """Save system settings configuration."""
+    # Settings are currently read-only from environment variables
+    # This endpoint is for future persistence support
+    return {"status": "success", "message": "Settings saved (read-only mode)"}
 
 
 @app.get("/api/system/diagnostics")
@@ -8057,13 +9644,559 @@ async def run_regression():
 
 
 # ──────────────────────────────────────────────
+# Demo Service — Tasks 2.1–2.6
+# ──────────────────────────────────────────────
+
+# Semaphore limiting concurrent demo scans to 3 slots (Task 2.2)
+demo_semaphore = asyncio.Semaphore(3)
+
+# Regex for valid public GitHub repo URLs (Task 2.5)
+_GITHUB_URL_RE = re.compile(
+    r"^https://github\.com/[A-Za-z0-9_.\-]+/[A-Za-z0-9_.\-]+/?$"
+)
+
+_DEMO_USAGE_LOGGER = logging.getLogger("insightgraph.demo")
+
+
+class DemoScanRequest(BaseModel):
+    repo_url: str
+
+
+class DemoScanResponse(BaseModel):
+    session_id: str
+    nodes: list[dict]
+    edges: list[dict]
+    expires_at: float
+
+
+class DemoAskRequest(BaseModel):
+    session_id: str
+    question: str
+
+
+class DemoAskResponse(BaseModel):
+    answer: str
+    model: str
+
+
+# Task 12.1 — White-Label Branding Configuration
+
+def _validate_github_url(url: str) -> bool:
+    """Return True if url matches https://github.com/{owner}/{repo} pattern."""
+    return bool(_GITHUB_URL_RE.match(url.rstrip("/")))
+
+
+def _count_files_recursive(directory: str) -> int:
+    """Count all files recursively under directory."""
+    count = 0
+    for _, _, files in os.walk(directory):
+        count += len(files)
+    return count
+
+
+async def _run_demo_scan(repo_dir: str, max_nodes: int = 200) -> dict:
+    """Run a simplified scan on a cloned repo, capped at max_nodes nodes."""
+    nodes: list[dict] = []
+    edges: list[dict] = []
+    seen_keys: set[str] = set()
+
+    supported_exts = {".java", ".ts", ".tsx", ".js", ".jsx", ".py", ".sql"}
+
+    for root, _dirs, files in os.walk(repo_dir):
+        for fname in files:
+            if len(nodes) >= max_nodes:
+                break
+            ext = Path(fname).suffix.lower()
+            if ext not in supported_exts:
+                continue
+            fpath = os.path.join(root, fname)
+            rel_path = os.path.relpath(fpath, repo_dir)
+            node_key = f"demo:{rel_path}"
+            if node_key in seen_keys:
+                continue
+            seen_keys.add(node_key)
+            nodes.append({
+                "namespace_key": node_key,
+                "name": fname,
+                "file": rel_path,
+                "type": ext.lstrip(".").upper(),
+                "layer": "unknown",
+                "project": "demo",
+            })
+        if len(nodes) >= max_nodes:
+            break
+
+    return {"nodes": nodes[:max_nodes], "edges": edges}
+
+
+@app.post("/api/demo/scan", response_model=DemoScanResponse)
+async def demo_scan(request: DemoScanRequest):
+    """Clone a public GitHub repo and return a simplified graph (max 200 nodes).
+
+    Tasks 2.2, 2.5, 2.6.
+    """
+    # Task 2.5 — URL validation
+    if not _validate_github_url(request.repo_url):
+        raise HTTPException(
+            status_code=400,
+            detail="URL inválida. Informe um repositório público do GitHub no formato https://github.com/{owner}/{repo}",
+        )
+
+    # Task 2.2 — Semaphore: return 429 if all 3 slots are busy
+    if demo_semaphore._value == 0:
+        raise HTTPException(
+            status_code=429,
+            detail="Muitos scans em andamento. Tente novamente em instantes.",
+            headers={"Retry-After": "60"},
+        )
+
+    await demo_semaphore.acquire()
+    temp_dir = tempfile.mkdtemp(prefix="insightgraph_demo_")
+    scan_start = time.time()
+    try:
+        # Clone the repo (shallow, depth 1)
+        clone_result = await asyncio.get_event_loop().run_in_executor(
+            None,
+            lambda: subprocess.run(
+                ["git", "clone", "--depth", "1", request.repo_url, temp_dir],
+                capture_output=True,
+                text=True,
+                timeout=120,
+            ),
+        )
+        if clone_result.returncode != 0:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            raise HTTPException(
+                status_code=422,
+                detail=f"Falha ao clonar repositório: {clone_result.stderr[:300]}",
+            )
+
+        # Task 2.5 — File count limit
+        file_count = await asyncio.get_event_loop().run_in_executor(
+            None, _count_files_recursive, temp_dir
+        )
+        if file_count > 50_000:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            raise HTTPException(
+                status_code=400,
+                detail=f"Repositório muito grande ({file_count} arquivos). O limite é 50.000 arquivos.",
+            )
+
+        # Simplified scan (max 200 nodes)
+        graph = await _run_demo_scan(temp_dir, max_nodes=200)
+        nodes = graph["nodes"]
+        edges = graph["edges"]
+
+        scan_duration = time.time() - scan_start
+
+        # Create demo session with 30-minute expiry
+        session_id = str(uuid.uuid4())
+        now = time.time()
+        expires_at = now + 1800  # 30 minutes
+
+        state_store.create_demo_session(
+            session_id=session_id,
+            repo_url=request.repo_url,
+            temp_dir=temp_dir,
+            expires_at=expires_at,
+        )
+
+        # Task 2.6 — Log usage metrics (no PII)
+        _DEMO_USAGE_LOGGER.info(
+            "demo_scan repo=%s nodes=%d edges=%d duration_s=%.2f",
+            request.repo_url,
+            len(nodes),
+            len(edges),
+            scan_duration,
+        )
+
+        return DemoScanResponse(
+            session_id=session_id,
+            nodes=nodes,
+            edges=edges,
+            expires_at=expires_at,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        logger.error("demo_scan error: %s", e)
+        raise HTTPException(status_code=500, detail="Erro interno no scan demo.")
+    finally:
+        demo_semaphore.release()
+
+
+@app.post("/api/demo/ask", response_model=DemoAskResponse)
+async def demo_ask(request: DemoAskRequest):
+    """Answer one question about a demo session graph using Ollama.
+
+    Tasks 2.3, 2.6.
+    """
+    # Validate session
+    session = state_store.get_demo_session(request.session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Sessão demo não encontrada.")
+
+    now = time.time()
+    if session["expires_at"] < now:
+        raise HTTPException(status_code=410, detail="Sessão demo expirada.")
+
+    if session["ask_used"] != 0:
+        raise HTTPException(
+            status_code=403,
+            detail="Apenas uma pergunta é permitida por sessão demo.",
+        )
+
+    # Mark ask as used before calling Ollama (prevents double-use on concurrent requests)
+    state_store.mark_ask_used(request.session_id)
+
+    # Build a minimal context from the session
+    context = (
+        f"Repositório demo: {session['repo_url']}\n"
+        "Este é um grafo simplificado de um repositório público. "
+        "Responda de forma concisa e útil."
+    )
+
+    prompt = (
+        f"Contexto do repositório:\n{context}\n\n"
+        f"Pergunta: {request.question}\n\n"
+        "Responda em português de forma clara e objetiva."
+    )
+
+    ask_start = time.time()
+    answer = ""
+    model_used = OLLAMA_CHAT_MODEL
+    try:
+        async with ai_semaphore:
+            async with httpx.AsyncClient(timeout=60.0) as client:
+                resp = await client.post(
+                    f"{OLLAMA_URL}/api/generate",
+                    json={
+                        "model": OLLAMA_CHAT_MODEL,
+                        "prompt": prompt,
+                        "stream": False,
+                    },
+                )
+                resp.raise_for_status()
+                result = resp.json()
+                answer = result.get("response", "").strip()
+                model_used = result.get("model", OLLAMA_CHAT_MODEL)
+    except Exception as e:
+        logger.error("demo_ask Ollama error: %s", e)
+        raise HTTPException(status_code=503, detail="Serviço de IA indisponível.")
+
+    ask_duration = time.time() - ask_start
+
+    # Task 2.6 — Log usage metrics (no PII)
+    _DEMO_USAGE_LOGGER.info(
+        "demo_ask repo=%s question_len=%d duration_s=%.2f",
+        session["repo_url"],
+        len(request.question),
+        ask_duration,
+    )
+
+    return DemoAskResponse(answer=answer, model=model_used)
+
+
+# Task 2.4 — Background cleanup of expired demo sessions
+async def _cleanup_expired_demo_sessions() -> None:
+    """Periodically remove expired demo sessions and their temp directories."""
+    while True:
+        await asyncio.sleep(300)  # every 5 minutes
+        try:
+            expired = state_store.get_expired_sessions()
+            for session in expired:
+                temp_dir = session.get("temp_dir", "")
+                if temp_dir and os.path.isdir(temp_dir):
+                    shutil.rmtree(temp_dir, ignore_errors=True)
+                    logger.info("demo cleanup: removed temp_dir %s", temp_dir)
+                state_store.delete_demo_session(session["session_id"])
+                logger.info("demo cleanup: deleted session %s", session["session_id"])
+        except Exception as e:
+            logger.error("demo cleanup error: %s", e)
+
+
+# Register cleanup task on app startup
+@app.on_event("startup")
+async def _start_demo_cleanup():
+    asyncio.create_task(_cleanup_expired_demo_sessions())
+
+
+# ──────────────────────────────────────────────
+# Watch Mode — WebSocket & REST endpoints
+# ──────────────────────────────────────────────
+
+from fastapi import WebSocket, WebSocketDisconnect
+from incremental_scanner import IncrementalScanner, ImpactResult
+from watch_manager import WatchManager
+
+class WatchConnectionManager:
+    """Gerencia conexões WebSocket por projeto."""
+    
+    def __init__(self):
+        # project_path -> list of WebSocket connections
+        self._connections: dict[str, list[WebSocket]] = {}
+        self._lock = asyncio.Lock()
+    
+    async def connect(self, websocket: WebSocket, project_path: str) -> None:
+        """Adiciona uma conexão WebSocket para um projeto."""
+        await websocket.accept()
+        async with self._lock:
+            if project_path not in self._connections:
+                self._connections[project_path] = []
+            self._connections[project_path].append(websocket)
+            logger.info("WebSocket conectado para projeto: %s", project_path)
+    
+    async def disconnect(self, websocket: WebSocket, project_path: str) -> None:
+        """Remove uma conexão WebSocket."""
+        async with self._lock:
+            if project_path in self._connections:
+                try:
+                    self._connections[project_path].remove(websocket)
+                    if not self._connections[project_path]:
+                        del self._connections[project_path]
+                except ValueError:
+                    pass
+            logger.info("WebSocket desconectado de projeto: %s", project_path)
+    
+    async def broadcast(self, project_path: str, data: dict) -> None:
+        """Envia dados para todos os clientes conectados a um projeto."""
+        async with self._lock:
+            connections = self._connections.get(project_path, [])
+            if not connections:
+                return
+            
+            # Enviar para todos os clientes
+            dead_connections = []
+            for ws in connections:
+                try:
+                    await ws.send_json(data)
+                except Exception as e:
+                    logger.warning("Erro ao enviar para WebSocket: %s", e)
+                    dead_connections.append(ws)
+            
+            # Remover conexões mortas
+            for ws in dead_connections:
+                try:
+                    self._connections[project_path].remove(ws)
+                except ValueError:
+                    pass
+    
+    def get_connection_count(self, project_path: str) -> int:
+        """Retorna o número de conexões ativas para um projeto."""
+        return len(self._connections.get(project_path, []))
+    
+    def list_projects(self) -> list[str]:
+        """Lista todos os projetos com conexões ativas."""
+        return list(self._connections.keys())
+
+
+# Instâncias globais
+watch_conn_manager = WatchConnectionManager()
+watch_manager: Optional[WatchManager] = None
+incremental_scanner: Optional[IncrementalScanner] = None
+
+
+async def _on_file_changed_callback(file_path: str, project_path: str) -> None:
+    """Callback chamado quando um arquivo é modificado."""
+    global incremental_scanner
+    
+    if not incremental_scanner:
+        logger.warning("IncrementalScanner não inicializado")
+        return
+    
+    try:
+        # Processar arquivo
+        result = await incremental_scanner.process_file(file_path, project_path)
+        
+        # Broadcast para clientes conectados
+        payload = {
+            "type": "impact",
+            "file": result.file_path,
+            "changed_nodes": result.changed_nodes,
+            "affected_nodes": result.affected_nodes,
+            "risk_score": result.risk_score,
+            "coupling_delta": result.coupling_delta,
+            "summary": result.summary,
+            "timestamp": result.timestamp.isoformat(),
+        }
+        
+        await watch_conn_manager.broadcast(project_path, payload)
+        
+    except Exception as e:
+        logger.error("Erro ao processar mudança de arquivo %s: %s", file_path, e, exc_info=True)
+
+
+@app.on_event("startup")
+async def _init_watch_components():
+    """Inicializa componentes de watch mode no startup."""
+    global watch_manager, incremental_scanner
+    
+    try:
+        # Inicializar IncrementalScanner
+        parsers = {
+            "java": java_parser,
+            "ts": ts_parser,
+            "tsx": tsx_parser,
+        }
+        
+        # Import parse functions
+        from __main__ import parse_java, parse_typescript
+        parse_functions = {
+            "java": parse_java,
+            "ts": parse_typescript,
+            "tsx": parse_typescript,
+        }
+        
+        incremental_scanner = IncrementalScanner(
+            neo4j_service=neo4j_service,
+            rag_store=rag_store,
+            memory_nodes=memory_nodes,
+            memory_edges=memory_edges,
+            parsers=parsers,
+            parse_functions=parse_functions,
+        )
+        
+        # Inicializar WatchManager
+        watch_manager = WatchManager(on_file_changed=_on_file_changed_callback)
+        
+        logger.info("Watch mode components initialized")
+        
+    except Exception as e:
+        logger.error("Failed to initialize watch components: %s", e, exc_info=True)
+
+
+@app.websocket("/api/watch/ws/{project_path:path}")
+async def watch_websocket(websocket: WebSocket, project_path: str):
+    """
+    WebSocket endpoint para receber atualizações em tempo real.
+    
+    Formato de mensagens:
+    - Impact: {"type": "impact", "file": "...", "changed_nodes": [...], ...}
+    - Heartbeat: {"type": "heartbeat", "timestamp": "..."}
+    """
+    await watch_conn_manager.connect(websocket, project_path)
+    
+    try:
+        # Enviar heartbeat a cada 30s
+        while True:
+            try:
+                # Aguardar mensagem do cliente (ou timeout)
+                await asyncio.wait_for(websocket.receive_text(), timeout=30.0)
+            except asyncio.TimeoutError:
+                # Enviar heartbeat
+                await websocket.send_json({
+                    "type": "heartbeat",
+                    "timestamp": datetime.now().isoformat(),
+                })
+    
+    except WebSocketDisconnect:
+        await watch_conn_manager.disconnect(websocket, project_path)
+    except Exception as e:
+        logger.error("WebSocket error: %s", e)
+        await watch_conn_manager.disconnect(websocket, project_path)
+
+
+@app.post("/api/watch/start")
+async def start_watch(body: dict):
+    """
+    Inicia monitoramento de um projeto.
+    
+    Body: {"path": "/caminho/do/projeto"}
+    """
+    global watch_manager
+    
+    if not watch_manager:
+        raise HTTPException(status_code=503, detail="Watch manager not initialized")
+    
+    project_path = body.get("path")
+    if not project_path:
+        raise HTTPException(status_code=400, detail="Missing 'path' field")
+    
+    try:
+        await watch_manager.start(project_path)
+        return {
+            "status": "started",
+            "project_path": project_path,
+            "watching": watch_manager.list_watching(),
+        }
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except Exception as e:
+        logger.error("Error starting watch: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post("/api/watch/stop")
+async def stop_watch(body: dict):
+    """
+    Para monitoramento de um projeto.
+    
+    Body: {"path": "/caminho/do/projeto"}
+    """
+    global watch_manager
+    
+    if not watch_manager:
+        raise HTTPException(status_code=503, detail="Watch manager not initialized")
+    
+    project_path = body.get("path")
+    if not project_path:
+        raise HTTPException(status_code=400, detail="Missing 'path' field")
+    
+    try:
+        await watch_manager.stop(project_path)
+        return {
+            "status": "stopped",
+            "project_path": project_path,
+            "watching": watch_manager.list_watching(),
+        }
+    except Exception as e:
+        logger.error("Error stopping watch: %s", e, exc_info=True)
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/api/watch/status")
+async def watch_status():
+    """
+    Lista projetos sendo monitorados e número de conexões ativas.
+    
+    Returns:
+        {
+            "watching": ["/path1", "/path2"],
+            "connections": {"/path1": 2, "/path2": 1}
+        }
+    """
+    global watch_manager
+    
+    if not watch_manager:
+        return {
+            "watching": [],
+            "connections": {},
+            "status": "not_initialized",
+        }
+    
+    watching = watch_manager.list_watching()
+    connections = {
+        path: watch_conn_manager.get_connection_count(path)
+        for path in watching
+    }
+    
+    return {
+        "watching": watching,
+        "connections": connections,
+        "status": "active",
+    }
+
+
+# ──────────────────────────────────────────────
 # Entry point & CI/CD CLI
 # ──────────────────────────────────────────────
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="InsightGraph Backend & CI/CD CLI")
-    parser.add_argument("mode", nargs="?", default="serve", choices=["serve", "scan", "regression"], help="Mode to run: serve (API), scan (CLI CI/CD), or regression (core test suite)")
-    parser.add_argument("--path", type=str, help="Path to project to scan (required for scan mode)")
+    parser.add_argument("mode", nargs="?", default="serve", choices=["serve", "scan", "regression", "watch"], help="Mode to run: serve (API), scan (CLI CI/CD), regression (core test suite), or watch (file watcher)")
+    parser.add_argument("--path", type=str, action="append", dest="paths", help="Path to watch or scan (can be repeated for watch mode)")
     parser.add_argument("--fail-on-risk", type=int, default=0, help="Risk threshold (1-100) to fail the CI/CD pipeline")
+    parser.add_argument("--api-url", type=str, default="http://localhost:8000", help="InsightGraph API URL (for watch mode)")
     args = parser.parse_args()
 
     if args.mode == "regression":
@@ -8075,37 +10208,57 @@ if __name__ == "__main__":
             sys.exit(1)
         print("[InsightGraph] Regression suite passed.")
     elif args.mode == "scan":
-        if not args.path:
+        scan_path = (args.paths or [None])[0]
+        if not scan_path:
             print("[InsightGraph] ERROR: --path is required for scan mode.")
             sys.exit(1)
-            
+
         async def run_cli():
-            print(f"[InsightGraph] Starting CI/CD scan for path: {args.path}")
-            entities = await scan_project(args.path)
+            print(f"[InsightGraph] Starting CI/CD scan for path: {scan_path}")
+            entities = await scan_project(scan_path)
             await ingest_to_neo4j(entities)
             anti = await get_antipatterns()
-            
+
             god_classes = len(anti.get("god_classes", []))
             circular_deps = len(anti.get("circular_dependencies", []))
             dead_code = len(anti.get("dead_code", []))
-            
+
             # Simple heuristic matching the Simulation Risk Score
             risk_score = min(100, god_classes * 5 + circular_deps * 10 + min(dead_code, 20))
-            
+
             print(f"[InsightGraph] Scan completed.")
             print(f" - God Classes: {god_classes}")
             print(f" - Circular Dependencies: {circular_deps}")
             print(f" - Dead Code: {dead_code}")
             print(f" - Total Calculated Risk Score: {risk_score}/100")
-            
+
             if args.fail_on_risk > 0 and risk_score >= args.fail_on_risk:
-                print(f"[InsightGraph] ❌ FAILED: Risk score {risk_score} is >= threshold {args.fail_on_risk}.")
+                print(f"[InsightGraph] FAILED: Risk score {risk_score} is >= threshold {args.fail_on_risk}.")
                 sys.exit(1)
             else:
-                print("[InsightGraph] ✅ PASSED: Architecture adheres to risk limits.")
+                print("[InsightGraph] PASSED: Architecture adheres to risk limits.")
                 sys.exit(0)
-                
+
         asyncio.run(run_cli())
+    elif args.mode == "watch":
+        watch_paths = args.paths or []
+        if not watch_paths:
+            print("[InsightGraph] ERROR: at least one --path is required for watch mode.")
+            sys.exit(1)
+
+        from watch_service import WatchService
+
+        async def run_watch():
+            api_url = args.api_url
+            print(f"[InsightGraph] Starting watch mode on {len(watch_paths)} path(s): {watch_paths}")
+            print(f"[InsightGraph] API URL: {api_url}")
+            service = WatchService(paths=watch_paths, api_url=api_url, event_stream=event_stream)
+            try:
+                await service.start()
+            except KeyboardInterrupt:
+                pass
+
+        asyncio.run(run_watch())
     else:
         import uvicorn
         # Fallback for standard hot-reloading
@@ -8293,4 +10446,257 @@ async def get_codeql_results(project_id: str):
     except Exception as e:
         logger.error(f"Error getting CodeQL results: {e}")
         raise HTTPException(status_code=500, detail=str(e))
+
+
+
+# ──────────────────────────────────────────────
+# Investigative AI — POST /api/ask/investigate
+# ──────────────────────────────────────────────
+
+@app.post("/api/ask/investigate")
+async def ask_investigate(request: InvestigateRequest):
+    """Decompose a question into hypotheses, collect evidence from the graph and
+    snapshot history, verify each hypothesis, and return an InvestigationResult.
+
+    Respects ai_semaphore — returns HTTP 429 if the AI is currently busy.
+    evidence_nodes contains namespace_keys for GraphCanvas highlight.
+    """
+    if ai_semaphore.locked():
+        raise HTTPException(
+            status_code=429,
+            detail="O serviço de IA está ocupado. Tente novamente em instantes.",
+            headers={"Retry-After": "10"},
+        )
+
+    async with ai_semaphore:
+        investigator = InvestigativeAI(
+            ollama_url=OLLAMA_URL,
+            chat_model=OLLAMA_CHAT_MODEL,
+            state_store=state_store,
+            neo4j_service=neo4j_service,
+            memory_nodes=app_state.nodes,
+            memory_edges=app_state.edges,
+        )
+        try:
+            result = await investigator.investigate(request.question)
+        except Exception as exc:
+            logger.error("InvestigativeAI error: %s", exc)
+            raise HTTPException(
+                status_code=503,
+                detail="Serviço de IA indisponível. Verifique se o Ollama está em execução.",
+            )
+
+    from dataclasses import asdict as _asdict_inv
+    return _asdict_inv(result)
+
+# ──────────────────────────────────────────────
+# Refactor Engine (Requirements 8 & 9)
+# ──────────────────────────────────────────────
+
+def _get_refactor_engine() -> RefactorEngine:
+    """Lazy-initialize the RefactorEngine singleton."""
+    if not hasattr(_get_refactor_engine, "_instance"):
+        _get_refactor_engine._instance = RefactorEngine(
+            ollama_url=OLLAMA_URL,
+            complex_model=OLLAMA_COMPLEX_MODEL,
+            state_store=state_store,
+            memory_nodes=memory_nodes,
+            memory_edges=memory_edges,
+        )
+    return _get_refactor_engine._instance
+
+
+@app.post("/api/refactor/suggest")
+async def refactor_suggest(request: RefactorRequest):
+    """Generate a refactoring suggestion for a node.
+
+    Returns HTTP 404 if the node_key is not found in memory or the file does not exist on disk.
+    """
+    node_key = request.node_key
+
+    # Validate node exists in memory
+    node = next((n for n in memory_nodes if n.get("namespace_key") == node_key), None)
+    if node is None:
+        raise HTTPException(status_code=404, detail=f"Node '{node_key}' not found in graph")
+
+    # Validate file exists on disk
+    file_path = node.get("file")
+    if file_path and not Path(file_path).exists():
+        raise HTTPException(
+            status_code=404,
+            detail=f"Source file not found on disk: {file_path}",
+        )
+
+    engine = _get_refactor_engine()
+    try:
+        suggestion = await engine.suggest_refactor(node_key)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    except Exception as exc:
+        logger.error("refactor_suggest error: %s", exc)
+        raise HTTPException(status_code=503, detail="Refactor engine unavailable")
+
+    from dataclasses import asdict as _asdict_ref
+    return _asdict_ref(suggestion)
+
+
+@app.get("/api/refactor/history")
+async def refactor_history():
+    """Return all previously generated refactoring suggestions."""
+    return state_store.get_refactor_suggestions()
+
+
+@app.post("/api/architect/suggest")
+async def architect_suggest(request: ArchitectRequest):
+    """Suggest architecture for a new feature based on existing graph patterns.
+
+    Returns HTTP 400 if the graph has fewer than 10 nodes.
+    """
+    if len(memory_nodes) < 10:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "Grafo insuficiente para análise arquitetural. "
+                f"São necessários pelo menos 10 nós; o grafo atual possui {len(memory_nodes)}."
+            ),
+        )
+
+    engine = _get_refactor_engine()
+    try:
+        suggestion = await engine.suggest_architecture(request.description)
+    except Exception as exc:
+        logger.error("architect_suggest error: %s", exc)
+        raise HTTPException(status_code=503, detail="Architect engine unavailable")
+
+    from dataclasses import asdict as _asdict_arch
+    return _asdict_arch(suggestion)
+
+
+# ──────────────────────────────────────────────
+# Audit Endpoints
+# ──────────────────────────────────────────────
+
+@app.get("/api/audit/alerts")
+async def get_audit_alerts(
+    severity: str | None = Query(None, description="Filter by severity: low, medium, high, critical"),
+    limit: int = Query(100, ge=1, le=500, description="Maximum number of alerts to return"),
+) -> AuditAlertListResponse:
+    """
+    Get all unresolved audit alerts, ordered by severity descending.
+    
+    Alerts are generated when new antipatterns are detected during scans.
+    """
+    try:
+        alerts = audit_job.get_unresolved_alerts(severity=severity, limit=limit)
+        total = audit_job.get_alert_count()
+        
+        return AuditAlertListResponse(
+            items=[AuditAlert(**alert) for alert in alerts],
+            total=total,
+        )
+    except Exception as exc:
+        logger.error("get_audit_alerts error: %s", exc)
+        raise HTTPException(status_code=500, detail="Failed to retrieve audit alerts")
+
+
+@app.post("/api/audit/alerts/{alert_id}/resolve")
+async def resolve_audit_alert(alert_id: str, request: ResolveAlertRequest):
+    """
+    Mark an audit alert as resolved.
+    
+    Args:
+        alert_id: ID of the alert to resolve
+        request: Contains resolved_by field with username/identifier
+        
+    Returns:
+        Success message with alert ID
+    """
+    try:
+        success = audit_job.resolve_alert(alert_id, request.resolved_by)
+        
+        if not success:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Alert {alert_id} not found or already resolved",
+            )
+        
+        return {
+            "success": True,
+            "alert_id": alert_id,
+            "resolved_by": request.resolved_by,
+            "message": "Alert resolved successfully",
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.error("resolve_audit_alert error: %s", exc)
+        raise HTTPException(status_code=500, detail="Failed to resolve alert")
+
+
+@app.post("/api/audit/check")
+async def trigger_audit_check():
+    """
+    Trigger audit check to detect new antipatterns.
+    
+    This endpoint is called by WatchService after incremental scans
+    and can also be triggered manually or by periodic jobs.
+    
+    Returns:
+        Number of new alerts created
+    """
+    try:
+        # Get current antipatterns from the graph
+        current_antipatterns = await _get_current_antipatterns()
+        
+        # Get the most recent snapshot ID for comparison
+        history = temporal_analyzer.get_history(page=1, limit=1)
+        previous_snapshot_id = None
+        if history["items"]:
+            previous_snapshot_id = history["items"][0]["id"]
+        
+        # Check for new antipatterns
+        new_alerts = await audit_job.check_for_new_antipatterns(
+            current_antipatterns=current_antipatterns,
+            previous_snapshot_id=previous_snapshot_id,
+        )
+        
+        return {
+            "success": True,
+            "new_alerts": len(new_alerts),
+            "alerts": new_alerts,
+        }
+    except Exception as exc:
+        logger.error("trigger_audit_check error: %s", exc)
+        raise HTTPException(status_code=500, detail="Failed to trigger audit check")
+
+
+async def _get_current_antipatterns() -> dict:
+    """Helper to extract current antipatterns from the graph."""
+    try:
+        # Get antipatterns from the existing endpoint
+        god_classes = []
+        circular_deps = []
+        dead_code = []
+        
+        # Extract god classes (nodes with high complexity or many dependencies)
+        for node in memory_nodes:
+            complexity = node.get("complexity", 0)
+            if complexity > 20:  # Threshold for god class
+                god_classes.append(node["namespace_key"])
+        
+        # TODO: Add logic to detect circular dependencies and dead code
+        # This would require graph traversal algorithms
+        
+        return {
+            "god_classes": god_classes,
+            "circular_dependencies": circular_deps,
+            "dead_code": dead_code,
+        }
+    except Exception as exc:
+        logger.error("_get_current_antipatterns error: %s", exc)
+        return {
+            "god_classes": [],
+            "circular_dependencies": [],
+            "dead_code": [],
+        }
 

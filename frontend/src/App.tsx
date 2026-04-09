@@ -65,6 +65,17 @@ const NODE_TYPE_OPTIONS = [
 ];
 import APIInventoryPanel from './components/APIInventoryPanel';
 import SecurityDashboard from './components/SecurityDashboard';
+import { useRealtimeEvents } from './hooks/useRealtimeEvents';
+import ImpactToast, { type ImpactNotification } from './components/ImpactToast';
+import SidebarIntelligence from './components/SidebarIntelligence';
+import Timeline4D from './components/Timeline4D';
+import InvestigationMode from './components/InvestigationMode';
+import AIQueryEngine from './components/AIQueryEngine';
+import WatchModePanel from './components/WatchModePanel';
+import SettingsScreen from './components/SettingsScreen';
+
+// Feature flag for SSE (default: true)
+const SSE_ENABLED = import.meta.env.REACT_APP_ENABLE_SSE !== 'false';
 
 export default function App() {
   // ─── Workspace State ───
@@ -94,7 +105,54 @@ export default function App() {
   const [savedViewsError, setSavedViewsError] = useState<string | null>(null);
   const [tagsForFilter, setTagsForFilter] = useState<Tag[]>([]);
   const [selectedTagFilter, setSelectedTagFilter] = useState<string | null>(null);
+  
+  // ─── Wave Animation State ───
+  const [waveAnimationTrigger, setWaveAnimationTrigger] = useState<{
+    originNodeKey: string;
+    affectedNodes: string[];
+    timestamp: number;
+  } | null>(null);
   const [annotationsIndex, setAnnotationsIndex] = useState<Record<string, AnnotationRecord[]>>({});
+
+  // ─── Impact Toast State ───
+  const [impactNotifications, setImpactNotifications] = useState<ImpactNotification[]>([]);
+  
+  // ─── Intelligence Refresh Trigger ───
+  const [intelligenceRefreshTrigger, setIntelligenceRefreshTrigger] = useState(0);
+
+  // ─── Timeline 4D State ───
+  const [timeline4DOpen, setTimeline4DOpen] = useState(false);
+
+  // ─── Investigation Mode State ───
+  const [investigationModeOpen, setInvestigationModeOpen] = useState(false);
+  const [investigationNodeKey, setInvestigationNodeKey] = useState<string | null>(null);
+
+  // ─── AI Query Engine State ───
+  const [aiQueryOpen, setAiQueryOpen] = useState(false);
+
+  // ─── Watch Mode State ───
+  const [watchModeOpen, setWatchModeOpen] = useState(false);
+
+  // ─── Settings Screen State ───
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  
+  // ─── GitHub Configuration State ───
+  const [githubRepository, setGithubRepository] = useState(() => {
+    const stored = localStorage.getItem('githubRepository');
+    return stored || '';
+  });
+  const [githubBranch, setGithubBranch] = useState(() => {
+    const stored = localStorage.getItem('githubBranch');
+    return stored || 'main';
+  });
+  const [githubToken, setGithubToken] = useState(() => {
+    const stored = localStorage.getItem('githubToken');
+    return stored || '';
+  });
+  const [githubShallowClone, setGithubShallowClone] = useState(() => {
+    const stored = localStorage.getItem('githubShallowClone');
+    return stored === 'true';
+  });
 
   // ─── Filter State ───
   const [selectedProjects, setSelectedProjects] = useState<string[]>([]);
@@ -152,24 +210,6 @@ export default function App() {
   // Create a ref for the full simulation data to pass to review
   const lastSimData = useRef<any>(null);
 
-  // ─── Handlers ───
-  const handleAddWorkspace = useCallback((path: string) => {
-    setWorkspaces((prev) => [...prev, path]);
-  }, []);
-
-  const handleRemoveWorkspace = useCallback((path: string) => {
-    setWorkspaces((prev) => prev.filter((p) => p !== path));
-  }, []);
-
-  const handleAskButton = useCallback(() => {
-    if (selectedNodeKey && selectedNode) {
-      setAskInitialMessage(`Se eu alterar ${selectedNode.name}, o que quebra?`);
-    } else {
-      setAskInitialMessage(undefined);
-    }
-    setAskOpen(true);
-  }, [selectedNode, selectedNodeKey]);
-
   const loadGraph = useCallback(async () => {
     try {
       const projectFilter =
@@ -192,6 +232,92 @@ export default function App() {
       console.error('Failed to load graph:', err);
     }
   }, [selectedProjects, selectedLayer]);
+
+  // ─── SSE Real-time Events ───
+  const handleGraphUpdated = useCallback((data: any) => {
+    console.log('[App] graph_updated event received:', data);
+    // Refresh graph data when backend notifies of changes
+    loadGraph();
+    // Trigger intelligence refresh
+    setIntelligenceRefreshTrigger(prev => prev + 1);
+  }, [loadGraph]);
+
+  const handleImpactDetected = useCallback((data: any) => {
+    console.log('[App] impact_detected event received:', data);
+    
+    const affectedCount = data.affected_count || 0;
+    const fileName = data.file_path || 'unknown file';
+    const originNodeKey = data.origin_node_key || data.node_key;
+    const affectedNodes = data.affected_nodes || [];
+    
+    // Trigger wave animation if we have origin and affected nodes
+    if (originNodeKey && affectedNodes.length > 0) {
+      setWaveAnimationTrigger({
+        originNodeKey,
+        affectedNodes,
+        timestamp: Date.now(),
+      });
+    }
+    
+    // Show ImpactToast notification if impact is significant
+    if (affectedCount > 5) {
+      const severity: 'low' | 'medium' | 'high' = 
+        affectedCount >= 30 ? 'high' : 
+        affectedCount >= 10 ? 'medium' : 'low';
+      
+      const notification: ImpactNotification = {
+        id: `impact-${Date.now()}-${Math.random()}`,
+        nodeKey: originNodeKey,
+        fileName,
+        affectedCount,
+        severity,
+        timestamp: Date.now(),
+        autoHide: true,
+      };
+      
+      setImpactNotifications(prev => [...prev, notification]);
+    }
+    
+    // Trigger intelligence refresh
+    setIntelligenceRefreshTrigger(prev => prev + 1);
+  }, []);
+
+  // Initialize SSE connection if enabled
+  const { connected: sseConnected, reconnectAttempts } = useRealtimeEvents({
+    autoConnect: SSE_ENABLED,
+    handlers: {
+      graph_updated: handleGraphUpdated,
+      impact_detected: handleImpactDetected,
+    },
+  });
+
+  // Log SSE connection status
+  useEffect(() => {
+    if (SSE_ENABLED) {
+      console.log('[App] SSE connection status:', sseConnected ? 'connected' : 'disconnected');
+      if (reconnectAttempts > 0) {
+        console.log('[App] SSE reconnection attempts:', reconnectAttempts);
+      }
+    }
+  }, [sseConnected, reconnectAttempts]);
+
+  // ─── Handlers ───
+  const handleAddWorkspace = useCallback((path: string) => {
+    setWorkspaces((prev) => [...prev, path]);
+  }, []);
+
+  const handleRemoveWorkspace = useCallback((path: string) => {
+    setWorkspaces((prev) => prev.filter((p) => p !== path));
+  }, []);
+
+  const handleAskButton = useCallback(() => {
+    if (selectedNodeKey && selectedNode) {
+      setAskInitialMessage(`Se eu alterar ${selectedNode.name}, o que quebra?`);
+    } else {
+      setAskInitialMessage(undefined);
+    }
+    setAskOpen(true);
+  }, [selectedNode, selectedNodeKey]);
 
   const handleDeleteProject = useCallback(async (projectName: string) => {
     try {
@@ -483,29 +609,55 @@ export default function App() {
       setScanStatus('scanning');
       setScanStats({ files: 0, nodes: 0, rels: 0, progress: 0, currentFile: '' });
 
-      // Poll for status
-      pollRef.current = setInterval(async () => {
-        try {
-          const status = await getScanStatus();
-          setScanStats({
-            files: status.scanned_files,
-            nodes: status.total_nodes,
-            rels: status.total_relationships,
-            progress: status.progress_percent,
-            currentFile: status.current_file,
-          });
+      // Poll for status only if SSE is disabled (fallback mode)
+      // When SSE is enabled, scan_complete event will trigger graph reload
+      if (!SSE_ENABLED) {
+        pollRef.current = setInterval(async () => {
+          try {
+            const status = await getScanStatus();
+            setScanStats({
+              files: status.scanned_files,
+              nodes: status.total_nodes,
+              rels: status.total_relationships,
+              progress: status.progress_percent,
+              currentFile: status.current_file,
+            });
 
-          if (status.status !== 'scanning') {
-            setScanStatus(status.status);
+            if (status.status !== 'scanning') {
+              setScanStatus(status.status);
+              if (pollRef.current) clearInterval(pollRef.current);
+              // Reload graph after scan completes
+              loadGraph();
+            }
+          } catch {
+            setScanStatus('error');
             if (pollRef.current) clearInterval(pollRef.current);
-            // Reload graph after scan completes
-            loadGraph();
           }
-        } catch {
-          setScanStatus('error');
-          if (pollRef.current) clearInterval(pollRef.current);
-        }
-      }, 1500);
+        }, 1500);
+      } else {
+        // With SSE enabled, still poll for scan progress but rely on events for completion
+        pollRef.current = setInterval(async () => {
+          try {
+            const status = await getScanStatus();
+            setScanStats({
+              files: status.scanned_files,
+              nodes: status.total_nodes,
+              rels: status.total_relationships,
+              progress: status.progress_percent,
+              currentFile: status.current_file,
+            });
+
+            if (status.status !== 'scanning') {
+              setScanStatus(status.status);
+              if (pollRef.current) clearInterval(pollRef.current);
+              // Graph reload will be triggered by SSE event
+            }
+          } catch {
+            setScanStatus('error');
+            if (pollRef.current) clearInterval(pollRef.current);
+          }
+        }, 1500);
+      }
     } catch (err) {
       console.error('Scan failed:', err);
       setScanStatus('error');
@@ -513,7 +665,7 @@ export default function App() {
   }, [workspaces, loadGraph]);
 
   const handleNodeClick = useCallback(
-    async (nodeKey: string, nodeData: GraphNode, screenPosition?: { x: number; y: number }) => {
+    async (nodeKey: string, nodeData: GraphNode, _screenPosition?: { x: number; y: number }) => {
       setSelectedNodeKey(nodeKey);
       setSelectedNode(nodeData);
 
@@ -808,6 +960,20 @@ export default function App() {
     }
   }, [graphNodes, handleNodeClick]);
 
+  // ─── Impact Toast Handlers ───
+  const handleToastClick = useCallback((nodeKey: string) => {
+    const node = graphNodes.find((n) => n.namespace_key === nodeKey);
+    if (node) {
+      handleNodeClick(nodeKey, node);
+      // Focus camera on the node
+      graphCanvasRef.current?.focusNode(nodeKey);
+    }
+  }, [graphNodes, handleNodeClick]);
+
+  const handleToastDismiss = useCallback((id: string) => {
+    setImpactNotifications(prev => prev.filter(n => n.id !== id));
+  }, []);
+
   const handleArrowNavigate = useCallback((direction: 'upstream' | 'downstream') => {
     if (!selectedNodeKey || !impactData) return;
     const neighbors = direction === 'upstream' ? impactData.upstream : impactData.downstream;
@@ -916,6 +1082,52 @@ export default function App() {
     } finally {
       setRagReindexing(false);
     }
+  }, []);
+
+  // ─── Timeline 4D Handlers ───
+  const handleOpenTimeline4D = useCallback(() => {
+    setTimeline4DOpen(true);
+  }, []);
+
+  const handleCloseTimeline4D = useCallback(() => {
+    setTimeline4DOpen(false);
+  }, []);
+
+  // ─── Investigation Mode Handlers ───
+  const handleOpenInvestigation = useCallback((nodeKey: string) => {
+    setInvestigationNodeKey(nodeKey);
+    setInvestigationModeOpen(true);
+  }, []);
+
+  const handleCloseInvestigation = useCallback(() => {
+    setInvestigationModeOpen(false);
+    setInvestigationNodeKey(null);
+  }, []);
+
+  // ─── AI Query Engine Handlers ───
+  const handleOpenAIQuery = useCallback(() => {
+    setAiQueryOpen(true);
+  }, []);
+
+  const handleCloseAIQuery = useCallback(() => {
+    setAiQueryOpen(false);
+  }, []);
+
+  // ─── Watch Mode Handlers ───
+  const handleOpenWatchMode = useCallback(() => {
+    setWatchModeOpen(true);
+  }, []);
+
+  const handleCloseWatchMode = useCallback(() => {
+    setWatchModeOpen(false);
+  }, []);
+
+  const handleOpenSettings = useCallback(() => {
+    setSettingsOpen(true);
+  }, []);
+
+  const handleCloseSettings = useCallback(() => {
+    setSettingsOpen(false);
   }, []);
 
   // ─── Effects ───
@@ -1188,6 +1400,16 @@ export default function App() {
         onOpenSearchPanel={handleOpenSearchPanel}
         securityOpen={securityOpen}
         onToggleSecurity={() => setSecurityOpen((prev) => !prev)}
+        timeline4DOpen={timeline4DOpen}
+        onToggleTimeline4D={handleOpenTimeline4D}
+        investigationModeOpen={investigationModeOpen}
+        onToggleInvestigation={handleOpenInvestigation}
+        aiQueryOpen={aiQueryOpen}
+        onToggleAIQuery={handleOpenAIQuery}
+        watchModeOpen={watchModeOpen}
+        onToggleWatchMode={handleOpenWatchMode}
+        settingsOpen={settingsOpen}
+        onToggleSettings={handleOpenSettings}
         selectedNodeName={selectedNode?.name ?? null}
         lastScanLabel={lastScanLabel}
       />
@@ -1245,6 +1467,13 @@ export default function App() {
         </div>
       )}
 
+      {/* Impact Toast Notifications */}
+      <ImpactToast
+        impacts={impactNotifications}
+        onToastClick={handleToastClick}
+        onDismiss={handleToastDismiss}
+      />
+
       <Sidebar
         workspaces={workspaces}
         onRemoveWorkspace={handleRemoveWorkspace}
@@ -1278,6 +1507,8 @@ export default function App() {
         isCollapsed={sidebarCollapsed}
         onToggleCollapse={() => setSidebarCollapsed(prev => !prev)}
         searchInputRef={searchInputRef}
+        onNodeClick={handleFocusGraphNode}
+        intelligenceRefreshTrigger={intelligenceRefreshTrigger}
       />
 
       <div className="app-main">
@@ -1309,6 +1540,7 @@ export default function App() {
             selectedTag={selectedTagFilter}
             tagFilterNodes={tagFilterNodes}
             ref={graphCanvasRef}
+            waveAnimationTrigger={waveAnimationTrigger}
           />
           <div className="legend-region">
             <button className="legend-toggle" onClick={toggleLegend} type="button">
@@ -1460,6 +1692,73 @@ export default function App() {
              </div>
           </div>
         </div>
+      )}
+
+      {/* Timeline 4D */}
+      {timeline4DOpen && (
+        <Timeline4D
+          onCommitSelected={(hash, snapshot) => {
+            console.log('Commit selected:', hash, snapshot);
+            
+            // Validate snapshot structure
+            if (!snapshot || typeof snapshot !== 'object') {
+              console.warn('Invalid snapshot received, preserving current graph');
+              return;
+            }
+            
+            // Only update graph if snapshot has populated data
+            if (snapshot.nodes && Array.isArray(snapshot.nodes) && snapshot.nodes.length > 0) {
+              console.log(`Updating graph with ${snapshot.nodes.length} nodes from commit ${hash}`);
+              setGraphNodes(snapshot.nodes);
+              setGraphEdges(snapshot.edges || []);
+            } else {
+              // Explicitly preserve current graph when snapshot is empty (fast mode)
+              console.log(`Fast mode: Preserving current graph for commit ${hash}`);
+              // No state updates - graph remains unchanged
+              // Timeline4D panel will display commit diff information
+            }
+          }}
+          onReturnToPresent={() => {
+            // Reload current graph
+            loadGraph();
+          }}
+          onClose={handleCloseTimeline4D}
+          repoUrl={githubRepository}
+          repoPath="."
+          repoToken={githubToken}
+          useShallowClone={githubShallowClone}
+        />
+      )}
+
+      {/* Investigation Mode */}
+      {investigationModeOpen && investigationNodeKey && (
+        <InvestigationMode
+          nodeKey={investigationNodeKey}
+          onClose={handleCloseInvestigation}
+          graphNodes={graphNodes}
+          onNodeClick={handleNodeClick}
+        />
+      )}
+
+      {/* AI Query Engine */}
+      {aiQueryOpen && (
+        <AIQueryEngine
+          onClose={handleCloseAIQuery}
+          graphNodes={graphNodes}
+          onNodeClick={handleNodeClick}
+        />
+      )}
+
+      {/* Watch Mode Panel */}
+      {watchModeOpen && (
+        <WatchModePanel
+          onClose={handleCloseWatchMode}
+        />
+      )}
+
+      {/* Settings Screen */}
+      {settingsOpen && (
+        <SettingsScreen onClose={handleCloseSettings} />
       )}
     </div>
   );

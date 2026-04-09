@@ -1,4 +1,11 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+
+interface BrandingConfig {
+    name: string;
+    logo_url: string | null;
+    primary_color: string;
+    secondary_color: string | null;
+}
 
 interface TopBarProps {
     workspaces: string[];
@@ -26,6 +33,16 @@ interface TopBarProps {
     onOpenSearchPanel: () => void;
     securityOpen: boolean;
     onToggleSecurity: () => void;
+    timeline4DOpen: boolean;
+    onToggleTimeline4D: () => void;
+    investigationModeOpen: boolean;
+    onToggleInvestigation: () => void;
+    aiQueryOpen: boolean;
+    onToggleAIQuery: () => void;
+    watchModeOpen: boolean;
+    onToggleWatchMode: () => void;
+    settingsOpen: boolean;
+    onToggleSettings: () => void;
     selectedNodeName: string | null;
     lastScanLabel: string;
 }
@@ -55,10 +72,51 @@ export default function TopBar({
     onOpenSearchPanel,
     securityOpen,
     onToggleSecurity,
+    timeline4DOpen,
+    onToggleTimeline4D,
+    investigationModeOpen,
+    onToggleInvestigation,
+    aiQueryOpen,
+    onToggleAIQuery,
+    watchModeOpen,
+    onToggleWatchMode,
+    settingsOpen,
+    onToggleSettings,
     selectedNodeName,
     lastScanLabel,
 }: TopBarProps) {
     const [inputPath, setInputPath] = useState('');
+    const [branding, setBranding] = useState<BrandingConfig>({
+        name: 'InsightGraph',
+        logo_url: null,
+        primary_color: '#6366f1',
+        secondary_color: null,
+    });
+
+    // Task 12.2 — Fetch branding configuration on mount
+    useEffect(() => {
+        const fetchBranding = async () => {
+            try {
+                const response = await fetch('/api/config/branding');
+                if (response.ok) {
+                    const config = await response.json();
+                    setBranding(config);
+                    
+                    // Apply CSS variables for colors
+                    if (config.primary_color) {
+                        document.documentElement.style.setProperty('--brand-primary', config.primary_color);
+                    }
+                    if (config.secondary_color) {
+                        document.documentElement.style.setProperty('--brand-secondary', config.secondary_color);
+                    }
+                }
+            } catch (error) {
+                console.error('Failed to fetch branding config:', error);
+            }
+        };
+        
+        fetchBranding();
+    }, []);
 
     const handleAdd = () => {
         const trimmed = inputPath.trim();
@@ -150,6 +208,68 @@ export default function TopBar({
             ),
         },
         {
+            id: 'timeline4d',
+            label: 'Timeline 4D',
+            active: timeline4DOpen,
+            onClick: onToggleTimeline4D,
+            icon: (
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                    <rect x="2" y="2" width="12" height="12" rx="1.5" stroke="currentColor" strokeWidth="1.5" fill="none"/>
+                    <path d="M8 2v12M2 8h12" stroke="currentColor" strokeWidth="1" opacity="0.5"/>
+                    <circle cx="8" cy="8" r="2.5" stroke="currentColor" strokeWidth="1.5" fill="none"/>
+                </svg>
+            ),
+        },
+        {
+            id: 'investigation',
+            label: 'Investigation',
+            active: investigationModeOpen,
+            onClick: onToggleInvestigation,
+            icon: (
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                    <circle cx="6.5" cy="6.5" r="4.5" stroke="currentColor" strokeWidth="1.5" fill="none"/>
+                    <line x1="10" y1="10" x2="14" y2="14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+                    <path d="M6.5 3.5v3M6.5 9.5v3M3.5 6.5h3M9.5 6.5h3" stroke="currentColor" strokeWidth="1" opacity="0.5"/>
+                </svg>
+            ),
+        },
+        {
+            id: 'aiquery',
+            label: 'AI Query',
+            active: aiQueryOpen,
+            onClick: onToggleAIQuery,
+            icon: (
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                    <path d="M2 4h12M2 8h12M2 12h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none"/>
+                    <circle cx="13" cy="12" r="1.5" fill="currentColor"/>
+                </svg>
+            ),
+        },
+        {
+            id: 'watchmode',
+            label: 'Watch Mode',
+            active: watchModeOpen,
+            onClick: onToggleWatchMode,
+            icon: (
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                    <path d="M1 8s4-5 7-5 7 5 7 5-4 5-7 5-7-5-7-5z" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinejoin="round"/>
+                    <circle cx="8" cy="8" r="2.5" stroke="currentColor" strokeWidth="1.5" fill="none"/>
+                </svg>
+            ),
+        },
+        {
+            id: 'settings',
+            label: 'Settings',
+            active: settingsOpen,
+            onClick: onToggleSettings,
+            icon: (
+                <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
+                    <path d="M8 1a3 3 0 0 1 3 3l.35.18a1 1 0 0 1 .18 1.33l-.72.72a1 1 0 0 0 0 1.41l.72.72a1 1 0 0 1-.18 1.33L11 10a3 3 0 0 1-3 3l-.18.35a1 1 0 0 1-1.33.18l-.72-.72a1 1 0 0 0-1.41 0l-.72.72a1 1 0 0 1-1.33-.18L5 11a3 3 0 0 1-3-3l-.35-.18a1 1 0 0 1-.18-1.33l.72-.72a1 1 0 0 0 0-1.41l-.72-.72a1 1 0 0 1 .18-1.33L3 5a3 3 0 0 1 3-3l.18-.35a1 1 0 0 1 1.33-.18l.72.72a1 1 0 0 0 1.41 0l.72-.72a1 1 0 0 1 1.33.18L11 5a3 3 0 0 1 3 3l.35.18a1 1 0 0 1 .18 1.33l-.72.72a1 1 0 0 0 0 1.41l.72.72a1 1 0 0 1-.18 1.33L13 11a3 3 0 0 1-3 3l-.18.35a1 1 0 0 1-1.33.18l-.72-.72a1 1 0 0 0-1.41 0l-.72.72a1 1 0 0 1-1.33-.18L5 13a3 3 0 0 1-3-3l-.35-.18a1 1 0 0 1-.18-1.33l.72-.72a1 1 0 0 0 0-1.41l-.72-.72a1 1 0 0 1 .18-1.33L3 5a3 3 0 0 1 3-3l.18-.35a1 1 0 0 1 1.33-.18l.72.72a1 1 0 0 0 1.41 0l.72-.72a1 1 0 0 1 1.33.18L11 5a3 3 0 0 1 3 3l.35.18a1 1 0 0 1 .18 1.33l-.72.72a1 1 0 0 0 0 1.41l.72.72a1 1 0 0 1-.18 1.33L13 11a3 3 0 0 1-3 3l-.18.35a1 1 0 0 1-1.33.18l-.72-.72a1 1 0 0 0-1.41 0l-.72.72a1 1 0 0 1-1.33-.18L5 13" stroke="currentColor" strokeWidth="1" opacity="0.5"/>
+                    <circle cx="8" cy="8" r="2.5" stroke="currentColor" strokeWidth="1.5" fill="none"/>
+                </svg>
+            ),
+        },
+        {
             id: 'search',
             label: 'Search',
             active: false,
@@ -199,20 +319,24 @@ export default function TopBar({
             {/* Row 1: Logo + Workspace Input + Primary Actions */}
             <div className="topbar topbar-main">
                 <div className="topbar-logo">
-                    <div className="icon">
-                        <svg width="16" height="16" viewBox="0 0 20 20" fill="none">
-                            <circle cx="10" cy="10" r="3" fill="white"/>
-                            <circle cx="3" cy="4" r="2" fill="white" opacity="0.7"/>
-                            <circle cx="17" cy="4" r="2" fill="white" opacity="0.7"/>
-                            <circle cx="3" cy="16" r="2" fill="white" opacity="0.7"/>
-                            <circle cx="17" cy="16" r="2" fill="white" opacity="0.7"/>
-                            <line x1="5" y1="5.5" x2="8.5" y2="8.5" stroke="white" strokeWidth="1" opacity="0.6"/>
-                            <line x1="15" y1="5.5" x2="11.5" y2="8.5" stroke="white" strokeWidth="1" opacity="0.6"/>
-                            <line x1="5" y1="14.5" x2="8.5" y2="11.5" stroke="white" strokeWidth="1" opacity="0.6"/>
-                            <line x1="15" y1="14.5" x2="11.5" y2="11.5" stroke="white" strokeWidth="1" opacity="0.6"/>
-                        </svg>
-                    </div>
-                    <span>InsightGraph</span>
+                    {branding.logo_url ? (
+                        <img src={branding.logo_url} alt={branding.name} className="logo-image" style={{ height: '20px', marginRight: '8px' }} />
+                    ) : (
+                        <div className="icon">
+                            <svg width="16" height="16" viewBox="0 0 20 20" fill="none">
+                                <circle cx="10" cy="10" r="3" fill="white"/>
+                                <circle cx="3" cy="4" r="2" fill="white" opacity="0.7"/>
+                                <circle cx="17" cy="4" r="2" fill="white" opacity="0.7"/>
+                                <circle cx="3" cy="16" r="2" fill="white" opacity="0.7"/>
+                                <circle cx="17" cy="16" r="2" fill="white" opacity="0.7"/>
+                                <line x1="5" y1="5.5" x2="8.5" y2="8.5" stroke="white" strokeWidth="1" opacity="0.6"/>
+                                <line x1="15" y1="5.5" x2="11.5" y2="8.5" stroke="white" strokeWidth="1" opacity="0.6"/>
+                                <line x1="5" y1="14.5" x2="8.5" y2="11.5" stroke="white" strokeWidth="1" opacity="0.6"/>
+                                <line x1="15" y1="14.5" x2="11.5" y2="11.5" stroke="white" strokeWidth="1" opacity="0.6"/>
+                            </svg>
+                        </div>
+                    )}
+                    <span>{branding.name}</span>
                 </div>
 
                 <div className="topbar-input-group">

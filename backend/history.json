@@ -130,5 +130,2819 @@
     "call_total": 15952,
     "call_resolved": 4020,
     "call_unresolved": 11932
+  },
+  {
+    "timestamp": "2026-03-29T19:27:36.169308",
+    "total_nodes": 2903,
+    "total_edges": 27562,
+    "god_classes": 863,
+    "circular_deps": 0,
+    "dead_code": 439,
+    "call_resolution_rate": 27.08,
+    "call_total": 17839,
+    "call_resolved": 4831,
+    "call_unresolved": 13008,
+    "node_snapshot": [
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/ponto/services/CalculoPontoService.java:CalculoPontoService",
+        "name": "CalculoPontoService",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/ponto/services/CalculoPontoService.java",
+        "labels": [
+          "Java_Class",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 111.0,
+        "fragility_score": 49.95
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/ponto/services/PontoService.java:PontoService",
+        "name": "PontoService",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/ponto/services/PontoService.java",
+        "labels": [
+          "Java_Class",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 89.0,
+        "fragility_score": 40.05
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/app/pages/ponto/registrar/registrar-ponto.ts:RegistrarPonto",
+        "name": "RegistrarPonto",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/app/pages/ponto/registrar/registrar-ponto.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 0.0,
+        "complexity": 66.0,
+        "fragility_score": 29.7
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/funcionario/services/FuncionarioService.java:FuncionarioService",
+        "name": "FuncionarioService",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/funcionario/services/FuncionarioService.java",
+        "labels": [
+          "Java_Class",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 58.0,
+        "fragility_score": 26.1
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/admin/services/ExportService.java:ExportService",
+        "name": "ExportService",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/admin/services/ExportService.java",
+        "labels": [
+          "Java_Class",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 56.0,
+        "fragility_score": 25.2
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/app/pages/calendario/calendario.ts:Calendario",
+        "name": "Calendario",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/app/pages/calendario/calendario.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 0.0,
+        "complexity": 54.0,
+        "fragility_score": 24.3
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/calculo/services/MotorCalculoServiceImpl.java:MotorCalculoServiceImpl",
+        "name": "MotorCalculoServiceImpl",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/calculo/services/MotorCalculoServiceImpl.java",
+        "labels": [
+          "Java_Class",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 53.0,
+        "fragility_score": 23.85
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/ponto/services/PontoService.java:PontoService.baterPonto",
+        "name": "baterPonto",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/ponto/services/PontoService.java",
+        "labels": [
+          "Java_Method",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 50.0,
+        "fragility_score": 22.5
+      },
+      {
+        "namespace_key": "meuponto-mobile:meuponto-mobile/src/app/pages/dashboard/dashboard.page.ts:DashboardPage",
+        "name": "DashboardPage",
+        "project": "meuponto-mobile",
+        "file": "meuponto-mobile/src/app/pages/dashboard/dashboard.page.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 0.0,
+        "complexity": 46.0,
+        "fragility_score": 20.7
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/ponto/controllers/PontoController.java:PontoController",
+        "name": "PontoController",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/ponto/controllers/PontoController.java",
+        "labels": [
+          "Java_Class",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 0.0,
+        "complexity": 38.0,
+        "fragility_score": 17.1
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/ponto/services/LayoutExportacaoService.java:LayoutExportacaoService",
+        "name": "LayoutExportacaoService",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/ponto/services/LayoutExportacaoService.java",
+        "labels": [
+          "Java_Class",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 36.0,
+        "fragility_score": 16.2
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/dashboard/controllers/DashboardController.java:DashboardController",
+        "name": "DashboardController",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/dashboard/controllers/DashboardController.java",
+        "labels": [
+          "Java_Class",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 0.0,
+        "complexity": 35.0,
+        "fragility_score": 15.75
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/funcionario/services/FuncionarioService.java:FuncionarioService.atualizar",
+        "name": "atualizar",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/funcionario/services/FuncionarioService.java",
+        "labels": [
+          "Java_Method",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 34.0,
+        "fragility_score": 15.3
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/auth/services/PermissionService.java:PermissionService",
+        "name": "PermissionService",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/auth/services/PermissionService.java",
+        "labels": [
+          "Java_Class",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 33.0,
+        "fragility_score": 14.85
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/funcionario/dto/FuncionarioResponse.java:FuncionarioResponse",
+        "name": "FuncionarioResponse",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/funcionario/dto/FuncionarioResponse.java",
+        "labels": [
+          "Java_Class",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 33.0,
+        "fragility_score": 14.85
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/funcionario/dto/FuncionarioResponse.java:FuncionarioResponse.fromEntity",
+        "name": "fromEntity",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/funcionario/dto/FuncionarioResponse.java",
+        "labels": [
+          "Java_Method",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 33.0,
+        "fragility_score": 14.85
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/app/pages/relatorios/espelho/espelho-ponto.ts:EspelhoPonto",
+        "name": "EspelhoPonto",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/app/pages/relatorios/espelho/espelho-ponto.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 0.0,
+        "complexity": 33.0,
+        "fragility_score": 14.85
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/assets/models/face-api-master/src/tinyYolov2/TinyYolov2Base.ts:TinyYolov2Base",
+        "name": "TinyYolov2Base",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/assets/models/face-api-master/src/tinyYolov2/TinyYolov2Base.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 0.0,
+        "complexity": 33.0,
+        "fragility_score": 14.85
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/ponto/services/CalculoPontoService.java:CalculoPontoService.calcularResumoDia",
+        "name": "calcularResumoDia",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/ponto/services/CalculoPontoService.java",
+        "labels": [
+          "Java_Method",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 32.0,
+        "fragility_score": 14.4
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/arquivos/services/ArquivoLegalServiceImpl.java:ArquivoLegalServiceImpl",
+        "name": "ArquivoLegalServiceImpl",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/arquivos/services/ArquivoLegalServiceImpl.java",
+        "labels": [
+          "Java_Class",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 31.0,
+        "fragility_score": 13.95
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/contabilidade/services/ContabilidadeService.java:ContabilidadeService",
+        "name": "ContabilidadeService",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/contabilidade/services/ContabilidadeService.java",
+        "labels": [
+          "Java_Class",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 30.0,
+        "fragility_score": 13.5
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/ponto/services/PontoRegistroServiceImpl.java:PontoRegistroServiceImpl",
+        "name": "PontoRegistroServiceImpl",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/ponto/services/PontoRegistroServiceImpl.java",
+        "labels": [
+          "Java_Class",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 30.0,
+        "fragility_score": 13.5
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/app/pages/admin/contabilidades/lista-contabilidades.ts:ListaContabilidadesComponent",
+        "name": "ListaContabilidadesComponent",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/app/pages/admin/contabilidades/lista-contabilidades.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 0.0,
+        "complexity": 30.0,
+        "fragility_score": 13.5
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/app/core/services/auth.service.ts:AuthService",
+        "name": "AuthService",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/app/core/services/auth.service.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 0.0,
+        "complexity": 29.0,
+        "fragility_score": 13.05
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/ponto/services/FechamentoService.java:FechamentoService",
+        "name": "FechamentoService",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/ponto/services/FechamentoService.java",
+        "labels": [
+          "Java_Class",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 28.0,
+        "fragility_score": 12.6
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/integracao/services/ExportacaoFolhaService.java:ExportacaoFolhaService",
+        "name": "ExportacaoFolhaService",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/integracao/services/ExportacaoFolhaService.java",
+        "labels": [
+          "Java_Class",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 27.0,
+        "fragility_score": 12.15
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/test/java/br/com/meuponto/api/concurrency/ConcurrencyTest.java:ConcurrencyTest",
+        "name": "ConcurrencyTest",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/test/java/br/com/meuponto/api/concurrency/ConcurrencyTest.java",
+        "labels": [
+          "Java_Class",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 27.0,
+        "fragility_score": 12.15
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/app/pages/ponto/gestao/gestao-ponto.ts:GestaoPontoComponent",
+        "name": "GestaoPontoComponent",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/app/pages/ponto/gestao/gestao-ponto.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 0.0,
+        "complexity": 27.0,
+        "fragility_score": 12.15
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/admin/controllers/EmpresaAdminController.java:EmpresaAdminController",
+        "name": "EmpresaAdminController",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/admin/controllers/EmpresaAdminController.java",
+        "labels": [
+          "Java_Class",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 0.0,
+        "complexity": 26.0,
+        "fragility_score": 11.7
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/jornada/services/JornadaServiceImpl.java:JornadaServiceImpl",
+        "name": "JornadaServiceImpl",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/jornada/services/JornadaServiceImpl.java",
+        "labels": [
+          "Java_Class",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 26.0,
+        "fragility_score": 11.7
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/app/pages/uikit/tabledemo.ts:TableDemo",
+        "name": "TableDemo",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/app/pages/uikit/tabledemo.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 0.0,
+        "complexity": 26.0,
+        "fragility_score": 11.7
+      },
+      {
+        "namespace_key": "meuponto-mobile:meuponto-mobile/src/app/core/services/sync.service.ts:SyncService",
+        "name": "SyncService",
+        "project": "meuponto-mobile",
+        "file": "meuponto-mobile/src/app/core/services/sync.service.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 0.0,
+        "complexity": 26.0,
+        "fragility_score": 11.7
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/app/pages/funcionarios/form/form-funcionario.ts:FormFuncionario",
+        "name": "FormFuncionario",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/app/pages/funcionarios/form/form-funcionario.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 0.0,
+        "complexity": 25.0,
+        "fragility_score": 11.25
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/ponto/services/CalculoPontoService.java:CalculoPontoService.calcularHorasComRegras",
+        "name": "calcularHorasComRegras",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/ponto/services/CalculoPontoService.java",
+        "labels": [
+          "Java_Method",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 24.0,
+        "fragility_score": 10.8
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/app/core/interceptors/auth.interceptor.ts:authInterceptor",
+        "name": "authInterceptor",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/app/core/interceptors/auth.interceptor.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 0.0,
+        "complexity": 24.0,
+        "fragility_score": 10.8
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/app/core/services/menu.service.ts:MenuService",
+        "name": "MenuService",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/app/core/services/menu.service.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 0.0,
+        "complexity": 24.0,
+        "fragility_score": 10.8
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/app/pages/empresa/geofencing/geofencing-config.ts:GeofencingConfigComponent",
+        "name": "GeofencingConfigComponent",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/app/pages/empresa/geofencing/geofencing-config.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 0.0,
+        "complexity": 24.0,
+        "fragility_score": 10.8
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/dashboard/controllers/DashboardController.java:DashboardController.getDadosDia",
+        "name": "getDadosDia",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/dashboard/controllers/DashboardController.java",
+        "labels": [
+          "Java_Method",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 0.0,
+        "complexity": 23.0,
+        "fragility_score": 10.35
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/financeiro/controllers/BillingWebhookController.java:BillingWebhookController",
+        "name": "BillingWebhookController",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/financeiro/controllers/BillingWebhookController.java",
+        "labels": [
+          "Java_Class",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 0.0,
+        "complexity": 23.0,
+        "fragility_score": 10.35
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/app/pages/folha/ferias/gestao-ferias.ts:GestaoFerias",
+        "name": "GestaoFerias",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/app/pages/folha/ferias/gestao-ferias.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 0.0,
+        "complexity": 23.0,
+        "fragility_score": 10.35
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/admin/services/SaasMetricsService.java:SaasMetricsService",
+        "name": "SaasMetricsService",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/admin/services/SaasMetricsService.java",
+        "labels": [
+          "Java_Class",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 22.0,
+        "fragility_score": 9.9
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/folha/services/AtestadoService.java:AtestadoService",
+        "name": "AtestadoService",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/folha/services/AtestadoService.java",
+        "labels": [
+          "Java_Class",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 22.0,
+        "fragility_score": 9.9
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/ponto/services/LayoutExportacaoService.java:LayoutExportacaoService.gerarArquivoDominio",
+        "name": "gerarArquivoDominio",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/ponto/services/LayoutExportacaoService.java",
+        "labels": [
+          "Java_Method",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 22.0,
+        "fragility_score": 9.9
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/app/layout/component/app.menuitem.ts:AppMenuitem",
+        "name": "AppMenuitem",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/app/layout/component/app.menuitem.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 0.0,
+        "complexity": 22.0,
+        "fragility_score": 9.9
+      },
+      {
+        "namespace_key": "meuponto-mobile:meuponto-mobile/src/app/core/interceptors/auth.interceptor.ts:authInterceptor",
+        "name": "authInterceptor",
+        "project": "meuponto-mobile",
+        "file": "meuponto-mobile/src/app/core/interceptors/auth.interceptor.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 0.0,
+        "complexity": 22.0,
+        "fragility_score": 9.9
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/contabilidade/services/FechamentoLoteService.java:FechamentoLoteService",
+        "name": "FechamentoLoteService",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/contabilidade/services/FechamentoLoteService.java",
+        "labels": [
+          "Java_Class",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 21.0,
+        "fragility_score": 9.45
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/app/pages/admin/empresas/lista-empresas.ts:ListaEmpresas",
+        "name": "ListaEmpresas",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/app/pages/admin/empresas/lista-empresas.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 0.0,
+        "complexity": 21.0,
+        "fragility_score": 9.45
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/app/pages/ponto/qrcode/qr-code-ponto.ts:QrCodePonto",
+        "name": "QrCodePonto",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/app/pages/ponto/qrcode/qr-code-ponto.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 0.0,
+        "complexity": 21.0,
+        "fragility_score": 9.45
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/assets/models/face-api-master/src/classes/Box.ts:Box",
+        "name": "Box",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/assets/models/face-api-master/src/classes/Box.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 0.0,
+        "complexity": 21.0,
+        "fragility_score": 9.45
+      },
+      {
+        "namespace_key": "meuponto-mobile:meuponto-mobile/src/app/core/services/auth.service.ts:AuthService",
+        "name": "AuthService",
+        "project": "meuponto-mobile",
+        "file": "meuponto-mobile/src/app/core/services/auth.service.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 0.0,
+        "complexity": 21.0,
+        "fragility_score": 9.45
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/auditoria/services/LogAuditoriaService.java:LogAuditoriaService",
+        "name": "LogAuditoriaService",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/auditoria/services/LogAuditoriaService.java",
+        "labels": [
+          "Java_Class",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 20.0,
+        "fragility_score": 9.0
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/calculo/services/MotorCalculoServiceImpl.java:MotorCalculoServiceImpl.calcularDia",
+        "name": "calcularDia",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/calculo/services/MotorCalculoServiceImpl.java",
+        "labels": [
+          "Java_Method",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 20.0,
+        "fragility_score": 9.0
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/app/pages/banco-horas/saldos/saldos-banco.ts:SaldosBanco",
+        "name": "SaldosBanco",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/app/pages/banco-horas/saldos/saldos-banco.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 0.0,
+        "complexity": 20.0,
+        "fragility_score": 9.0
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/funcionario/services/FuncionarioService.java:FuncionarioService.criar",
+        "name": "criar",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/funcionario/services/FuncionarioService.java",
+        "labels": [
+          "Java_Method",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 19.0,
+        "fragility_score": 8.55
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/app/core/api/auditoria.api.ts:AuditoriaApiService",
+        "name": "AuditoriaApiService",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/app/core/api/auditoria.api.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 0.0,
+        "complexity": 19.0,
+        "fragility_score": 8.55
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/app/pages/admin/export-dados/export-dados.ts:ExportDados",
+        "name": "ExportDados",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/app/pages/admin/export-dados/export-dados.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 0.0,
+        "complexity": 19.0,
+        "fragility_score": 8.55
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/app/pages/dashboard/dashboard.ts:Dashboard",
+        "name": "Dashboard",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/app/pages/dashboard/dashboard.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 0.0,
+        "complexity": 19.0,
+        "fragility_score": 8.55
+      },
+      {
+        "namespace_key": "meuponto-mobile:meuponto-mobile/src/app/core/api/ponto.api.ts:PontoApi",
+        "name": "PontoApi",
+        "project": "meuponto-mobile",
+        "file": "meuponto-mobile/src/app/core/api/ponto.api.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 0.0,
+        "complexity": 19.0,
+        "fragility_score": 8.55
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/compliance/services/ArquivoFiscalService.java:ArquivoFiscalService",
+        "name": "ArquivoFiscalService",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/compliance/services/ArquivoFiscalService.java",
+        "labels": [
+          "Java_Class",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 18.0,
+        "fragility_score": 8.1
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/empresa/controllers/EmpresaController.java:EmpresaController",
+        "name": "EmpresaController",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/empresa/controllers/EmpresaController.java",
+        "labels": [
+          "Java_Class",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 0.0,
+        "complexity": 18.0,
+        "fragility_score": 8.1
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/lgpd/LgpdController.java:LgpdController",
+        "name": "LgpdController",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/lgpd/LgpdController.java",
+        "labels": [
+          "Java_Class",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 0.0,
+        "complexity": 18.0,
+        "fragility_score": 8.1
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/ponto/registro/validators/FraudeDetectorValidator.java:FraudeDetectorValidator",
+        "name": "FraudeDetectorValidator",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/ponto/registro/validators/FraudeDetectorValidator.java",
+        "labels": [
+          "Java_Class",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 18.0,
+        "fragility_score": 8.1
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/relatorios/services/AssinaturaEspelhoService.java:AssinaturaEspelhoService",
+        "name": "AssinaturaEspelhoService",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/relatorios/services/AssinaturaEspelhoService.java",
+        "labels": [
+          "Java_Class",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 18.0,
+        "fragility_score": 8.1
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/assets/models/face-api-master/src/tinyYolov2/config.ts:validateConfig",
+        "name": "validateConfig",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/assets/models/face-api-master/src/tinyYolov2/config.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 0.0,
+        "complexity": 18.0,
+        "fragility_score": 8.1
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/assets/models/face-api-master/src/tinyYolov2/config.ts:validateConfig",
+        "name": "validateConfig",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/assets/models/face-api-master/src/tinyYolov2/config.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 0.0,
+        "complexity": 18.0,
+        "fragility_score": 8.1
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/relatorios/services/RelatorioService.java:RelatorioService",
+        "name": "RelatorioService",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/relatorios/services/RelatorioService.java",
+        "labels": [
+          "Java_Class",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 17.0,
+        "fragility_score": 7.65
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/relatorios/services/RelatorioService.java:RelatorioService.gerarEspelhoPonto",
+        "name": "gerarEspelhoPonto",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/relatorios/services/RelatorioService.java",
+        "labels": [
+          "Java_Method",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 17.0,
+        "fragility_score": 7.65
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/security/JwtUtils.java:JwtUtils",
+        "name": "JwtUtils",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/security/JwtUtils.java",
+        "labels": [
+          "Java_Class",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 17.0,
+        "fragility_score": 7.65
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/security/TenantFilter.java:TenantFilter",
+        "name": "TenantFilter",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/security/TenantFilter.java",
+        "labels": [
+          "Java_Class",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 17.0,
+        "fragility_score": 7.65
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/security/TenantFilter.java:TenantFilter.doFilterInternal",
+        "name": "doFilterInternal",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/security/TenantFilter.java",
+        "labels": [
+          "Java_Method",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 17.0,
+        "fragility_score": 7.65
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/app/pages/contabilidade/dashboard/dashboard-contador.ts:DashboardContador",
+        "name": "DashboardContador",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/app/pages/contabilidade/dashboard/dashboard-contador.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 0.0,
+        "complexity": 17.0,
+        "fragility_score": 7.65
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/app/pages/folha/atestados/gestao-atestados.ts:GestaoAtestados",
+        "name": "GestaoAtestados",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/app/pages/folha/atestados/gestao-atestados.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 0.0,
+        "complexity": 17.0,
+        "fragility_score": 7.65
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/ajuste/AjusteController.java:AjusteController",
+        "name": "AjusteController",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/ajuste/AjusteController.java",
+        "labels": [
+          "Java_Class",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 0.0,
+        "complexity": 16.0,
+        "fragility_score": 7.2
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/dashboard/services/DashboardService.java:DashboardService",
+        "name": "DashboardService",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/dashboard/services/DashboardService.java",
+        "labels": [
+          "Java_Class",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 16.0,
+        "fragility_score": 7.2
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/ponto/controllers/PontoController.java:PontoController.listarRegistros",
+        "name": "listarRegistros",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/ponto/controllers/PontoController.java",
+        "labels": [
+          "Java_Method",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 0.0,
+        "complexity": 16.0,
+        "fragility_score": 7.2
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/ponto/schedulers/PontoReminderScheduler.java:PontoReminderScheduler",
+        "name": "PontoReminderScheduler",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/ponto/schedulers/PontoReminderScheduler.java",
+        "labels": [
+          "Java_Class",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 16.0,
+        "fragility_score": 7.2
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/app/pages/empresa/feriados/calendario-feriados.ts:CalendarioFeriados",
+        "name": "CalendarioFeriados",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/app/pages/empresa/feriados/calendario-feriados.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 0.0,
+        "complexity": 16.0,
+        "fragility_score": 7.2
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/assets/models/face-api-master/src/dom/NetInput.ts:NetInput",
+        "name": "NetInput",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/assets/models/face-api-master/src/dom/NetInput.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 0.0,
+        "complexity": 16.0,
+        "fragility_score": 7.2
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/admin/services/ExportService.java:ExportService.coletarDadosEmpresa",
+        "name": "coletarDadosEmpresa",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/admin/services/ExportService.java",
+        "labels": [
+          "Java_Method",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 15.0,
+        "fragility_score": 6.75
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/admin/services/GodModeService.java:GodModeService",
+        "name": "GodModeService",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/admin/services/GodModeService.java",
+        "labels": [
+          "Java_Class",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 15.0,
+        "fragility_score": 6.75
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/ajuste/WorkflowAjusteService.java:WorkflowAjusteService",
+        "name": "WorkflowAjusteService",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/ajuste/WorkflowAjusteService.java",
+        "labels": [
+          "Java_Class",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 15.0,
+        "fragility_score": 6.75
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/app/layout/service/layout.service.ts:LayoutService",
+        "name": "LayoutService",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/app/layout/service/layout.service.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 0.0,
+        "complexity": 15.0,
+        "fragility_score": 6.75
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/app/pages/funcionarios/lista/lista-funcionarios.ts:ListaFuncionarios",
+        "name": "ListaFuncionarios",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/app/pages/funcionarios/lista/lista-funcionarios.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 0.0,
+        "complexity": 15.0,
+        "fragility_score": 6.75
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/assets/models/face-api-master/src/common/getModelUris.ts:getModelUris",
+        "name": "getModelUris",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/assets/models/face-api-master/src/common/getModelUris.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 0.0,
+        "complexity": 15.0,
+        "fragility_score": 6.75
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/assets/models/face-api-master/src/common/getModelUris.ts:getModelUris",
+        "name": "getModelUris",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/assets/models/face-api-master/src/common/getModelUris.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 0.0,
+        "complexity": 15.0,
+        "fragility_score": 6.75
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/assets/models/face-api-master/src/draw/DrawTextField.ts:DrawTextField",
+        "name": "DrawTextField",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/assets/models/face-api-master/src/draw/DrawTextField.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 0.0,
+        "complexity": 15.0,
+        "fragility_score": 6.75
+      },
+      {
+        "namespace_key": "meuponto-mobile:meuponto-mobile/src/app/pages/historico/historico.page.ts:HistoricoPage",
+        "name": "HistoricoPage",
+        "project": "meuponto-mobile",
+        "file": "meuponto-mobile/src/app/pages/historico/historico.page.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 0.0,
+        "complexity": 15.0,
+        "fragility_score": 6.75
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/auth/services/AuthService.java:AuthService",
+        "name": "AuthService",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/auth/services/AuthService.java",
+        "labels": [
+          "Java_Class",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 14.0,
+        "fragility_score": 6.3
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/geofencing/services/GeofencingService.java:GeofencingService",
+        "name": "GeofencingService",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/geofencing/services/GeofencingService.java",
+        "labels": [
+          "Java_Class",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 14.0,
+        "fragility_score": 6.3
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/ponto/controllers/PontoController.java:PontoController.baterPonto",
+        "name": "baterPonto",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/ponto/controllers/PontoController.java",
+        "labels": [
+          "Java_Method",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 0.0,
+        "complexity": 14.0,
+        "fragility_score": 6.3
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/ponto/services/ComprovanteService.java:ComprovanteService",
+        "name": "ComprovanteService",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/ponto/services/ComprovanteService.java",
+        "labels": [
+          "Java_Class",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 14.0,
+        "fragility_score": 6.3
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/ponto/services/ComprovanteService.java:ComprovanteService.gerarComprovante",
+        "name": "gerarComprovante",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/ponto/services/ComprovanteService.java",
+        "labels": [
+          "Java_Method",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 14.0,
+        "fragility_score": 6.3
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/security/JwtFilter.java:JwtFilter",
+        "name": "JwtFilter",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/security/JwtFilter.java",
+        "labels": [
+          "Java_Class",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 14.0,
+        "fragility_score": 6.3
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/security/JwtFilter.java:JwtFilter.doFilterInternal",
+        "name": "doFilterInternal",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/security/JwtFilter.java",
+        "labels": [
+          "Java_Method",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 14.0,
+        "fragility_score": 6.3
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/test/java/br/com/meuponto/api/concurrency/ConcurrencyTest.java:TenantContextThreadSafety",
+        "name": "TenantContextThreadSafety",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/test/java/br/com/meuponto/api/concurrency/ConcurrencyTest.java",
+        "labels": [
+          "Java_Class",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 14.0,
+        "fragility_score": 6.3
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/assets/models/face-api-master/src/dom/imageToSquare.ts:imageToSquare",
+        "name": "imageToSquare",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/assets/models/face-api-master/src/dom/imageToSquare.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 0.0,
+        "complexity": 14.0,
+        "fragility_score": 6.3
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/assets/models/face-api-master/src/dom/imageToSquare.ts:imageToSquare",
+        "name": "imageToSquare",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/assets/models/face-api-master/src/dom/imageToSquare.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 0.0,
+        "complexity": 14.0,
+        "fragility_score": 6.3
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/assets/models/face-api-master/src/dom/toNetInput.ts:toNetInput",
+        "name": "toNetInput",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/assets/models/face-api-master/src/dom/toNetInput.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 0.0,
+        "complexity": 14.0,
+        "fragility_score": 6.3
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/assets/models/face-api-master/src/dom/toNetInput.ts:toNetInput",
+        "name": "toNetInput",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/assets/models/face-api-master/src/dom/toNetInput.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 0.0,
+        "complexity": 14.0,
+        "fragility_score": 6.3
+      },
+      {
+        "namespace_key": "meuponto-mobile:meuponto-mobile/src/app/pages/atestado/atestado.page.ts:AtestadoPage",
+        "name": "AtestadoPage",
+        "project": "meuponto-mobile",
+        "file": "meuponto-mobile/src/app/pages/atestado/atestado.page.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 0.0,
+        "complexity": 14.0,
+        "fragility_score": 6.3
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/admin/services/ExportService.java:ExportService.coletarDadosGlobal",
+        "name": "coletarDadosGlobal",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/admin/services/ExportService.java",
+        "labels": [
+          "Java_Method",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 13.0,
+        "fragility_score": 5.85
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/bancohoras/services/BancoHorasEpico4ServiceImpl.java:BancoHorasEpico4ServiceImpl",
+        "name": "BancoHorasEpico4ServiceImpl",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/bancohoras/services/BancoHorasEpico4ServiceImpl.java",
+        "labels": [
+          "Java_Class",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 13.0,
+        "fragility_score": 5.85
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/bancohoras/services/BancoHorasService.java:BancoHorasService",
+        "name": "BancoHorasService",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/bancohoras/services/BancoHorasService.java",
+        "labels": [
+          "Java_Class",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 13.0,
+        "fragility_score": 5.85
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/contabilidade/services/ContabilidadeService.java:ContabilidadeService.toSemaforoDTO",
+        "name": "toSemaforoDTO",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/contabilidade/services/ContabilidadeService.java",
+        "labels": [
+          "Java_Method",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 13.0,
+        "fragility_score": 5.85
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/ponto/schedulers/PontoReminderScheduler.java:PontoReminderScheduler.checkMissingPunches",
+        "name": "checkMissingPunches",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/ponto/schedulers/PontoReminderScheduler.java",
+        "labels": [
+          "Java_Method",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 13.0,
+        "fragility_score": 5.85
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/ponto/services/CalculoPontoService.java:CalculoPontoService.calcularDebitoDSR",
+        "name": "calcularDebitoDSR",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/ponto/services/CalculoPontoService.java",
+        "labels": [
+          "Java_Method",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 13.0,
+        "fragility_score": 5.85
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/ponto/services/PontoRegistroServiceImpl.java:PontoRegistroServiceImpl.registrar",
+        "name": "registrar",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/ponto/services/PontoRegistroServiceImpl.java",
+        "labels": [
+          "Java_Method",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 13.0,
+        "fragility_score": 5.85
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/app/core/api/ponto.api.ts:PontoApi",
+        "name": "PontoApi",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/app/core/api/ponto.api.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 0.0,
+        "complexity": 13.0,
+        "fragility_score": 5.85
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/app/core/services/permission.service.ts:PermissionService",
+        "name": "PermissionService",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/app/core/services/permission.service.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 0.0,
+        "complexity": 13.0,
+        "fragility_score": 5.85
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/app/layout/component/app.layout.ts:AppLayout",
+        "name": "AppLayout",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/app/layout/component/app.layout.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 0.0,
+        "complexity": 13.0,
+        "fragility_score": 5.85
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/app/pages/admin/logs/admin-logs.ts:AdminLogs",
+        "name": "AdminLogs",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/app/pages/admin/logs/admin-logs.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 0.0,
+        "complexity": 13.0,
+        "fragility_score": 5.85
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/app/pages/auth/login.ts:Login",
+        "name": "Login",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/app/pages/auth/login.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 0.0,
+        "complexity": 13.0,
+        "fragility_score": 5.85
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/app/pages/perfil/meu-perfil.ts:MeuPerfil",
+        "name": "MeuPerfil",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/app/pages/perfil/meu-perfil.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 0.0,
+        "complexity": 13.0,
+        "fragility_score": 5.85
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/app/pages/ponto/historico/historico-ponto.ts:HistoricoPonto",
+        "name": "HistoricoPonto",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/app/pages/ponto/historico/historico-ponto.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 0.0,
+        "complexity": 13.0,
+        "fragility_score": 5.85
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/assets/models/face-api-master/src/draw/drawDetections.ts:drawDetections",
+        "name": "drawDetections",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/assets/models/face-api-master/src/draw/drawDetections.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 0.0,
+        "complexity": 13.0,
+        "fragility_score": 5.85
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/assets/models/face-api-master/src/draw/drawDetections.ts:drawDetections",
+        "name": "drawDetections",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/assets/models/face-api-master/src/draw/drawDetections.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 0.0,
+        "complexity": 13.0,
+        "fragility_score": 5.85
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/assets/models/face-api-master/src/globalApi/FaceMatcher.ts:FaceMatcher",
+        "name": "FaceMatcher",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/assets/models/face-api-master/src/globalApi/FaceMatcher.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 0.0,
+        "complexity": 13.0,
+        "fragility_score": 5.85
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/admin/services/SaasMetricsService.java:SaasMetricsService.calcularKpis",
+        "name": "calcularKpis",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/admin/services/SaasMetricsService.java",
+        "labels": [
+          "Java_Method",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 12.0,
+        "fragility_score": 5.4
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/bancohoras/schedulers/BancoHorasExpiryJob.java:BancoHorasExpiryJob",
+        "name": "BancoHorasExpiryJob",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/bancohoras/schedulers/BancoHorasExpiryJob.java",
+        "labels": [
+          "Java_Class",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 12.0,
+        "fragility_score": 5.4
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/dashboard/controllers/DashboardController.java:DashboardController.dashboardAdmin",
+        "name": "dashboardAdmin",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/dashboard/controllers/DashboardController.java",
+        "labels": [
+          "Java_Method",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 0.0,
+        "complexity": 12.0,
+        "fragility_score": 5.4
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/expediente/entities/Expediente.java:Expediente",
+        "name": "Expediente",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/expediente/entities/Expediente.java",
+        "labels": [
+          "Java_Class",
+          "Entity"
+        ],
+        "layer": "Database",
+        "hotspot_score": 0.0,
+        "complexity": 12.0,
+        "fragility_score": 5.4
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/ponto/registro/validators/FraudeDetectorValidator.java:FraudeDetectorValidator.validar",
+        "name": "validar",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/ponto/registro/validators/FraudeDetectorValidator.java",
+        "labels": [
+          "Java_Method",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 12.0,
+        "fragility_score": 5.4
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/ponto/services/CalculoPontoService.java:CalculoPontoService.calcularDiaParaRelatorio",
+        "name": "calcularDiaParaRelatorio",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/ponto/services/CalculoPontoService.java",
+        "labels": [
+          "Java_Method",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 12.0,
+        "fragility_score": 5.4
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/test/java/br/com/meuponto/api/modules/compliance/ArquivoFiscalServiceTest.java:ArquivoFiscalServiceTest",
+        "name": "ArquivoFiscalServiceTest",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/test/java/br/com/meuponto/api/modules/compliance/ArquivoFiscalServiceTest.java",
+        "labels": [
+          "Java_Class",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 12.0,
+        "fragility_score": 5.4
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/assets/models/face-api-master/src/draw/drawFaceExpressions.ts:drawFaceExpressions",
+        "name": "drawFaceExpressions",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/assets/models/face-api-master/src/draw/drawFaceExpressions.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 0.0,
+        "complexity": 12.0,
+        "fragility_score": 5.4
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/assets/models/face-api-master/src/draw/drawFaceExpressions.ts:drawFaceExpressions",
+        "name": "drawFaceExpressions",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/assets/models/face-api-master/src/draw/drawFaceExpressions.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 0.0,
+        "complexity": 12.0,
+        "fragility_score": 5.4
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/admin/services/ContabilidadeAdminService.java:ContabilidadeAdminService",
+        "name": "ContabilidadeAdminService",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/admin/services/ContabilidadeAdminService.java",
+        "labels": [
+          "Java_Class",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 11.0,
+        "fragility_score": 4.95
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/arquivos/services/ArquivoLegalServiceImpl.java:ArquivoLegalServiceImpl.appendRegistros05",
+        "name": "appendRegistros05",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/arquivos/services/ArquivoLegalServiceImpl.java",
+        "labels": [
+          "Java_Method",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 11.0,
+        "fragility_score": 4.95
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/auditoria/services/AuditTrailService.java:AuditTrailService",
+        "name": "AuditTrailService",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/auditoria/services/AuditTrailService.java",
+        "labels": [
+          "Java_Class",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 11.0,
+        "fragility_score": 4.95
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/auth/entities/Usuario.java:Usuario",
+        "name": "Usuario",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/auth/entities/Usuario.java",
+        "labels": [
+          "Java_Class",
+          "Entity"
+        ],
+        "layer": "Database",
+        "hotspot_score": 0.0,
+        "complexity": 11.0,
+        "fragility_score": 4.95
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/auth/services/PermissionService.java:PermissionService.validarAcessoPonto",
+        "name": "validarAcessoPonto",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/auth/services/PermissionService.java",
+        "labels": [
+          "Java_Method",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 11.0,
+        "fragility_score": 4.95
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/contabilidade/services/FechamentoLoteService.java:FechamentoLoteService.gerarFechamentoZip",
+        "name": "gerarFechamentoZip",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/contabilidade/services/FechamentoLoteService.java",
+        "labels": [
+          "Java_Method",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 11.0,
+        "fragility_score": 4.95
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/empresa/services/FeriadoSyncService.java:FeriadoSyncService",
+        "name": "FeriadoSyncService",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/empresa/services/FeriadoSyncService.java",
+        "labels": [
+          "Java_Class",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 11.0,
+        "fragility_score": 4.95
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/geofencing/services/GeofencingService.java:GeofencingService.validarLocalizacao",
+        "name": "validarLocalizacao",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/geofencing/services/GeofencingService.java",
+        "labels": [
+          "Java_Method",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 11.0,
+        "fragility_score": 4.95
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/integracao/services/ExportacaoFolhaService.java:ExportacaoFolhaService.resolverCampo",
+        "name": "resolverCampo",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/integracao/services/ExportacaoFolhaService.java",
+        "labels": [
+          "Java_Method",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 11.0,
+        "fragility_score": 4.95
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/test/java/br/com/meuponto/api/modules/compliance/AfdInvariantePropertyTest.java:AfdInvariantePropertyTest",
+        "name": "AfdInvariantePropertyTest",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/test/java/br/com/meuponto/api/modules/compliance/AfdInvariantePropertyTest.java",
+        "labels": [
+          "Java_Class",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 11.0,
+        "fragility_score": 4.95
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/app/pages/compliance/compliance-fiscal.ts:ComplianceFiscalComponent",
+        "name": "ComplianceFiscalComponent",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/app/pages/compliance/compliance-fiscal.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 0.0,
+        "complexity": 11.0,
+        "fragility_score": 4.95
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/app/pages/ponto/ajustes/ajustes-ponto.ts:AjustesPonto",
+        "name": "AjustesPonto",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/app/pages/ponto/ajustes/ajustes-ponto.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 0.0,
+        "complexity": 11.0,
+        "fragility_score": 4.95
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/assets/models/face-api-master/src/tinyYolov2/extractParams.ts:extractParams",
+        "name": "extractParams",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/assets/models/face-api-master/src/tinyYolov2/extractParams.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 0.0,
+        "complexity": 11.0,
+        "fragility_score": 4.95
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/assets/models/face-api-master/src/tinyYolov2/extractParams.ts:extractParams",
+        "name": "extractParams",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/assets/models/face-api-master/src/tinyYolov2/extractParams.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 0.0,
+        "complexity": 11.0,
+        "fragility_score": 4.95
+      },
+      {
+        "namespace_key": "meuponto-mobile:meuponto-mobile/src/app/pages/perfil/perfil.page.ts:PerfilPage",
+        "name": "PerfilPage",
+        "project": "meuponto-mobile",
+        "file": "meuponto-mobile/src/app/pages/perfil/perfil.page.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 0.0,
+        "complexity": 11.0,
+        "fragility_score": 4.95
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/common/TenantEntityListener.java:TenantEntityListener",
+        "name": "TenantEntityListener",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/common/TenantEntityListener.java",
+        "labels": [
+          "Java_Class",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 10.0,
+        "fragility_score": 4.5
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/admin/controllers/SystemController.java:SystemController",
+        "name": "SystemController",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/admin/controllers/SystemController.java",
+        "labels": [
+          "Java_Class",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 0.0,
+        "complexity": 10.0,
+        "fragility_score": 4.5
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/auditoria/services/AuditTrailService.java:AuditTrailService.exportarCSV",
+        "name": "exportarCSV",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/auditoria/services/AuditTrailService.java",
+        "labels": [
+          "Java_Method",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 10.0,
+        "fragility_score": 4.5
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/bancohoras/entities/LancamentoBancoHoras.java:LancamentoBancoHoras",
+        "name": "LancamentoBancoHoras",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/bancohoras/entities/LancamentoBancoHoras.java",
+        "labels": [
+          "Java_Class",
+          "Entity"
+        ],
+        "layer": "Database",
+        "hotspot_score": 0.0,
+        "complexity": 10.0,
+        "fragility_score": 4.5
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/calculo/services/MotorCalculoServiceImpl.java:MotorCalculoServiceImpl.aplicarToleranciaArt58",
+        "name": "aplicarToleranciaArt58",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/calculo/services/MotorCalculoServiceImpl.java",
+        "labels": [
+          "Java_Method",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 10.0,
+        "fragility_score": 4.5
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/ponto/dto/RegistroPontoResponse.java:RegistroPontoResponse",
+        "name": "RegistroPontoResponse",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/ponto/dto/RegistroPontoResponse.java",
+        "labels": [
+          "Java_Class",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 10.0,
+        "fragility_score": 4.5
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/ponto/dto/RegistroPontoResponse.java:RegistroPontoResponse.fromEntity",
+        "name": "fromEntity",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/ponto/dto/RegistroPontoResponse.java",
+        "labels": [
+          "Java_Method",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 10.0,
+        "fragility_score": 4.5
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/relatorios/controllers/ConformidadeController.java:ConformidadeController",
+        "name": "ConformidadeController",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/relatorios/controllers/ConformidadeController.java",
+        "labels": [
+          "Java_Class",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 0.0,
+        "complexity": 10.0,
+        "fragility_score": 4.5
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/relatorios/services/InconsistenciaService.java:InconsistenciaService",
+        "name": "InconsistenciaService",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/relatorios/services/InconsistenciaService.java",
+        "labels": [
+          "Java_Class",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 10.0,
+        "fragility_score": 4.5
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/relatorios/services/InconsistenciaService.java:InconsistenciaService.buscarInconsistencias",
+        "name": "buscarInconsistencias",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/relatorios/services/InconsistenciaService.java",
+        "labels": [
+          "Java_Method",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 10.0,
+        "fragility_score": 4.5
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/app/core/api/ajuste.api.ts:AjusteApiService",
+        "name": "AjusteApiService",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/app/core/api/ajuste.api.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 0.0,
+        "complexity": 10.0,
+        "fragility_score": 4.5
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/app/core/guards/billing.guard.ts:billingGuard",
+        "name": "billingGuard",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/app/core/guards/billing.guard.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 0.0,
+        "complexity": 10.0,
+        "fragility_score": 4.5
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/app/core/services/offline-sync.service.ts:OfflineSyncService",
+        "name": "OfflineSyncService",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/app/core/services/offline-sync.service.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 0.0,
+        "complexity": 10.0,
+        "fragility_score": 4.5
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/app/pages/auditoria/audit-trail.ts:AuditTrailComponent",
+        "name": "AuditTrailComponent",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/app/pages/auditoria/audit-trail.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 0.0,
+        "complexity": 10.0,
+        "fragility_score": 4.5
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/app/pages/configuracoes/empresa/config-empresa.ts:ConfigEmpresa",
+        "name": "ConfigEmpresa",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/app/pages/configuracoes/empresa/config-empresa.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 0.0,
+        "complexity": 10.0,
+        "fragility_score": 4.5
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/app/pages/crud/crud.ts:Crud",
+        "name": "Crud",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/app/pages/crud/crud.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 0.0,
+        "complexity": 10.0,
+        "fragility_score": 4.5
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/app/pages/jornadas/form/form-jornada.ts:FormJornada",
+        "name": "FormJornada",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/app/pages/jornadas/form/form-jornada.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 0.0,
+        "complexity": 10.0,
+        "fragility_score": 4.5
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/app/pages/notificacoes/notificacoes.ts:Notificacoes",
+        "name": "Notificacoes",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/app/pages/notificacoes/notificacoes.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 0.0,
+        "complexity": 10.0,
+        "fragility_score": 4.5
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/assets/models/face-api-master/src/ageGenderNet/AgeGenderNet.ts:AgeGenderNet",
+        "name": "AgeGenderNet",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/assets/models/face-api-master/src/ageGenderNet/AgeGenderNet.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 0.0,
+        "complexity": 10.0,
+        "fragility_score": 4.5
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/assets/models/face-api-master/src/dom/extractFaceTensors.ts:extractFaceTensors",
+        "name": "extractFaceTensors",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/assets/models/face-api-master/src/dom/extractFaceTensors.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 0.0,
+        "complexity": 10.0,
+        "fragility_score": 4.5
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/assets/models/face-api-master/src/dom/extractFaceTensors.ts:extractFaceTensors",
+        "name": "extractFaceTensors",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/assets/models/face-api-master/src/dom/extractFaceTensors.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 0.0,
+        "complexity": 10.0,
+        "fragility_score": 4.5
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/assets/models/face-api-master/src/tinyYolov2/extractParamsFromWeightMap.ts:extractParamsFromWeightMap",
+        "name": "extractParamsFromWeightMap",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/assets/models/face-api-master/src/tinyYolov2/extractParamsFromWeightMap.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 0.0,
+        "complexity": 10.0,
+        "fragility_score": 4.5
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/assets/models/face-api-master/src/tinyYolov2/extractParamsFromWeightMap.ts:extractParamsFromWeightMap",
+        "name": "extractParamsFromWeightMap",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/assets/models/face-api-master/src/tinyYolov2/extractParamsFromWeightMap.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 0.0,
+        "complexity": 10.0,
+        "fragility_score": 4.5
+      },
+      {
+        "namespace_key": "meuponto-mobile:meuponto-mobile/src/app/core/services/geolocation.service.ts:GeolocationService",
+        "name": "GeolocationService",
+        "project": "meuponto-mobile",
+        "file": "meuponto-mobile/src/app/core/services/geolocation.service.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 0.0,
+        "complexity": 10.0,
+        "fragility_score": 4.5
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/admin/controllers/EmpresaAdminController.java:EmpresaAdminController.getAllEmpresas",
+        "name": "getAllEmpresas",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/admin/controllers/EmpresaAdminController.java",
+        "labels": [
+          "Java_Method",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 0.0,
+        "complexity": 9.0,
+        "fragility_score": 4.05
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/admin/services/GodModeService.java:GodModeService.registrarAuditoriaLegado",
+        "name": "registrarAuditoriaLegado",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/admin/services/GodModeService.java",
+        "labels": [
+          "Java_Method",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 9.0,
+        "fragility_score": 4.05
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/arquivos/services/ArquivoLegalServiceImpl.java:ArquivoLegalServiceImpl.appendRegistros04",
+        "name": "appendRegistros04",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/arquivos/services/ArquivoLegalServiceImpl.java",
+        "labels": [
+          "Java_Method",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 9.0,
+        "fragility_score": 4.05
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/assinatura/services/DigitalSignatureService.java:DigitalSignatureService",
+        "name": "DigitalSignatureService",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/assinatura/services/DigitalSignatureService.java",
+        "labels": [
+          "Java_Class",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 9.0,
+        "fragility_score": 4.05
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/auditoria/AuditAspect.java:AuditAspect",
+        "name": "AuditAspect",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/auditoria/AuditAspect.java",
+        "labels": [
+          "Java_Class",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 9.0,
+        "fragility_score": 4.05
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/auditoria/services/LogAuditoriaService.java:LogAuditoriaService.registrar",
+        "name": "registrar",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/auditoria/services/LogAuditoriaService.java",
+        "labels": [
+          "Java_Method",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 9.0,
+        "fragility_score": 4.05
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/auth/services/AuthService.java:AuthService.login",
+        "name": "login",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/auth/services/AuthService.java",
+        "labels": [
+          "Java_Method",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 9.0,
+        "fragility_score": 4.05
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/dashboard/services/DashboardService.java:DashboardService.mapaCalorAbsenteismo",
+        "name": "mapaCalorAbsenteismo",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/dashboard/services/DashboardService.java",
+        "labels": [
+          "Java_Method",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 9.0,
+        "fragility_score": 4.05
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/empresa/controllers/FeriadoController.java:FeriadoController",
+        "name": "FeriadoController",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/empresa/controllers/FeriadoController.java",
+        "labels": [
+          "Java_Class",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 0.0,
+        "complexity": 9.0,
+        "fragility_score": 4.05
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/folha/services/FeriasService.java:FeriasService",
+        "name": "FeriasService",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/folha/services/FeriasService.java",
+        "labels": [
+          "Java_Class",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 9.0,
+        "fragility_score": 4.05
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/lgpd/LgpdController.java:LgpdController.exportarDados",
+        "name": "exportarDados",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/lgpd/LgpdController.java",
+        "labels": [
+          "Java_Method",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 0.0,
+        "complexity": 9.0,
+        "fragility_score": 4.05
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/ponto/registro/GeofencingServiceImpl.java:GeofencingServiceImpl",
+        "name": "GeofencingServiceImpl",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/ponto/registro/GeofencingServiceImpl.java",
+        "labels": [
+          "Java_Class",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 9.0,
+        "fragility_score": 4.05
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/ponto/registro/GeofencingServiceImpl.java:GeofencingServiceImpl.verificarGeofence",
+        "name": "verificarGeofence",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/ponto/registro/GeofencingServiceImpl.java",
+        "labels": [
+          "Java_Method",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 9.0,
+        "fragility_score": 4.05
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/ponto/services/CalculoPontoService.java:CalculoPontoService.processarDia",
+        "name": "processarDia",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/ponto/services/CalculoPontoService.java",
+        "labels": [
+          "Java_Method",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 9.0,
+        "fragility_score": 4.05
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/ponto/services/CalculoPontoService.java:CalculoPontoService.calcularMinutosNoturnos",
+        "name": "calcularMinutosNoturnos",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/ponto/services/CalculoPontoService.java",
+        "labels": [
+          "Java_Method",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 9.0,
+        "fragility_score": 4.05
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/relatorios/services/AbsenteismoService.java:AbsenteismoService",
+        "name": "AbsenteismoService",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/relatorios/services/AbsenteismoService.java",
+        "labels": [
+          "Java_Class",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 9.0,
+        "fragility_score": 4.05
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/relatorios/services/AbsenteismoService.java:AbsenteismoService.gerarRelatorio",
+        "name": "gerarRelatorio",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/relatorios/services/AbsenteismoService.java",
+        "labels": [
+          "Java_Method",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 9.0,
+        "fragility_score": 4.05
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/test/java/br/com/meuponto/api/concurrency/ConcurrencyTest.java:StressScenarios",
+        "name": "StressScenarios",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/test/java/br/com/meuponto/api/concurrency/ConcurrencyTest.java",
+        "labels": [
+          "Java_Class",
+          "Entity"
+        ],
+        "layer": "Service",
+        "hotspot_score": 0.0,
+        "complexity": 9.0,
+        "fragility_score": 4.05
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/e2e/helpers/ponto.helper.ts:PontoHelper",
+        "name": "PontoHelper",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/e2e/helpers/ponto.helper.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 0.0,
+        "complexity": 9.0,
+        "fragility_score": 4.05
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/app/layout/component/app.configurator.ts:AppConfigurator",
+        "name": "AppConfigurator",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/app/layout/component/app.configurator.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 0.0,
+        "complexity": 9.0,
+        "fragility_score": 4.05
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/app/pages/ajuste/aprovacao-ajuste.ts:AprovacaoAjusteComponent",
+        "name": "AprovacaoAjusteComponent",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/app/pages/ajuste/aprovacao-ajuste.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 0.0,
+        "complexity": 9.0,
+        "fragility_score": 4.05
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/app/pages/folha/exportacao/exportar-relatorios.ts:ExportarRelatorios",
+        "name": "ExportarRelatorios",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/app/pages/folha/exportacao/exportar-relatorios.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 0.0,
+        "complexity": 9.0,
+        "fragility_score": 4.05
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/app/pages/jornadas/escala-ciclo/escala-ciclo.ts:EscalaCicloComponent",
+        "name": "EscalaCicloComponent",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/app/pages/jornadas/escala-ciclo/escala-ciclo.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 0.0,
+        "complexity": 9.0,
+        "fragility_score": 4.05
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/app/pages/ponto/audit/ponto-audit-log.ts:PontoAuditLogComponent",
+        "name": "PontoAuditLogComponent",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/app/pages/ponto/audit/ponto-audit-log.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 0.0,
+        "complexity": 9.0,
+        "fragility_score": 4.05
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/assets/models/face-api-master/src/dom/extractFaces.ts:extractFaces",
+        "name": "extractFaces",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/assets/models/face-api-master/src/dom/extractFaces.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 0.0,
+        "complexity": 9.0,
+        "fragility_score": 4.05
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/assets/models/face-api-master/src/dom/extractFaces.ts:extractFaces",
+        "name": "extractFaces",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/assets/models/face-api-master/src/dom/extractFaces.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 0.0,
+        "complexity": 9.0,
+        "fragility_score": 4.05
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/assets/models/face-api-master/src/ops/minBbox.ts:minBbox",
+        "name": "minBbox",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/assets/models/face-api-master/src/ops/minBbox.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 0.0,
+        "complexity": 9.0,
+        "fragility_score": 4.05
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/assets/models/face-api-master/src/ops/minBbox.ts:minBbox",
+        "name": "minBbox",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/assets/models/face-api-master/src/ops/minBbox.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 0.0,
+        "complexity": 9.0,
+        "fragility_score": 4.05
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/assets/models/face-api-master/src/ops/padToSquare.ts:padToSquare",
+        "name": "padToSquare",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/assets/models/face-api-master/src/ops/padToSquare.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 0.0,
+        "complexity": 9.0,
+        "fragility_score": 4.05
+      },
+      {
+        "namespace_key": "meuponto-api-frontend:meuponto-api-frontend/sakai-ng-master/src/assets/models/face-api-master/src/ops/padToSquare.ts:padToSquare",
+        "name": "padToSquare",
+        "project": "meuponto-api-frontend",
+        "file": "meuponto-api-frontend/sakai-ng-master/src/assets/models/face-api-master/src/ops/padToSquare.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 0.0,
+        "complexity": 9.0,
+        "fragility_score": 4.05
+      },
+      {
+        "namespace_key": "meuponto-mobile:meuponto-mobile/src/app/core/services/device.service.ts:DeviceService",
+        "name": "DeviceService",
+        "project": "meuponto-mobile",
+        "file": "meuponto-mobile/src/app/core/services/device.service.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 0.0,
+        "complexity": 9.0,
+        "fragility_score": 4.05
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/admin/controllers/AdminImpersonateController.java:AdminImpersonateController",
+        "name": "AdminImpersonateController",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/admin/controllers/AdminImpersonateController.java",
+        "labels": [
+          "Java_Class",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 0.0,
+        "complexity": 8.0,
+        "fragility_score": 3.6
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/admin/controllers/EmpresaAdminController.java:EmpresaAdminController.atualizarAdmin",
+        "name": "atualizarAdmin",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/admin/controllers/EmpresaAdminController.java",
+        "labels": [
+          "Java_Method",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 0.0,
+        "complexity": 8.0,
+        "fragility_score": 3.6
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/admin/controllers/SystemController.java:SystemController.getMetric",
+        "name": "getMetric",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/admin/controllers/SystemController.java",
+        "labels": [
+          "Java_Method",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 0.0,
+        "complexity": 8.0,
+        "fragility_score": 3.6
+      },
+      {
+        "namespace_key": "meuponto-api:meuponto-api/src/main/java/br/com/meuponto/api/modules/ajuste/EspelhoController.java:EspelhoController",
+        "name": "EspelhoController",
+        "project": "meuponto-api",
+        "file": "meuponto-api/src/main/java/br/com/meuponto/api/modules/ajuste/EspelhoController.java",
+        "labels": [
+          "Java_Class",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 0.0,
+        "complexity": 8.0,
+        "fragility_score": 3.6
+      }
+    ]
   }
 ]

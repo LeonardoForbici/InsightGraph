@@ -22,6 +22,10 @@ import {
 import EvolutionDashboard from './EvolutionDashboard';
 import QualityGatePanel from './QualityGatePanel';
 import DebtTrackerPanel from './DebtTrackerPanel';
+import WatchModePanel from './WatchModePanel';
+import WatchImpactToast from './WatchImpactToast';
+import { useWatchMode } from '../hooks/useWatchMode';
+import type { ImpactResult } from '../hooks/useWatchMode';
 
 interface DashboardProps {
     onClose: () => void;
@@ -38,6 +42,18 @@ const getGradeBucket = (grade: string | null | undefined) => {
 };
 
 export default function Dashboard({ onClose, onRefactorRequest, onOpenInventory, onFocusNode, onOpenImpactAnalysis }: DashboardProps) {
+    // Watch Mode
+    const { lastImpact } = useWatchMode();
+    
+    const handleViewImpact = (impact: ImpactResult) => {
+        // Focar nos nós afetados no grafo
+        const allNodes = [...impact.changed_nodes, ...impact.affected_nodes];
+        if (allNodes.length > 0 && onFocusNode) {
+            onFocusNode(allNodes[0]);
+        }
+        onClose(); // Fechar dashboard para ver o grafo
+    };
+    
     const openUrl = (path: string) => {
         window.open(path, '_blank');
     };
@@ -273,25 +289,35 @@ export default function Dashboard({ onClose, onRefactorRequest, onOpenInventory,
     }
 
     return (
-        <div className="dashboard-overlay">
-            <div className="dashboard-panel">
-                <div className="dashboard-header">
-                    <h2>Métricas Arquiteturais e Antipatterns</h2>
-                    <button className="btn" onClick={onClose}>✕ Fechar</button>
-                </div>
-
-                <div className="dashboard-content">
-                    <div className="dashboard-section" style={{ paddingBottom: 8 }}>
-                        <EvolutionDashboard />
+        <>
+            {/* Watch Impact Toast - Notificações flutuantes */}
+            <WatchImpactToast impact={lastImpact} onViewInGraph={handleViewImpact} />
+            
+            <div className="dashboard-overlay">
+                <div className="dashboard-panel">
+                    <div className="dashboard-header">
+                        <h2>Métricas Arquiteturais e Antipatterns</h2>
+                        <button className="btn" onClick={onClose}>✕ Fechar</button>
                     </div>
-                    <div className="dashboard-section hotspot-panel">
-                        <div className="hotspot-panel-header">
-                            <div>
-                                <h3>Hotspot Deep Analysis</h3>
-                                <p className="section-desc">Top 50 hotspots com filtros, seleção e visualização de dispersão.</p>
-                            </div>
-                            <div className="hotspot-controls">
-                                <select
+
+                    <div className="dashboard-content">
+                        <div className="dashboard-section" style={{ paddingBottom: 8 }}>
+                            <EvolutionDashboard />
+                        </div>
+                        
+                        {/* Watch Mode Panel */}
+                        <div className="dashboard-section" style={{ paddingBottom: 8 }}>
+                            <WatchModePanel onViewImpact={handleViewImpact} />
+                        </div>
+                        
+                        <div className="dashboard-section hotspot-panel">
+                            <div className="hotspot-panel-header">
+                                <div>
+                                    <h3>Hotspot Deep Analysis</h3>
+                                    <p className="section-desc">Top 50 hotspots com filtros, seleção e visualização de dispersão.</p>
+                                </div>
+                                <div className="hotspot-controls">
+                                    <select
                                     value={hotspotProjectFilter ?? ''}
                                     onChange={(event) => setHotspotProjectFilter(event.target.value || null)}
                                 >
@@ -1227,5 +1253,6 @@ export default function Dashboard({ onClose, onRefactorRequest, onOpenInventory,
                 </div>
             </div>
         </div>
+        </>
     );
 }

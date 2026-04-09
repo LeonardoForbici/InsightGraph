@@ -6,6 +6,18 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="description" content="InsightGraph - Software architecture analysis and impact visualization tool" />
     <title>InsightGraph</title>
+    <!-- Task 12.3 — Dynamic title from branding config -->
+    <script>
+      // Fetch branding config and update title
+      fetch('/api/config/branding')
+        .then(res => res.json())
+        .then(config => {
+          if (config.name) {
+            document.title = config.name;
+          }
+        })
+        .catch(err => console.error('Failed to load branding config:', err));
+    </script>
   </head>
   <body>
     <div id="root"></div>

@@ -1,5 +1,6 @@
 import type { Tag } from '../api';
 import type { RefObject } from 'react';
+import SidebarIntelligence from './SidebarIntelligence';
 
 interface SidebarProps {
     workspaces: string[];
@@ -34,6 +35,8 @@ interface SidebarProps {
     totalNodeCount: number;
     isCollapsed: boolean;
     onToggleCollapse: () => void;
+    onNodeClick?: (nodeKey: string) => void;
+    intelligenceRefreshTrigger?: number;
 }
 
 const LAYERS = [
@@ -97,6 +100,8 @@ export default function Sidebar({
     totalNodeCount,
     isCollapsed,
     onToggleCollapse,
+    onNodeClick,
+    intelligenceRefreshTrigger,
 }: SidebarProps) {
     return (
         <>
@@ -326,6 +331,16 @@ export default function Sidebar({
                                 <button type="button" className="tag-clear-btn" onClick={() => onTagSelect(null)}>Limpar filtro</button>
                             )}
                         </div>
+                    </div>
+                )}
+
+                {/* Intelligence Panel */}
+                {onNodeClick && (
+                    <div className="sidebar-section">
+                        <SidebarIntelligence
+                            onNodeClick={onNodeClick}
+                            refreshTrigger={intelligenceRefreshTrigger}
+                        />
                     </div>
                 )}
 

@@ -285,6 +285,11 @@ interface GraphCanvasProps {
     selectedTag?: string | null;
     tagFilterNodes?: Set<string>;
     onCanvasClick?: () => void;
+    waveAnimationTrigger?: {
+        originNodeKey: string;
+        affectedNodes: string[];
+        timestamp: number;
+    } | null;
 }
 
 const GraphCanvasInnerImpl = (props: GraphCanvasProps, ref: ForwardedRef<GraphCanvasHandle>) => {
@@ -301,6 +306,7 @@ const GraphCanvasInnerImpl = (props: GraphCanvasProps, ref: ForwardedRef<GraphCa
         nodeAnnotations,
         selectedTag,
         tagFilterNodes,
+        waveAnimationTrigger,
     } = props;
     const [heatmapEnabled, setHeatmapEnabled] = useState(false);
     const [viewMode, setViewMode] = useState<'2d' | '3d'>('2d');
@@ -1131,6 +1137,7 @@ const GraphCanvasInnerImpl = (props: GraphCanvasProps, ref: ForwardedRef<GraphCa
                     clustered={clustered3D}
                     focusNodeKey={selectedNodeKey}
                     focusRequestId={focusRequestId}
+                    waveAnimationTrigger={waveAnimationTrigger}
                 />
             )}
 
