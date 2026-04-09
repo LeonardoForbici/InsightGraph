@@ -11,7 +11,6 @@ import type {
     PollerStatus,
 } from '../api';
 import { useRealtimeEvents } from '../hooks/useRealtimeEvents';
-import '../styles/Modal.css';
 
 interface LiveAlertFeedProps {
     onClose: () => void;
