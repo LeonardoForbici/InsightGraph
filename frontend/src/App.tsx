@@ -73,6 +73,9 @@ import InvestigationMode from './components/InvestigationMode';
 import AIQueryEngine from './components/AIQueryEngine';
 import WatchModePanel from './components/WatchModePanel';
 import SettingsScreen from './components/SettingsScreen';
+import { LiveAlertFeed } from './components/LiveAlertFeed';
+import { CommitTimeline } from './components/CommitTimeline';
+import { WeeklyDigestPanel } from './components/WeeklyDigestPanel';
 
 // Feature flag for SSE (default: true)
 const SSE_ENABLED = import.meta.env.REACT_APP_ENABLE_SSE !== 'false';
@@ -206,7 +209,12 @@ export default function App() {
   const [searchError, setSearchError] = useState<string | null>(null);
   const [searchContextNodes, setSearchContextNodes] = useState<string[]>([]);
   const [searchContextSummary, setSearchContextSummary] = useState('');
-  
+
+  // Automação — Nova interface viva
+  const [liveAlertsOpen, setLiveAlertsOpen] = useState(false);
+  const [commitTimelineOpen, setCommitTimelineOpen] = useState(false);
+  const [weeklyDigestOpen, setWeeklyDigestOpen] = useState(false);
+
   // Create a ref for the full simulation data to pass to review
   const lastSimData = useRef<any>(null);
 
@@ -1410,6 +1418,12 @@ export default function App() {
         onToggleWatchMode={handleOpenWatchMode}
         settingsOpen={settingsOpen}
         onToggleSettings={handleOpenSettings}
+        liveAlertsOpen={liveAlertsOpen}
+        onToggleLiveAlerts={() => setLiveAlertsOpen((prev) => !prev)}
+        commitTimelineOpen={commitTimelineOpen}
+        onToggleCommitTimeline={() => setCommitTimelineOpen((prev) => !prev)}
+        weeklyDigestOpen={weeklyDigestOpen}
+        onToggleWeeklyDigest={() => setWeeklyDigestOpen((prev) => !prev)}
         selectedNodeName={selectedNode?.name ?? null}
         lastScanLabel={lastScanLabel}
       />
@@ -1728,6 +1742,21 @@ export default function App() {
           repoToken={githubToken}
           useShallowClone={githubShallowClone}
         />
+      )}
+
+      {/* Automação — Live Alerts Feed */}
+      {liveAlertsOpen && (
+        <LiveAlertFeed onClose={() => setLiveAlertsOpen(false)} />
+      )}
+
+      {/* Automação — Commit Timeline */}
+      {commitTimelineOpen && (
+        <CommitTimeline onClose={() => setCommitTimelineOpen(false)} />
+      )}
+
+      {/* Automação — Weekly Digest */}
+      {weeklyDigestOpen && (
+        <WeeklyDigestPanel onClose={() => setWeeklyDigestOpen(false)} />
       )}
 
       {/* Investigation Mode */}
