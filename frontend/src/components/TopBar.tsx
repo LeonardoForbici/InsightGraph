@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, type ReactNode } from 'react';
 
 interface BrandingConfig {
     name: string;
@@ -51,6 +51,8 @@ interface TopBarProps {
     onToggleWeeklyDigest: () => void;
     selectedNodeName: string | null;
     lastScanLabel: string;
+    pulseOpen: boolean;
+    onOpenPulseDashboard: () => void;
 }
 
 export default function TopBar({
@@ -94,6 +96,8 @@ export default function TopBar({
     onToggleCommitTimeline,
     weeklyDigestOpen,
     onToggleWeeklyDigest,
+    pulseOpen,
+    onOpenPulseDashboard,
     selectedNodeName,
     lastScanLabel,
 }: TopBarProps) {
@@ -155,215 +159,110 @@ export default function TopBar({
             : selectedNodeName;
     const aiLabel = shortNodeLabel ? `Ask about ${shortNodeLabel}` : 'AI Assistant';
 
-    const navItems = [
+    type NavItem = { id: string; label: string; active: boolean; onClick: () => void; icon: ReactNode; title?: string; disabled?: boolean };
+    type NavGroup = { id: string; label: string; items: NavItem[] };
+
+    const navGroups: NavGroup[] = [
         {
-            id: 'dashboard',
-            label: 'Dashboard',
-            active: dashboardOpen,
-            onClick: onToggleDashboard,
-            icon: (
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                    <rect x="1" y="1" width="6" height="6" rx="1.5" fill="currentColor" opacity="0.9"/>
-                    <rect x="9" y="1" width="6" height="6" rx="1.5" fill="currentColor" opacity="0.9"/>
-                    <rect x="1" y="9" width="6" height="6" rx="1.5" fill="currentColor" opacity="0.9"/>
-                    <rect x="9" y="9" width="6" height="6" rx="1.5" fill="currentColor" opacity="0.9"/>
-                </svg>
-            ),
+            id: 'visao',
+            label: 'VISÃO',
+            items: [
+                {
+                    id: 'dashboard', label: 'Dashboard', active: dashboardOpen, onClick: onToggleDashboard,
+                    icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="1" y="1" width="6" height="6" rx="1.5" fill="currentColor" opacity="0.9"/><rect x="9" y="1" width="6" height="6" rx="1.5" fill="currentColor" opacity="0.9"/><rect x="1" y="9" width="6" height="6" rx="1.5" fill="currentColor" opacity="0.9"/><rect x="9" y="9" width="6" height="6" rx="1.5" fill="currentColor" opacity="0.9"/></svg>,
+                },
+                {
+                    id: 'pulse', label: 'Pulse', active: pulseOpen, onClick: onOpenPulseDashboard,
+                    icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><polyline points="1 10 4 10 6 6 8 12 10 8 15 8" stroke="currentColor" strokeWidth="1.4" fill="none" strokeLinecap="round" strokeLinejoin="round"/></svg>,
+                },
+                {
+                    id: 'security', label: 'Security', active: securityOpen, onClick: onToggleSecurity,
+                    icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 1L2 3.5v3.75C2 10.5 5 13.75 8 15c3-1.25 6-4.5 6-7.75V3.5L8 1z" fill="currentColor" opacity="0.9"/></svg>,
+                },
+            ],
         },
         {
-            id: 'security',
-            label: 'Security',
-            active: securityOpen,
-            onClick: onToggleSecurity,
-            icon: (
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                    <path d="M8 1L2 3.5v3.75C2 10.5 5 13.75 8 15c3-1.25 6-4.5 6-7.75V3.5L8 1z" fill="currentColor" opacity="0.9"/>
-                </svg>
-            ),
+            id: 'analise',
+            label: 'ANÁLISE',
+            items: [
+                {
+                    id: 'codeql', label: 'CodeQL', active: codeQLOpen, onClick: onToggleCodeQL,
+                    icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><polyline points="4,6 1,8 4,10" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round"/><polyline points="12,6 15,8 12,10" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round"/><line x1="9" y1="2" x2="7" y2="14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>,
+                },
+                {
+                    id: 'investigation', label: 'Investigation', active: investigationModeOpen, onClick: onToggleInvestigation,
+                    icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="6.5" cy="6.5" r="4.5" stroke="currentColor" strokeWidth="1.5" fill="none"/><line x1="10" y1="10" x2="14" y2="14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><path d="M6.5 3.5v3M6.5 9.5v3M3.5 6.5h3M9.5 6.5h3" stroke="currentColor" strokeWidth="1" opacity="0.5"/></svg>,
+                },
+                {
+                    id: 'aiquery', label: 'AI Query', active: aiQueryOpen, onClick: onToggleAIQuery,
+                    icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M2 4h12M2 8h12M2 12h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none"/><circle cx="13" cy="12" r="1.5" fill="currentColor"/></svg>,
+                },
+                {
+                    id: 'inventory', label: 'API Inventory', active: inventoryOpen, onClick: onToggleInventory,
+                    icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="1" y="1" width="14" height="3.5" rx="1" fill="currentColor" opacity="0.9"/><rect x="1" y="6.25" width="14" height="3.5" rx="1" fill="currentColor" opacity="0.7"/><rect x="1" y="11.5" width="14" height="3.5" rx="1" fill="currentColor" opacity="0.5"/></svg>,
+                },
+            ],
         },
         {
-            id: 'codeql',
-            label: 'CodeQL',
-            active: codeQLOpen,
-            onClick: onToggleCodeQL,
-            icon: (
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                    <polyline points="4,6 1,8 4,10" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
-                    <polyline points="12,6 15,8 12,10" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" strokeLinejoin="round"/>
-                    <line x1="9" y1="2" x2="7" y2="14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                </svg>
-            ),
+            id: 'temporal',
+            label: 'TEMPORAL',
+            items: [
+                {
+                    id: 'timeline4d', label: 'Timeline 4D', active: timeline4DOpen, onClick: onToggleTimeline4D,
+                    icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="2" y="2" width="12" height="12" rx="1.5" stroke="currentColor" strokeWidth="1.5" fill="none"/><path d="M8 2v12M2 8h12" stroke="currentColor" strokeWidth="1" opacity="0.5"/><circle cx="8" cy="8" r="2.5" stroke="currentColor" strokeWidth="1.5" fill="none"/></svg>,
+                },
+                {
+                    id: 'timeline', label: 'Commits', active: commitTimelineOpen, onClick: onToggleCommitTimeline,
+                    icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><line x1="8" y1="1" x2="8" y2="15" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/><circle cx="8" cy="4" r="1.5" fill="currentColor"/><circle cx="8" cy="8" r="1.5" fill="currentColor"/><circle cx="8" cy="12" r="1.5" fill="currentColor"/></svg>,
+                },
+            ],
         },
         {
-            id: 'inventory',
-            label: 'API Inventory',
-            active: inventoryOpen,
-            onClick: onToggleInventory,
-            icon: (
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                    <rect x="1" y="1" width="14" height="3.5" rx="1" fill="currentColor" opacity="0.9"/>
-                    <rect x="1" y="6.25" width="14" height="3.5" rx="1" fill="currentColor" opacity="0.7"/>
-                    <rect x="1" y="11.5" width="14" height="3.5" rx="1" fill="currentColor" opacity="0.5"/>
-                </svg>
-            ),
+            id: 'automacao',
+            label: 'AUTOMAÇÃO',
+            items: [
+                {
+                    id: 'alerts', label: 'Live Alerts', active: liveAlertsOpen, onClick: onToggleLiveAlerts,
+                    icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M3 6.5c0-3 2.5-4.5 5-4.5s5 1.5 5 4.5c0 2.5 1 4 1 5.5 0 1-1 2-2 2H4c-1 0-2-1-2-2 0-1.5 1-3 1-5.5z" stroke="currentColor" strokeWidth="1.5" fill="none"/><circle cx="8" cy="13.5" r="0.5" fill="currentColor"/></svg>,
+                },
+                {
+                    id: 'digest', label: 'Digest', active: weeklyDigestOpen, onClick: onToggleWeeklyDigest,
+                    icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><rect x="2" y="2" width="12" height="12" rx="1.5" stroke="currentColor" strokeWidth="1.5" fill="none"/><line x1="2" y1="5" x2="14" y2="5" stroke="currentColor" strokeWidth="1" opacity="0.5"/><line x1="4" y1="7.5" x2="12" y2="7.5" stroke="currentColor" strokeWidth="1" opacity="0.5"/><line x1="4" y1="10" x2="12" y2="10" stroke="currentColor" strokeWidth="1" opacity="0.5"/></svg>,
+                },
+                {
+                    id: 'watchmode', label: 'Watch Mode', active: watchModeOpen, onClick: onToggleWatchMode,
+                    icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M1 8s4-5 7-5 7 5 7 5-4 5-7 5-7-5-7-5z" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinejoin="round"/><circle cx="8" cy="8" r="2.5" stroke="currentColor" strokeWidth="1.5" fill="none"/></svg>,
+                },
+            ],
         },
         {
-            id: 'views',
-            label: 'Views',
-            active: savedViewsOpen,
-            onClick: onToggleSavedViews,
-            icon: (
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                    <path d="M8 3C4 3 1 8 1 8s3 5 7 5 7-5 7-5-3-5-7-5z" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinejoin="round"/>
-                    <circle cx="8" cy="8" r="2" fill="currentColor"/>
-                </svg>
-            ),
-        },
-        {
-            id: 'timeline4d',
-            label: 'Timeline 4D',
-            active: timeline4DOpen,
-            onClick: onToggleTimeline4D,
-            icon: (
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                    <rect x="2" y="2" width="12" height="12" rx="1.5" stroke="currentColor" strokeWidth="1.5" fill="none"/>
-                    <path d="M8 2v12M2 8h12" stroke="currentColor" strokeWidth="1" opacity="0.5"/>
-                    <circle cx="8" cy="8" r="2.5" stroke="currentColor" strokeWidth="1.5" fill="none"/>
-                </svg>
-            ),
-        },
-        {
-            id: 'investigation',
-            label: 'Investigation',
-            active: investigationModeOpen,
-            onClick: onToggleInvestigation,
-            icon: (
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                    <circle cx="6.5" cy="6.5" r="4.5" stroke="currentColor" strokeWidth="1.5" fill="none"/>
-                    <line x1="10" y1="10" x2="14" y2="14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                    <path d="M6.5 3.5v3M6.5 9.5v3M3.5 6.5h3M9.5 6.5h3" stroke="currentColor" strokeWidth="1" opacity="0.5"/>
-                </svg>
-            ),
-        },
-        {
-            id: 'aiquery',
-            label: 'AI Query',
-            active: aiQueryOpen,
-            onClick: onToggleAIQuery,
-            icon: (
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                    <path d="M2 4h12M2 8h12M2 12h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none"/>
-                    <circle cx="13" cy="12" r="1.5" fill="currentColor"/>
-                </svg>
-            ),
-        },
-        {
-            id: 'watchmode',
-            label: 'Watch Mode',
-            active: watchModeOpen,
-            onClick: onToggleWatchMode,
-            icon: (
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                    <path d="M1 8s4-5 7-5 7 5 7 5-4 5-7 5-7-5-7-5z" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinejoin="round"/>
-                    <circle cx="8" cy="8" r="2.5" stroke="currentColor" strokeWidth="1.5" fill="none"/>
-                </svg>
-            ),
-        },
-        {
-            id: 'settings',
-            label: 'Settings',
-            active: settingsOpen,
-            onClick: onToggleSettings,
-            icon: (
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                    <path d="M8 1a3 3 0 0 1 3 3l.35.18a1 1 0 0 1 .18 1.33l-.72.72a1 1 0 0 0 0 1.41l.72.72a1 1 0 0 1-.18 1.33L11 10a3 3 0 0 1-3 3l-.18.35a1 1 0 0 1-1.33.18l-.72-.72a1 1 0 0 0-1.41 0l-.72.72a1 1 0 0 1-1.33-.18L5 11a3 3 0 0 1-3-3l-.35-.18a1 1 0 0 1-.18-1.33l.72-.72a1 1 0 0 0 0-1.41l-.72-.72a1 1 0 0 1 .18-1.33L3 5a3 3 0 0 1 3-3l.18-.35a1 1 0 0 1 1.33-.18l.72.72a1 1 0 0 0 1.41 0l.72-.72a1 1 0 0 1 1.33.18L11 5a3 3 0 0 1 3 3l.35.18a1 1 0 0 1 .18 1.33l-.72.72a1 1 0 0 0 0 1.41l.72.72a1 1 0 0 1-.18 1.33L13 11a3 3 0 0 1-3 3l-.18.35a1 1 0 0 1-1.33.18l-.72-.72a1 1 0 0 0-1.41 0l-.72.72a1 1 0 0 1-1.33-.18L5 13a3 3 0 0 1-3-3l-.35-.18a1 1 0 0 1-.18-1.33l.72-.72a1 1 0 0 0 0-1.41l-.72-.72a1 1 0 0 1 .18-1.33L3 5a3 3 0 0 1 3-3l.18-.35a1 1 0 0 1 1.33-.18l.72.72a1 1 0 0 0 1.41 0l.72-.72a1 1 0 0 1 1.33.18L11 5a3 3 0 0 1 3 3l.35.18a1 1 0 0 1 .18 1.33l-.72.72a1 1 0 0 0 0 1.41l.72.72a1 1 0 0 1-.18 1.33L13 11a3 3 0 0 1-3 3l-.18.35a1 1 0 0 1-1.33.18l-.72-.72a1 1 0 0 0-1.41 0l-.72.72a1 1 0 0 1-1.33-.18L5 13" stroke="currentColor" strokeWidth="1" opacity="0.5"/>
-                    <circle cx="8" cy="8" r="2.5" stroke="currentColor" strokeWidth="1.5" fill="none"/>
-                </svg>
-            ),
-        },
-        {
-            id: 'alerts',
-            label: 'Live Alerts',
-            active: liveAlertsOpen,
-            onClick: onToggleLiveAlerts,
-            icon: (
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                    <path d="M3 6.5c0-3 2.5-4.5 5-4.5s5 1.5 5 4.5c0 2.5 1 4 1 5.5 0 1-1 2-2 2H4c-1 0-2-1-2-2 0-1.5 1-3 1-5.5z" stroke="currentColor" strokeWidth="1.5" fill="none"/>
-                    <circle cx="8" cy="13.5" r="0.5" fill="currentColor"/>
-                </svg>
-            ),
-        },
-        {
-            id: 'timeline',
-            label: 'Timeline',
-            active: commitTimelineOpen,
-            onClick: onToggleCommitTimeline,
-            icon: (
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                    <line x1="8" y1="1" x2="8" y2="15" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                    <circle cx="8" cy="4" r="1.5" fill="currentColor"/>
-                    <circle cx="8" cy="8" r="1.5" fill="currentColor"/>
-                    <circle cx="8" cy="12" r="1.5" fill="currentColor"/>
-                </svg>
-            ),
-        },
-        {
-            id: 'digest',
-            label: 'Digest',
-            active: weeklyDigestOpen,
-            onClick: onToggleWeeklyDigest,
-            icon: (
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                    <rect x="2" y="2" width="12" height="12" rx="1.5" stroke="currentColor" strokeWidth="1.5" fill="none"/>
-                    <line x1="2" y1="5" x2="14" y2="5" stroke="currentColor" strokeWidth="1" opacity="0.5"/>
-                    <line x1="4" y1="7.5" x2="12" y2="7.5" stroke="currentColor" strokeWidth="1" opacity="0.5"/>
-                    <line x1="4" y1="10" x2="12" y2="10" stroke="currentColor" strokeWidth="1" opacity="0.5"/>
-                    <line x1="4" y1="12.5" x2="10" y2="12.5" stroke="currentColor" strokeWidth="1" opacity="0.5"/>
-                </svg>
-            ),
-        },
-        {
-            id: 'search',
-            label: 'Search',
-            active: false,
-            onClick: onOpenSearchPanel,
-            icon: (
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                    <circle cx="6.5" cy="6.5" r="4.5" stroke="currentColor" strokeWidth="1.5" fill="none"/>
-                    <line x1="10" y1="10" x2="14" y2="14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-                </svg>
-            ),
-        },
-        {
-            id: 'semantic',
-            label: semanticSearchEnabled ? 'Semantic ON' : 'Semantic OFF',
-            active: semanticSearchEnabled,
-            onClick: onToggleSemanticSearchMode,
-            title: 'Toggle semantic embeddings in search',
-            icon: (
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                    <circle cx="4" cy="8" r="2.5" fill="currentColor" opacity="0.9"/>
-                    <circle cx="12" cy="4" r="2.5" fill="currentColor" opacity="0.7"/>
-                    <circle cx="12" cy="12" r="2.5" fill="currentColor" opacity="0.7"/>
-                    <line x1="6" y1="7" x2="10" y2="5" stroke="currentColor" strokeWidth="1" opacity="0.5"/>
-                    <line x1="6" y1="9" x2="10" y2="11" stroke="currentColor" strokeWidth="1" opacity="0.5"/>
-                </svg>
-            ),
-        },
-        {
-            id: 'reindex',
-            label: ragReindexing ? 'Reindexing…' : 'Reindex RAG',
-            active: false,
-            onClick: onRebuildRagIndex,
-            disabled: ragReindexing,
-            icon: (
-                <svg width="14" height="14" viewBox="0 0 16 16" fill="none">
-                    <path d="M13.5 2.5C12 1 10 0.5 8 0.5A7.5 7.5 0 0 0 0.5 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none"/>
-                    <polyline points="0.5,4 0.5,8 4.5,8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
-                    <path d="M2.5 13.5C4 15 6 15.5 8 15.5A7.5 7.5 0 0 0 15.5 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none"/>
-                    <polyline points="15.5,12 15.5,8 11.5,8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none"/>
-                </svg>
-            ),
+            id: 'config',
+            label: 'CONFIG',
+            items: [
+                {
+                    id: 'views', label: 'Views', active: savedViewsOpen, onClick: onToggleSavedViews,
+                    icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 3C4 3 1 8 1 8s3 5 7 5 7-5 7-5-3-5-7-5z" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinejoin="round"/><circle cx="8" cy="8" r="2" fill="currentColor"/></svg>,
+                },
+                {
+                    id: 'search', label: 'Search', active: false, onClick: onOpenSearchPanel,
+                    icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="6.5" cy="6.5" r="4.5" stroke="currentColor" strokeWidth="1.5" fill="none"/><line x1="10" y1="10" x2="14" y2="14" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/></svg>,
+                },
+                {
+                    id: 'semantic', label: semanticSearchEnabled ? 'Semantic ON' : 'Semantic OFF',
+                    active: semanticSearchEnabled, onClick: onToggleSemanticSearchMode,
+                    title: 'Toggle semantic embeddings in search',
+                    icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><circle cx="4" cy="8" r="2.5" fill="currentColor" opacity="0.9"/><circle cx="12" cy="4" r="2.5" fill="currentColor" opacity="0.7"/><circle cx="12" cy="12" r="2.5" fill="currentColor" opacity="0.7"/><line x1="6" y1="7" x2="10" y2="5" stroke="currentColor" strokeWidth="1" opacity="0.5"/><line x1="6" y1="9" x2="10" y2="11" stroke="currentColor" strokeWidth="1" opacity="0.5"/></svg>,
+                },
+                {
+                    id: 'reindex', label: ragReindexing ? 'Reindexing…' : 'Reindex RAG',
+                    active: false, onClick: onRebuildRagIndex, disabled: ragReindexing,
+                    icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M13.5 2.5C12 1 10 0.5 8 0.5A7.5 7.5 0 0 0 0.5 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none"/><polyline points="0.5,4 0.5,8 4.5,8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none"/><path d="M2.5 13.5C4 15 6 15.5 8 15.5A7.5 7.5 0 0 0 15.5 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none"/><polyline points="15.5,12 15.5,8 11.5,8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none"/></svg>,
+                },
+                {
+                    id: 'settings', label: 'Settings', active: settingsOpen, onClick: onToggleSettings,
+                    icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M6.5 1.5A1 1 0 0 1 7.5 1h1a1 1 0 0 1 1 .886L9.63 2.8a5 5 0 0 1 .87.506l.883-.317a1 1 0 0 1 1.18.447l.5.866a1 1 0 0 1-.228 1.265l-.714.573a5 5 0 0 1 0 1.02l.714.573a1 1 0 0 1 .228 1.264l-.5.866a1 1 0 0 1-1.18.447l-.883-.317a5 5 0 0 1-.87.506l-.13.914A1 1 0 0 1 9.5 15h-1a1 1 0 0 1-.992-.886L7.37 13.2a5 5 0 0 1-.87-.506l-.883.317a1 1 0 0 1-1.18-.447l-.5-.866a1 1 0 0 1 .228-1.265l.714-.573a5 5 0 0 1 0-1.02l-.714-.573A1 1 0 0 1 3.937 7.1l.5-.866a1 1 0 0 1 1.18-.447l.883.317a5 5 0 0 1 .87-.506L7.5 4.5A1 1 0 0 1 6.5 1.5z" stroke="currentColor" strokeWidth="1.2" fill="none"/><circle cx="8" cy="8" r="2" stroke="currentColor" strokeWidth="1.4" fill="none"/></svg>,
+                },
+            ],
         },
     ];
 
@@ -484,20 +383,51 @@ export default function TopBar({
                 )}
             </div>
 
-            {/* Row 2: Navigation Tabs */}
+            {/* Row 2: Navigation Tabs — Grouped */}
             <div className="topbar-nav">
-                <nav className="nav-tabs">
-                    {navItems.map((item) => (
-                        <button
-                            key={item.id}
-                            className={`nav-tab ${item.active ? 'active' : ''} ${(item as any).disabled ? 'disabled' : ''}`}
-                            onClick={item.onClick}
-                            title={(item as any).title ?? item.label}
-                            disabled={(item as any).disabled}
+                <nav className="nav-tabs" style={{ gap: 0 }}>
+                    {navGroups.map((group, gi) => (
+                        <div
+                            key={group.id}
+                            style={{ display: 'flex', alignItems: 'center', gap: '1px' }}
                         >
-                            <span className="nav-tab-icon">{item.icon}</span>
-                            <span className="nav-tab-label">{item.label}</span>
-                        </button>
+                            {/* Group separator */}
+                            {gi > 0 && (
+                                <div style={{
+                                    width: '1px',
+                                    height: '20px',
+                                    background: 'rgba(139,147,176,0.14)',
+                                    margin: '0 6px',
+                                    flexShrink: 0,
+                                }} />
+                            )}
+                            {/* Group label */}
+                            <span style={{
+                                fontSize: '9.5px',
+                                fontWeight: 700,
+                                letterSpacing: '0.09em',
+                                color: 'rgba(139,147,176,0.45)',
+                                paddingRight: '6px',
+                                paddingLeft: gi === 0 ? '0' : '2px',
+                                userSelect: 'none',
+                                whiteSpace: 'nowrap',
+                            }}>
+                                {group.label}
+                            </span>
+                            {/* Group items */}
+                            {group.items.map((item) => (
+                                <button
+                                    key={item.id}
+                                    className={`nav-tab ${item.active ? 'active' : ''} ${item.disabled ? 'disabled' : ''}`}
+                                    onClick={item.onClick}
+                                    title={item.title ?? item.label}
+                                    disabled={item.disabled}
+                                >
+                                    <span className="nav-tab-icon">{item.icon}</span>
+                                    <span className="nav-tab-label">{item.label}</span>
+                                </button>
+                            ))}
+                        </div>
                     ))}
                 </nav>
             </div>

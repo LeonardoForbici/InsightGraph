@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import type { Tag } from '../api';
 import type { RefObject } from 'react';
 import SidebarIntelligence from './SidebarIntelligence';
@@ -103,6 +104,29 @@ export default function Sidebar({
     onNodeClick,
     intelligenceRefreshTrigger,
 }: SidebarProps) {
+    const [collapsed, setCollapsed] = useState<Record<string, boolean>>({
+        filters: false,
+        projects: false,
+        layers: false,
+        tags: false,
+        intelligence: false,
+    });
+    const toggle = (id: string) => setCollapsed(prev => ({ ...prev, [id]: !prev[id] }));
+
+    const Chevron = ({ sectionId }: { sectionId: string }) => (
+        <svg
+            width="11" height="11" viewBox="0 0 12 12" fill="none"
+            style={{
+                transition: 'transform 0.2s ease',
+                transform: collapsed[sectionId] ? 'rotate(-90deg)' : 'rotate(0deg)',
+                opacity: 0.5,
+                flexShrink: 0,
+            }}
+        >
+            <polyline points="2,4 6,8 10,4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
+        </svg>
+    );
+
     return (
         <>
             {/* Collapse Toggle Tab */}
@@ -179,17 +203,24 @@ export default function Sidebar({
 
                 {/* Advanced Filters */}
                 <div className="sidebar-section">
-                    <div className="sidebar-section-title">
+                    <div
+                        className="sidebar-section-title"
+                        onClick={() => toggle('filters')}
+                        style={{ cursor: 'pointer', userSelect: 'none' }}
+                    >
                         <span className="sidebar-section-label">
                             <svg width="11" height="11" viewBox="0 0 16 16" fill="none" style={{opacity:0.7}}>
                                 <path d="M2 4h12M4 8h8M6 12h4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
                             </svg>
                             Filtros
                         </span>
-                        <span className="section-badge">{visibleNodeCount}/{totalNodeCount}</span>
+                        <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                            <span className="section-badge">{visibleNodeCount}/{totalNodeCount}</span>
+                            <Chevron sectionId="filters" />
+                        </span>
                     </div>
 
-                    <div className="range-control">
+                    {!collapsed['filters'] && <><div className="range-control">
                         <div className="range-row">
                             <span>Hotspot</span>
                             <span className="range-value">{hotspotRange[0]}–{hotspotRange[1]}</span>
@@ -258,89 +289,124 @@ export default function Sidebar({
                         {impactOnly ? (
                             <><span className="impact-on-dot" /> Apenas Impactados ON</>
                         ) : 'Mostrar apenas impactados'}
-                    </button>
+                    </button></>}
                 </div>
 
                 {/* Projects */}
                 {projects.length > 0 && (
                     <div className="sidebar-section">
-                        <div className="sidebar-section-title">
+                        <div
+                            className="sidebar-section-title"
+                            onClick={() => toggle('projects')}
+                            style={{ cursor: 'pointer', userSelect: 'none' }}
+                        >
                             <span className="sidebar-section-label">
                                 <svg width="11" height="11" viewBox="0 0 16 16" fill="none" style={{opacity:0.7}}>
                                     <path d="M2 13V5a1 1 0 0 1 1-1h3l2-2h5a1 1 0 0 1 1 1v10a1 1 0 0 1-1 1H3a1 1 0 0 1-1-1z" stroke="currentColor" strokeWidth="1.5" fill="none"/>
                                 </svg>
                                 Projetos
                             </span>
-                            <span className="section-badge">{projects.length}</span>
+                            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                <span className="section-badge">{projects.length}</span>
+                                <Chevron sectionId="projects" />
+                            </span>
                         </div>
-                        <div className="filter-group">
-                            {projects.map((project) => (
-                                <div key={project} className="project-item">
-                                    <label className={`filter-item ${selectedProjects.includes(project) ? 'active' : ''}`}>
-                                        <input type="checkbox" checked={selectedProjects.includes(project)} onChange={() => onToggleProject(project)} />
-                                        {project}
-                                    </label>
-                                    <span className="remove project-remove" onClick={() => onDeleteProject(project)} title="Deletar projeto">✕</span>
-                                </div>
-                            ))}
-                        </div>
+                        {!collapsed['projects'] && (
+                            <div className="filter-group">
+                                {projects.map((project) => (
+                                    <div key={project} className="project-item">
+                                        <label className={`filter-item ${selectedProjects.includes(project) ? 'active' : ''}`}>
+                                            <input type="checkbox" checked={selectedProjects.includes(project)} onChange={() => onToggleProject(project)} />
+                                            {project}
+                                        </label>
+                                        <span className="remove project-remove" onClick={() => onDeleteProject(project)} title="Deletar projeto">✕</span>
+                                    </div>
+                                ))}
+                            </div>
+                        )}
                     </div>
                 )}
 
                 {/* Layers */}
                 <div className="sidebar-section">
-                    <div className="sidebar-section-title">
+                    <div
+                        className="sidebar-section-title"
+                        onClick={() => toggle('layers')}
+                        style={{ cursor: 'pointer', userSelect: 'none' }}
+                    >
                         <span className="sidebar-section-label">Camadas</span>
+                        <Chevron sectionId="layers" />
                     </div>
-                    <div className="layer-pill-grid">
-                        {LAYERS.map((layer) => (
-                            <button
-                                key={layer.key}
-                                type="button"
-                                className={`layer-pill ${selectedLayer === layer.key ? 'active' : ''}`}
-                                onClick={() => onLayerChange(layer.key)}
-                                style={selectedLayer === layer.key ? {
-                                    borderColor: layer.color,
-                                    color: layer.color,
-                                    background: `${layer.color}18`,
-                                    boxShadow: `0 0 8px ${layer.color}30`,
-                                } : undefined}
-                            >
-                                <span className="filter-dot" style={{ background: layer.color, boxShadow: `0 0 4px ${layer.color}` }} />
-                                {layer.label}
-                            </button>
-                        ))}
-                    </div>
+                    {!collapsed['layers'] && (
+                        <div className="layer-pill-grid">
+                            {LAYERS.map((layer) => (
+                                <button
+                                    key={layer.key}
+                                    type="button"
+                                    className={`layer-pill ${selectedLayer === layer.key ? 'active' : ''}`}
+                                    onClick={() => onLayerChange(layer.key)}
+                                    style={selectedLayer === layer.key ? {
+                                        borderColor: layer.color,
+                                        color: layer.color,
+                                        background: `${layer.color}18`,
+                                        boxShadow: `0 0 8px ${layer.color}30`,
+                                    } : undefined}
+                                >
+                                    <span className="filter-dot" style={{ background: layer.color, boxShadow: `0 0 4px ${layer.color}` }} />
+                                    {layer.label}
+                                </button>
+                            ))}
+                        </div>
+                    )}
                 </div>
 
                 {/* Tags */}
                 {tags.length > 0 && (
                     <div className="sidebar-section">
-                        <div className="sidebar-section-title">
+                        <div
+                            className="sidebar-section-title"
+                            onClick={() => toggle('tags')}
+                            style={{ cursor: 'pointer', userSelect: 'none' }}
+                        >
                             <span className="sidebar-section-label">Tags</span>
-                            {selectedTag && <span className="section-badge" style={{ background: 'rgba(79,143,247,0.1)', color: '#60a5fa' }}>ativo</span>}
+                            <span style={{ display: 'flex', alignItems: 'center', gap: 4 }}>
+                                {selectedTag && <span className="section-badge" style={{ background: 'rgba(79,143,247,0.1)', color: '#60a5fa' }}>ativo</span>}
+                                <Chevron sectionId="tags" />
+                            </span>
                         </div>
-                        <div className="filter-group tag-filter-group">
-                            {tags.map((tag) => (
-                                <div key={tag.id} className={`filter-item tag-filter ${selectedTag === tag.name ? 'active' : ''}`} onClick={() => onTagSelect(tag.name)}>
-                                    <div className="filter-dot" style={{ background: tag.color || '#cbd5f5' }} />
-                                    {tag.name}
-                                </div>
-                            ))}
-                            {selectedTag && (
-                                <button type="button" className="tag-clear-btn" onClick={() => onTagSelect(null)}>Limpar filtro</button>
-                            )}
-                        </div>
+                        {!collapsed['tags'] && (
+                            <div className="filter-group tag-filter-group">
+                                {tags.map((tag) => (
+                                    <div key={tag.id} className={`filter-item tag-filter ${selectedTag === tag.name ? 'active' : ''}`} onClick={() => onTagSelect(tag.name)}>
+                                        <div className="filter-dot" style={{ background: tag.color || '#cbd5f5' }} />
+                                        {tag.name}
+                                    </div>
+                                ))}
+                                {selectedTag && (
+                                    <button type="button" className="tag-clear-btn" onClick={() => onTagSelect(null)}>Limpar filtro</button>
+                                )}
+                            </div>
+                        )}
                     </div>
                 )}
 
                 {/* Intelligence Panel */}
                 {onNodeClick && (
                     <div className="sidebar-section">
-                        <SidebarIntelligence
-                            onNodeClick={onNodeClick}
-                            refreshTrigger={intelligenceRefreshTrigger}
-                        />
+                        <div
+                            className="sidebar-section-title"
+                            onClick={() => toggle('intelligence')}
+                            style={{ cursor: 'pointer', userSelect: 'none' }}
+                        >
+                            <span className="sidebar-section-label">Inteligência</span>
+                            <Chevron sectionId="intelligence" />
+                        </div>
+                        {!collapsed['intelligence'] && (
+                            <SidebarIntelligence
+                                onNodeClick={onNodeClick}
+                                refreshTrigger={intelligenceRefreshTrigger}
+                            />
+                        )}
                     </div>
                 )}
 

@@ -22,6 +22,13 @@ export interface GraphNode {
     cbo?: number;
     rfc?: number;
     lcom?: number;
+    predicted_risk?: number;
+    activity_score?: number;
+    complexity_score?: number;
+    build_status?: string;
+    build_failed?: boolean;
+    build_commit_hash?: string;
+    build_stack_trace?: string | null;
 }
 
 export interface GraphEdge {
@@ -110,6 +117,32 @@ export interface PathFinderData {
     path: string[];
     nodes: GraphNode[];
     edges: GraphEdge[];
+}
+
+export interface PulseBucket {
+    start: string;
+    count: number;
+}
+
+export interface ActiveDeveloperSnapshot {
+    count: number;
+    names: string[];
+    since: string;
+}
+
+export interface PulseMetrics {
+    last_updated: string;
+    commits_per_hour: PulseBucket[];
+    total_commits_24h: number;
+    active_developers: ActiveDeveloperSnapshot;
+}
+
+export async function fetchPulseMetrics(): Promise<PulseMetrics> {
+    const response = await fetch(`${BASE}/metrics/pulse`);
+    if (!response.ok) {
+        throw new Error('Não foi possível carregar as métricas de pulso.');
+    }
+    return await response.json();
 }
 
 export interface SavedViewPayload {
@@ -620,6 +653,79 @@ export async function fetchImpact(nodeKey: string): Promise<ImpactData> {
     return res.json();
 }
 
+export interface PredictionHeatmapItem {
+    node_key: string;
+    predicted_risk: number;
+    activity_score: number;
+    complexity_score: number;
+}
+
+export interface PredictionHeatmapResponse {
+    items: PredictionHeatmapItem[];
+    generated_at: number;
+    fragility_points: Array<{
+        node_key: string;
+        predicted_risk: number;
+        features: Record<string, number>;
+        metadata: Record<string, unknown>;
+        timestamp: number;
+    }>;
+}
+
+export async function fetchPredictionHeatmap(limit = 2500): Promise<PredictionHeatmapResponse> {
+    const res = await fetch(`${BASE}/prediction/heatmap?limit=${limit}`);
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export interface CicdBuildRecord {
+    id: string;
+    provider: 'github_actions' | 'gitlab_ci' | 'jenkins';
+    status: string;
+    commit_hash: string;
+    branch?: string;
+    build_id?: string;
+    pipeline_id?: string;
+    author?: string;
+    coverage?: number;
+    duration_seconds?: number;
+    web_url?: string;
+    stack_trace?: string | null;
+    failed_files: string[];
+    raw_payload?: Record<string, unknown>;
+    created_at: number;
+}
+
+export interface CicdBuildListResponse {
+    items: CicdBuildRecord[];
+    node_status: Record<string, {
+        build_record_id: string;
+        status: string;
+        commit_hash: string;
+        stack_trace?: string | null;
+        created_at: number;
+    }>;
+}
+
+export interface CicdCommitStatus {
+    commit_hash: string;
+    latest: CicdBuildRecord | null;
+    history: CicdBuildRecord[];
+    total: number;
+}
+
+export async function fetchCicdBuilds(limit = 50): Promise<CicdBuildListResponse> {
+    const res = await fetch(`${BASE}/cicd/builds?limit=${limit}`);
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function fetchCicdStatus(commitHash: string): Promise<CicdCommitStatus> {
+    const res = await fetch(`${BASE}/cicd/status/${encodeURIComponent(commitHash)}`);
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
 export async function fetchTransactionView(nodeKey: string, maxDepth: number = 10): Promise<TransactionViewData> {
     const params = new URLSearchParams({ max_depth: String(maxDepth) });
     const res = await fetch(`${BASE}/transaction/${encodeURIComponent(nodeKey)}?${params.toString()}`);
@@ -812,20 +918,6 @@ export async function fetchInheritance(project?: string, root?: string): Promise
     return res.json();
 }
 
-export async function exportFindings(format: 'json' | 'csv' = 'json'): Promise<any> {
-    const res = await fetch(`${BASE}/findings/export?format=${format}`);
-    if (!res.ok) throw new Error(await res.text());
-    if (format === 'csv') return res.text();
-    return res.json();
-}
-
-export async function triggerAdvancedCallResolver(maxCandidates: number = 5): Promise<any> {
-    const res = await fetch(`${BASE}/calls/resolve/advanced?max_candidates=${encodeURIComponent(String(maxCandidates))}`, {
-        method: 'POST',
-    });
-    if (!res.ok) throw new Error(await res.text());
-    return res.json();
-}
 
 export async function fetchBlastRadius(nodeKey: string): Promise<BlastRadiusData> {
     const res = await fetch(`${BASE}/impact/blast-radius/${encodeURIComponent(nodeKey)}`);
@@ -1465,6 +1557,415 @@ export async function getAnalysisDiff(fromId: string, toId: string): Promise<Rec
 
 export async function getAnalysisTrend(metric: string, window = 10): Promise<Record<string, unknown>> {
     const res = await fetch(`${BASE}/analysis/trend?metric=${encodeURIComponent(metric)}&window=${window}`);
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+// ──────────────────────────────────────────────
+// Fase 3 — Alerts
+// ──────────────────────────────────────────────
+
+export interface AlertRule {
+    id: string;
+    name: string;
+    description?: string;
+    metric: string;
+    condition: string;
+    threshold: number;
+    severity: 'critical' | 'high' | 'medium' | 'info';
+    channel: 'ui' | 'slack' | 'both';
+    enabled: boolean;
+    message_template?: string;
+    created_at?: number;
+    updated_at?: number;
+}
+
+export interface FiredAlert {
+    id: string;
+    rule_id: string;
+    rule_name: string;
+    severity: 'critical' | 'high' | 'medium' | 'info';
+    message: string;
+    metric?: string;
+    value_before?: number;
+    value_after?: number;
+    delta?: number;
+    snapshot_id?: string;
+    commit_hash?: string;
+    branch?: string;
+    channels_notified?: string[];
+    fired_at: number;
+}
+
+export interface AlertHistoryResponse {
+    items: FiredAlert[];
+    total: number;
+    page: number;
+    limit: number;
+}
+
+export async function fetchAlertHistory(page = 1, limit = 50): Promise<AlertHistoryResponse> {
+    const res = await fetch(`${BASE}/alerts/history?page=${page}&limit=${limit}`);
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function fetchAlertRules(): Promise<AlertRule[]> {
+    const res = await fetch(`${BASE}/alerts/rules`);
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function createAlertRule(rule: Partial<AlertRule>): Promise<AlertRule> {
+    const res = await fetch(`${BASE}/alerts/rules`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(rule),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function deleteAlertRule(ruleId: string): Promise<void> {
+    const res = await fetch(`${BASE}/alerts/rules/${encodeURIComponent(ruleId)}`, {
+        method: 'DELETE',
+    });
+    if (!res.ok) throw new Error(await res.text());
+}
+
+// ──────────────────────────────────────────────
+// Fase 1 — Graph Temporal Diff
+// ──────────────────────────────────────────────
+
+export interface GraphSnapshot {
+    id: string;
+    timestamp: number;
+    total_nodes: number;
+    total_edges: number;
+    god_classes: number;
+    circular_deps: number;
+    dead_code: number;
+    call_resolution_rate: number;
+    commit_hash?: string;
+    branch?: string;
+    author?: string;
+    commit_message?: string;
+    created_at?: number;
+}
+
+export interface GraphSnapshotListResponse {
+    items: GraphSnapshot[];
+    total: number;
+    page: number;
+    limit: number;
+}
+
+export interface GraphNode {
+    namespace_key: string;
+    name: string;
+    type?: string;
+    file?: string;
+    layer?: string;
+    complexity?: number;
+    coupling?: number;
+}
+
+export interface GraphDiffResult {
+    from_commit: string;
+    to_commit: string;
+    from_snapshot: GraphSnapshot;
+    to_snapshot: GraphSnapshot;
+    metrics_diff: Record<string, unknown>;
+    graph_diff: {
+        added: GraphNode[];
+        removed: GraphNode[];
+        modified: Array<{
+            namespace_key: string;
+            name?: string;
+            changes: Record<string, { before: unknown; after: unknown }>;
+        }>;
+        unchanged: number;
+        summary: {
+            added_count: number;
+            removed_count: number;
+            modified_count: number;
+            unchanged_count: number;
+        };
+    };
+}
+
+export async function fetchGraphSnapshots(page = 1, limit = 30): Promise<GraphSnapshotListResponse> {
+    const res = await fetch(`${BASE}/graph/snapshots?page=${page}&limit=${limit}`);
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function fetchGraphDiff(fromCommit: string, toCommit: string): Promise<GraphDiffResult> {
+    const res = await fetch(
+        `${BASE}/graph/diff?from_commit=${encodeURIComponent(fromCommit)}&to_commit=${encodeURIComponent(toCommit)}`
+    );
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+// ──────────────────────────────────────────────
+// Fase 4 — Weekly Digest
+// ──────────────────────────────────────────────
+
+export interface WeeklyDigest {
+    id: string;
+    week_start: string;
+    week_end: string;
+    summary: {
+        scan_count: number;
+        commit_count: number;
+        active_authors?: string[];
+        alert_count: number;
+        alert_by_severity?: Record<string, number>;
+        top_alerts?: Array<{ message: string; severity: string; metric?: string }>;
+        metrics?: Record<string, { before: number; after: number; delta: number; delta_pct: number; trend: string }>;
+        [key: string]: unknown;
+    };
+    narrative?: string;
+    generated_at?: number;
+}
+
+export async function fetchWeeklyDigests(limit = 12): Promise<WeeklyDigest[]> {
+    const res = await fetch(`${BASE}/digest/weekly?limit=${limit}`);
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function generateWeeklyDigest(weeksBack = 1): Promise<{ ok: boolean; message: string }> {
+    const res = await fetch(`${BASE}/digest/generate?weeks_back=${weeksBack}`, {
+        method: 'POST',
+    });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+// ──────────────────────────────────────────────
+// Automação — Git Poller
+// ──────────────────────────────────────────────
+
+export interface PollerStatus {
+    active: boolean;
+    project_path?: string;
+    last_commit?: string;
+    last_commit_short?: string;
+    last_scan_at?: number;
+    interval_seconds?: number;
+}
+
+export async function fetchPollerStatus(): Promise<PollerStatus> {
+    const res = await fetch(`${BASE}/poller/status`);
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+// Collaboration
+export interface CollaborationSession {
+    session_id: string;
+    created_by: string;
+    created_at: number;
+    active_node?: string | null;
+    participants: Array<{ user_id: string; joined_at: number; color: string }>;
+    is_active: boolean;
+}
+
+export interface CollaborationAnnotation {
+    id: string;
+    session_id: string;
+    node_key: string;
+    text: string;
+    user_id: string;
+    visibility: 'public' | 'private' | string;
+    created_at: number;
+}
+
+export interface CollaborationChatMessage {
+    id: string;
+    session_id: string;
+    user_id: string;
+    text: string;
+    context: Record<string, unknown>;
+    created_at: number;
+}
+
+export async function createWarRoom(userId: string, sessionId?: string): Promise<CollaborationSession> {
+    const res = await fetch(`${BASE}/collaboration/sessions`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: userId, session_id: sessionId }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function joinWarRoom(userId: string, sessionId: string): Promise<CollaborationSession> {
+    const res = await fetch(`${BASE}/collaboration/sessions/join`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: userId, session_id: sessionId }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function listWarRooms(activeOnly = true): Promise<{ items: CollaborationSession[] }> {
+    const res = await fetch(`${BASE}/collaboration/sessions?active_only=${activeOnly ? 'true' : 'false'}`);
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function sendCollaborationMessage(
+    sessionId: string,
+    userId: string,
+    text: string,
+    context: Record<string, unknown> = {}
+): Promise<CollaborationChatMessage> {
+    const res = await fetch(`${BASE}/collaboration/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ session_id: sessionId, user_id: userId, text, context }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function listCollaborationMessages(sessionId: string, limit = 200): Promise<{ items: CollaborationChatMessage[] }> {
+    const res = await fetch(`${BASE}/collaboration/chat/${encodeURIComponent(sessionId)}?limit=${limit}`);
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function addCollaborationAnnotation(
+    sessionId: string,
+    nodeKey: string,
+    text: string,
+    userId: string,
+    visibility: 'public' | 'private' = 'public'
+): Promise<CollaborationAnnotation> {
+    const res = await fetch(`${BASE}/collaboration/annotations`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            session_id: sessionId,
+            node_key: nodeKey,
+            text,
+            user_id: userId,
+            visibility,
+        }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function listCollaborationAnnotations(nodeKey: string, userId?: string): Promise<{ items: CollaborationAnnotation[] }> {
+    const params = new URLSearchParams({ node_key: nodeKey });
+    if (userId) params.set('user_id', userId);
+    const res = await fetch(`${BASE}/collaboration/annotations?${params.toString()}`);
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function fetchSessionReplay(sessionId: string, limit = 1000): Promise<any> {
+    const res = await fetch(`${BASE}/sessions/${encodeURIComponent(sessionId)}/replay?limit=${limit}`);
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+// Auto Healer
+export async function detectBugPatterns(changes: any[], commitHistory: any[] = [], prHistory: any[] = []): Promise<{ items: any[] }> {
+    const res = await fetch(`${BASE}/auto-healer/patterns`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ changes, commit_history: commitHistory, pr_history: prHistory }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function suggestFix(pattern: any): Promise<any> {
+    const res = await fetch(`${BASE}/auto-healer/suggest-fix`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(pattern),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function generateAutoTests(fragilityPoint: any): Promise<any> {
+    const res = await fetch(`${BASE}/auto-healer/generate-tests`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fragility_point: fragilityPoint }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function suggestRefactor(nodeProfile: any): Promise<any> {
+    const res = await fetch(`${BASE}/auto-healer/suggest-refactor`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ node_profile: nodeProfile }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function autoDocUpdate(changedDocs: any[]): Promise<any> {
+    const res = await fetch(`${BASE}/auto-healer/documentation`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ changed_docs: changedDocs }),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+// Timeline 4D extensions
+export async function fetchGraphHistory(fromTs?: number, toTs?: number): Promise<{ items: any[]; count: number }> {
+    const params = new URLSearchParams();
+    if (typeof fromTs === 'number') params.set('from', String(fromTs));
+    if (typeof toTs === 'number') params.set('to', String(toTs));
+    const suffix = params.toString();
+    const res = await fetch(`${BASE}/graph/history${suffix ? `?${suffix}` : ''}`);
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function fetchGraphActivityHeatmap(filters?: { author?: string; type?: string; area?: string }): Promise<{ items: any[]; max_frequency: number }> {
+    const params = new URLSearchParams();
+    if (filters?.author) params.set('author', filters.author);
+    if (filters?.type) params.set('change_type', filters.type);
+    if (filters?.area) params.set('area', filters.area);
+    const suffix = params.toString();
+    const res = await fetch(`${BASE}/graph/activity-heatmap${suffix ? `?${suffix}` : ''}`);
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+// Runtime config parser endpoints
+export async function fetchRuntimeConfig(format: 'yaml' | 'json' = 'yaml'): Promise<any> {
+    const res = await fetch(`${BASE}/config?format=${format}`);
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function updateRuntimeConfig(payload: {
+    format: 'yaml' | 'json';
+    content: string;
+    created_by?: string;
+    source?: string;
+}): Promise<any> {
+    const res = await fetch(`${BASE}/config`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+    });
     if (!res.ok) throw new Error(await res.text());
     return res.json();
 }
