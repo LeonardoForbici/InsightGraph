@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 class ScanStatusModel(BaseModel):
     status: str = "idle"
+    scan_id: str | None = None
     scanned_files: int = 0
     total_files: int = 0
     total_nodes: int = 0

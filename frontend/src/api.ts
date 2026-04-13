@@ -49,6 +49,7 @@ export interface ImpactData {
 
 export interface ScanStatus {
     status: string;
+    scan_id?: string | null;
     scanned_files: number;
     total_files: number;
     total_nodes: number;
@@ -624,18 +625,52 @@ export interface CallResolutionSummary {
 /* ─── API Functions ─── */
 
 export async function scanProjects(paths: string[]): Promise<ScanStatus> {
-    const res = await fetch(`${BASE}/scan`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ paths }),
-    });
-    if (!res.ok) throw new Error(await res.text());
-    return res.json();
+    return startScan({ mode: 'local', paths });
 }
 
 export async function getScanStatus(): Promise<ScanStatus> {
     const res = await fetch(`${BASE}/scan/status`);
     return res.json();
+}
+
+export type ScanMode = 'local' | 'github';
+
+export interface GitHubScanConfig {
+    repository: string;
+    branch?: string;
+    token?: string | null;
+    shallow_clone?: boolean;
+}
+
+export interface StartScanRequest {
+    mode?: ScanMode;
+    paths?: string[];
+    github_config?: GitHubScanConfig | null;
+    triggered_by?: string;
+    commit_hash?: string | null;
+}
+
+export async function startScan(payload: StartScanRequest): Promise<ScanStatus> {
+    const res = await fetch(`${BASE}/scan`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+    });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function cancelScan(): Promise<{ cancelled: boolean; status?: string }> {
+    const res = await fetch(`${BASE}/scan/cancel`, { method: 'POST' });
+    if (!res.ok) throw new Error(await res.text());
+    return res.json();
+}
+
+export async function browseSystemFolder(): Promise<string | null> {
+    const res = await fetch(`${BASE}/system/browse-folder`);
+    if (!res.ok) throw new Error(await res.text());
+    const payload = await res.json();
+    return typeof payload?.path === 'string' ? payload.path : null;
 }
 
 export async function fetchGraph(project?: string, layer?: string): Promise<GraphData> {

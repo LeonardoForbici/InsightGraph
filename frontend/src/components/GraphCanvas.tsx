@@ -18,8 +18,11 @@ import '@xyflow/react/dist/style.css';
 import dagre from '@dagrejs/dagre';
 import type { GraphNode, GraphEdge } from '../api';
 import { fetchGraphPath, fetchInheritance } from '../api';
+import { useVirtualizedNodes } from '../hooks/useVirtualizedNodes';
+import type { ViewportSize } from '../hooks/useVirtualizedNodes';
 import GraphCanvas3D from './GraphCanvas3D';
 import { getHeatmapColor, hotspotColorScale } from '../utils/graphColors';
+import PredictiveHeatmap from './PredictiveHeatmap';
 
 /* ─── Helpers ─── */
 function getNodeClass(labels: string[]): string {
@@ -89,6 +92,15 @@ const normalizeLayer = (layer?: string): string => {
     if (normalized.includes('mobile')) return 'Mobile';
     if (normalized.includes('external') || normalized.includes('third')) return 'External';
     return 'Other';
+};
+
+const getPredictiveColor = (value: number): string => {
+    const safe = Math.max(0, Math.min(100, value));
+    if (safe >= 80) return '#dc2626';
+    if (safe >= 60) return '#ea580c';
+    if (safe >= 40) return '#eab308';
+    if (safe >= 20) return '#84cc16';
+    return '#22c55e';
 };
 
 /* ─── Dagre Layout ─── */
@@ -186,6 +198,21 @@ function CustomNode({ data }: NodeProps) {
         };
     }
 
+    if (data.predictiveMode) {
+        const metricValue =
+            data.predictiveMode === 'risk'
+                ? Number(data.predictedRisk || 0)
+                : data.predictiveMode === 'activity'
+                    ? Number(data.activityScore || 0)
+                    : Number(data.complexityScore || 0);
+        const predictiveColor = getPredictiveColor(metricValue);
+        inlineStyle = {
+            ...inlineStyle,
+            borderColor: predictiveColor,
+            boxShadow: `0 0 16px ${predictiveColor}66`,
+        };
+    }
+
     // AI Highlight style overrides everything
     if (highlightClass === 'highlighted-ai') {
         inlineStyle = { 
@@ -193,6 +220,14 @@ function CustomNode({ data }: NodeProps) {
             borderColor: '#f472b6', 
             color: '#fff',
             boxShadow: '0 0 15px rgba(244,114,182,0.5)'
+        };
+    } else if (data.buildFailed) {
+        inlineStyle = {
+            ...inlineStyle,
+            background: 'rgba(127, 29, 29, 0.35)',
+            borderColor: '#ef4444',
+            color: '#fee2e2',
+            boxShadow: '0 0 18px rgba(239, 68, 68, 0.55)',
         };
     } else if (data.status === 'deleted') {
         inlineStyle = {
@@ -235,7 +270,11 @@ function CustomNode({ data }: NodeProps) {
     return (
         <>
             <Handle type="target" position={Position.Top} style={hiddenHandleStyle} isConnectable={false} />
-            <div className={`custom-node ${nodeClass} ${highlightClass || ''}`} style={{ ...inlineStyle, cursor: 'pointer' }}>
+            <div
+              className={`custom-node ${nodeClass} ${highlightClass || ''}`}
+              style={{ ...inlineStyle, cursor: 'pointer' }}
+              title={String(data.detailTooltip || '')}
+            >
                 <div>
                     {String(data.icon || '')} {String(data.label || '')}
                 </div>
@@ -289,6 +328,33 @@ interface GraphCanvasProps {
         originNodeKey: string;
         affectedNodes: string[];
         timestamp: number;
+        riskScore?: number;
+    } | null;
+    liveImpactNodes?: Set<string>;
+    syncLatencyMs?: number | null;
+    predictiveHeatmapType?: 'risk' | 'activity' | 'complexity';
+    onPredictiveHeatmapChange?: (type: 'risk' | 'activity' | 'complexity') => void;
+    buildFailuresOnly?: boolean;
+    onToggleBuildFailuresOnly?: () => void;
+    gestureCursor?: { x: number; y: number; active: boolean };
+    gestureCommand?: {
+        type:
+            | 'select'
+            | 'drag'
+            | 'pan'
+            | 'zoom_in'
+            | 'zoom_out'
+            | 'fit_view'
+            | 'expand_all_clusters'
+            | 'collapse_all_clusters'
+            | 'deselect'
+            | 'pause'
+            | 'resume';
+        x?: number;
+        y?: number;
+        dx?: number;
+        dy?: number;
+        timestamp: number;
     } | null;
 }
 
@@ -306,12 +372,27 @@ const GraphCanvasInnerImpl = (props: GraphCanvasProps, ref: ForwardedRef<GraphCa
         nodeAnnotations,
         selectedTag,
         tagFilterNodes,
+        onCanvasClick,
         waveAnimationTrigger,
+        liveImpactNodes,
+        syncLatencyMs,
+        predictiveHeatmapType = 'risk',
+        onPredictiveHeatmapChange,
+        buildFailuresOnly,
+        onToggleBuildFailuresOnly,
+        gestureCursor,
+        gestureCommand,
     } = props;
     const [heatmapEnabled, setHeatmapEnabled] = useState(false);
     const [viewMode, setViewMode] = useState<'2d' | '3d'>('2d');
     const [autoMode, setAutoMode] = useState(true);
     const [clustered3D, setClustered3D] = useState(true);
+    const waveNodeSet = useMemo(() => {
+        if (!liveImpactNodes || liveImpactNodes.size === 0) {
+            return new Set<string>();
+        }
+        return new Set<string>(Array.from(liveImpactNodes));
+    }, [liveImpactNodes]);
     const [focusRequestId, setFocusRequestId] = useState(0);
     const [pathFinderMode, setPathFinderMode] = useState(false);
     const [pathFinderOrigin, setPathFinderOrigin] = useState<string | null>(null);
@@ -648,6 +729,14 @@ const GraphCanvasInnerImpl = (props: GraphCanvasProps, ref: ForwardedRef<GraphCa
                     matchesTagFilter,
                     layerCanonical: layerName,
                     clusterLayer: layerName,
+                    predictiveMode: predictiveHeatmapType,
+                    predictedRisk: gn.predicted_risk ?? 0,
+                    activityScore: gn.activity_score ?? gn.git_churn ?? 0,
+                    complexityScore: gn.complexity_score ?? gn.complexity ?? 0,
+                    buildFailed: Boolean(gn.build_failed),
+                    detailTooltip: gn.build_failed
+                        ? `Build falhou (${gn.build_status || 'failed'})${gn.build_stack_trace ? `\n\n${String(gn.build_stack_trace).slice(0, 400)}` : ''}`
+                        : `Risco: ${Number(gn.predicted_risk || 0).toFixed(1)} | Atividade: ${Number(gn.activity_score || gn.git_churn || 0).toFixed(1)} | Complexidade: ${Number(gn.complexity_score || gn.complexity || 0).toFixed(1)}`,
                 },
             });
         };
@@ -782,6 +871,7 @@ const GraphCanvasInnerImpl = (props: GraphCanvasProps, ref: ForwardedRef<GraphCa
         highlightedUpstream,
         highlightedDownstream,
         heatmapEnabled,
+        predictiveHeatmapType,
     ]);
 
     const [nodes, setNodes, onNodesChange] = useNodesState<Node>([]);
@@ -789,11 +879,166 @@ const GraphCanvasInnerImpl = (props: GraphCanvasProps, ref: ForwardedRef<GraphCa
     const reactFlowInstanceRef = useRef<ReactFlowInstance | null>(null);
     const canvasRef = useRef<HTMLDivElement>(null);
     const [viewportState, setViewportState] = useState<Viewport>({ x: 0, y: 0, zoom: 1 });
+    const [viewportSize, setViewportSize] = useState<ViewportSize>({ width: 1600, height: 900 });
+    const [gesturePaused, setGesturePaused] = useState(false);
+    const lastGestureTimestampRef = useRef<number>(0);
+
+    useEffect(() => {
+        const node = canvasRef.current;
+        if (!node) return;
+
+        const updateSize = () => {
+            if (!canvasRef.current) return;
+            const rect = canvasRef.current.getBoundingClientRect();
+            setViewportSize({
+                width: Math.max(rect.width, 800),
+                height: Math.max(rect.height, 400),
+            });
+        };
+
+        updateSize();
+        if (typeof ResizeObserver === 'undefined') {
+            return undefined;
+        }
+
+        const observer = new ResizeObserver(updateSize);
+        observer.observe(node);
+        return () => observer.disconnect();
+    }, []);
+
+    const { nodes: virtualNodes, visibleIds: virtualNodeIds } = useVirtualizedNodes(
+        baseNodes,
+        viewportState,
+        viewportSize,
+        1000,
+    );
+
+    const visibleEdges = useMemo(() => {
+        return baseEdges.filter((edge) =>
+            virtualNodeIds.has(edge.source) && virtualNodeIds.has(edge.target)
+        );
+    }, [baseEdges, virtualNodeIds]);
+
+    useEffect(() => {
+        if (!gestureCommand || gestureCommand.timestamp <= lastGestureTimestampRef.current) return;
+        lastGestureTimestampRef.current = gestureCommand.timestamp;
+
+        if (gestureCommand.type === 'pause') {
+            setGesturePaused(true);
+            return;
+        }
+        if (gestureCommand.type === 'resume') {
+            setGesturePaused(false);
+            return;
+        }
+        if (gesturePaused) return;
+
+        if (viewMode === '3d') {
+            if (gestureCommand.type === 'expand_all_clusters') {
+                setClustered3D(false);
+                return;
+            }
+            if (gestureCommand.type === 'collapse_all_clusters') {
+                setClustered3D(true);
+                return;
+            }
+            return;
+        }
+
+        if (gestureCommand.type === 'select') {
+            const gx = gestureCommand.x;
+            const gy = gestureCommand.y;
+            if (typeof gx !== 'number' || typeof gy !== 'number' || !canvasRef.current) return;
+            const rect = canvasRef.current.getBoundingClientRect();
+            const targetScreenX = rect.left + (rect.width * gx);
+            const targetScreenY = rect.top + (rect.height * gy);
+            const targetFlowPosition = reactFlowInstanceRef.current?.screenToFlowPosition({
+                x: targetScreenX,
+                y: targetScreenY,
+            });
+            const targetX = targetFlowPosition?.x ?? (rect.width * gx);
+            const targetY = targetFlowPosition?.y ?? (rect.height * gy);
+            let bestNode: Node | null = null;
+            let bestDistance = Number.POSITIVE_INFINITY;
+            for (const node of nodes) {
+                const dX = node.position.x - targetX;
+                const dY = node.position.y - targetY;
+                const dist = (dX * dX) + (dY * dY);
+                if (dist < bestDistance) {
+                    bestDistance = dist;
+                    bestNode = node;
+                }
+            }
+            if (bestNode && !bestNode.id.startsWith('cluster:')) {
+                const graphNode = graphNodes.find((n) => n.namespace_key === bestNode!.id);
+                if (graphNode) {
+                    onNodeClick(bestNode.id, graphNode);
+                }
+            }
+            return;
+        }
+
+        if (gestureCommand.type === 'drag' && selectedNodeKey) {
+            const dx = Number(gestureCommand.dx || 0);
+            const dy = Number(gestureCommand.dy || 0);
+            const clamp = (value: number) => Math.max(-45, Math.min(45, value));
+            setNodes((current) =>
+                current.map((node) =>
+                    node.id === selectedNodeKey
+                        ? { ...node, position: { x: node.position.x + clamp(dx), y: node.position.y + clamp(dy) } }
+                        : node
+                )
+            );
+            return;
+        }
+
+        if (gestureCommand.type === 'pan' && reactFlowInstanceRef.current) {
+            const dx = Number(gestureCommand.dx || 0);
+            const dy = Number(gestureCommand.dy || 0);
+            const current = reactFlowInstanceRef.current.getViewport();
+            const clamp = (value: number) => Math.max(-60, Math.min(60, value));
+            reactFlowInstanceRef.current.setViewport(
+                {
+                    ...current,
+                    x: current.x + clamp(dx),
+                    y: current.y + clamp(dy),
+                },
+                { duration: 80 }
+            );
+            return;
+        }
+
+        if (gestureCommand.type === 'zoom_in' && reactFlowInstanceRef.current) {
+            const current = reactFlowInstanceRef.current.getZoom();
+            reactFlowInstanceRef.current.zoomTo(Math.min(2.5, current * 1.08), { duration: 120 });
+            return;
+        }
+        if (gestureCommand.type === 'zoom_out' && reactFlowInstanceRef.current) {
+            const current = reactFlowInstanceRef.current.getZoom();
+            reactFlowInstanceRef.current.zoomTo(Math.max(0.05, current * 0.92), { duration: 120 });
+            return;
+        }
+        if (gestureCommand.type === 'fit_view' && reactFlowInstanceRef.current) {
+            reactFlowInstanceRef.current.fitView({ padding: 0.25, duration: 220 });
+            return;
+        }
+        if (gestureCommand.type === 'expand_all_clusters') {
+            setExpandedClusters(new Set(['*ALL*']));
+            return;
+        }
+        if (gestureCommand.type === 'collapse_all_clusters') {
+            setExpandedClusters(new Set());
+            return;
+        }
+        if (gestureCommand.type === 'deselect') {
+            onCanvasClick?.();
+        }
+    }, [gestureCommand, gesturePaused, graphNodes, nodes, onCanvasClick, onNodeClick, selectedNodeKey, setNodes, viewMode]);
 
     // Visually update nodes and edges when soft properties change (bypassing heavy layout computation)
     useEffect(() => {
         setNodes((currentNodes) => {
-            return baseNodes.map(bn => {
+            return virtualNodes.map(bn => {
                 const existing = currentNodes.find(n => n.id === bn.id);
                 
                 if (bn.data.isCluster) {
@@ -802,12 +1047,15 @@ const GraphCanvasInnerImpl = (props: GraphCanvasProps, ref: ForwardedRef<GraphCa
                         : bn;
                 }
 
-            let highlightClass = '';
-            if (aiHighlightedNodes.includes(bn.id)) highlightClass = 'highlighted-ai';
-            else if (bn.id === selectedNodeKey) highlightClass = 'selected-node';
-            else if (highlightedUpstream.has(bn.id)) highlightClass = 'highlighted-upstream';
-            else if (highlightedDownstream.has(bn.id)) highlightClass = 'highlighted-downstream';
-            if (pathFinderNodeSet.has(bn.id)) highlightClass = 'highlighted-path';
+              let highlightClass = '';
+              if (aiHighlightedNodes.includes(bn.id)) highlightClass = 'highlighted-ai';
+              else if (bn.id === selectedNodeKey) highlightClass = 'selected-node';
+              else if (highlightedUpstream.has(bn.id)) highlightClass = 'highlighted-upstream';
+              else if (highlightedDownstream.has(bn.id)) highlightClass = 'highlighted-downstream';
+              if (pathFinderNodeSet.has(bn.id)) highlightClass = 'highlighted-path';
+              if (!highlightClass && waveNodeSet.has(bn.id)) {
+                  highlightClass = 'wave-highlight';
+              }
 
                 const baseDimmed = bn.data.dimmed;
                 const dimsOther = aiHighlightedNodes.length > 0 && highlightClass === ''
@@ -830,7 +1078,7 @@ const GraphCanvasInnerImpl = (props: GraphCanvasProps, ref: ForwardedRef<GraphCa
                         return existing;
                     }
                     // Preserva a instância do React Flow, mas injeta o novo data
-                    return { ...existing, data: newData, position: bn.position };
+                    return { ...existing, data: newData };
                 }
                 
                 return { ...bn, data: newData };
@@ -838,7 +1086,7 @@ const GraphCanvasInnerImpl = (props: GraphCanvasProps, ref: ForwardedRef<GraphCa
         });
 
         setEdges((currentEdges) => {
-            return baseEdges.map(be => {
+            return visibleEdges.map(be => {
                 let opacity = 1;
                 if (aiHighlightedNodes.length > 0) {
                     opacity = aiHighlightedNodes.includes(be.source) || aiHighlightedNodes.includes(be.target) ? 1 : 0.4;
@@ -857,7 +1105,20 @@ const GraphCanvasInnerImpl = (props: GraphCanvasProps, ref: ForwardedRef<GraphCa
                 return { ...be, style: { ...(be.style || {}), opacity, ...pathStyle } };
             });
         });
-    }, [baseNodes, baseEdges, selectedNodeKey, aiHighlightedNodes, highlightedUpstream, highlightedDownstream, heatmapEnabled, pathFinderNodeSet, pathFinderEdgeKeys, setNodes, setEdges]);
+      }, [
+        virtualNodes,
+        visibleEdges,
+        selectedNodeKey,
+        aiHighlightedNodes,
+        highlightedUpstream,
+        highlightedDownstream,
+        heatmapEnabled,
+        waveNodeSet,
+        pathFinderNodeSet,
+        pathFinderEdgeKeys,
+        setNodes,
+        setEdges,
+      ]);
     
 // NOTE: Removed auto-fit behavior to preserve user viewport context.
 
@@ -1016,6 +1277,23 @@ const GraphCanvasInnerImpl = (props: GraphCanvasProps, ref: ForwardedRef<GraphCa
 
     return (
         <div className="canvas-area" ref={canvasRef}>
+            {gestureCursor?.active && (
+                <div
+                    style={{
+                        position: 'absolute',
+                        left: `${Math.max(0, Math.min(100, gestureCursor.x * 100))}%`,
+                        top: `${Math.max(0, Math.min(100, gestureCursor.y * 100))}%`,
+                        width: 15,
+                        height: 15,
+                        borderRadius: '50%',
+                        border: '2px solid #22d3ee',
+                        boxShadow: '0 0 18px rgba(34,211,238,0.8)',
+                        transform: 'translate(-50%, -50%)',
+                        pointerEvents: 'none',
+                        zIndex: 10,
+                    }}
+                />
+            )}
             {clusterSummaries.length > 0 && (
             <div className="cluster-overview">
                 <div className="cluster-map" aria-label="Mapa compacto de clusters">
@@ -1117,7 +1395,7 @@ const GraphCanvasInnerImpl = (props: GraphCanvasProps, ref: ForwardedRef<GraphCa
                         setViewportState(instance.getViewport());
                     }}
                     onPaneClick={() => {
-                        props.onCanvasClick?.();
+                        onCanvasClick?.();
                     }}
                 >
                     <Controls />
@@ -1138,6 +1416,9 @@ const GraphCanvasInnerImpl = (props: GraphCanvasProps, ref: ForwardedRef<GraphCa
                     focusNodeKey={selectedNodeKey}
                     focusRequestId={focusRequestId}
                     waveAnimationTrigger={waveAnimationTrigger}
+                    gestureCursor={gestureCursor}
+                    gestureCommand={gestureCommand}
+                    onClearSelection={onCanvasClick}
                 />
             )}
 
@@ -1187,6 +1468,19 @@ const GraphCanvasInnerImpl = (props: GraphCanvasProps, ref: ForwardedRef<GraphCa
                   style={{ boxShadow: '0 4px 12px rgba(0,0,0,0.2)' }}
                 >
                     🔥 Mapa de Risco (Heatmap)
+                </button>
+
+                <PredictiveHeatmap
+                  currentHeatmap={predictiveHeatmapType}
+                  onHeatmapChange={(type) => onPredictiveHeatmapChange?.(type)}
+                />
+                <button
+                  className={`btn ${buildFailuresOnly ? 'btn-accent' : 'btn-secondary'}`}
+                  onClick={() => onToggleBuildFailuresOnly?.()}
+                  style={{ boxShadow: '0 4px 12px rgba(0,0,0,0.2)' }}
+                  title="Mostrar apenas nos com build falho"
+                >
+                    {buildFailuresOnly ? 'Falhas CI/CD ON' : 'Falhas CI/CD OFF'}
                 </button>
 
                 <button
@@ -1247,6 +1541,12 @@ const GraphCanvasInnerImpl = (props: GraphCanvasProps, ref: ForwardedRef<GraphCa
                     >
                         Esconder Módulos
                     </button>
+                )}
+                {syncLatencyMs && syncLatencyMs > 1000 && (
+                    <div className="sync-indicator">
+                        <span>Sincronizando...</span>
+                        <small>{(syncLatencyMs / 1000).toFixed(1)}s de latência</small>
+                    </div>
                 )}
             </div>
 
@@ -1342,3 +1642,4 @@ const GraphCanvas = forwardRef<GraphCanvasHandle, GraphCanvasProps>((props, ref)
 ));
 
 export default GraphCanvas;
+

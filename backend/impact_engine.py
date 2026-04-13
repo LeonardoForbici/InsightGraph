@@ -12,6 +12,8 @@ from collections import deque
 from dataclasses import dataclass, field
 from typing import Literal, Optional
 
+from prediction_engine import PredictionEngine
+
 logger = logging.getLogger("insightgraph")
 
 # ──────────────────────────────────────────────
@@ -32,6 +34,7 @@ class AffectedItem:
     call_chain: list[str]          # ordered from target_key to this item
     requires_manual_review: bool   # True when confidence_score < 40
     resolution_method: ResolutionMethod = "exact_key"
+    predicted_risk: float = 0.0
 
 
 @dataclass
@@ -132,6 +135,36 @@ class ImpactEngine:
         )
 
         return AffectedSet(items=items, analysis_metadata=metadata)
+
+
+class PredictiveImpactEngine(ImpactEngine):
+    """ImpactEngine that appends predicted risk scores to affected items."""
+
+    def __init__(
+        self,
+        neo4j_service,
+        memory_nodes: list[dict],
+        memory_edges: list[dict],
+        prediction_engine: PredictionEngine,
+    ):
+        super().__init__(neo4j_service, memory_nodes, memory_edges)
+        self._prediction_engine = prediction_engine
+
+    def analyze(self, change: ChangeDescriptor) -> AffectedSet:
+        affected_set = super().analyze(change)
+        self._attach_predictions(affected_set, change)
+        return affected_set
+
+    def _attach_predictions(self, affected_set: AffectedSet, change: ChangeDescriptor) -> None:
+        for item in affected_set.items:
+            try:
+                item.predicted_risk = self._prediction_engine.predict_risk_score(
+                    item.namespace_key,
+                    change.change_type,
+                    {"target_key": change.target_key},
+                )
+            except Exception as exc:
+                logger.debug("Failed to annotate %s with prediction: %s", item.namespace_key, exc)
 
     # ──────────────────────────────────────────────
     # BFS

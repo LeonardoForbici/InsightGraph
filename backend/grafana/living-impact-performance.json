@@ -1,0 +1,71 @@
+﻿{
+  "dashboard": {
+    "id": null,
+    "uid": "living-impact-performance",
+    "title": "Living Impact Performance",
+    "schemaVersion": 36,
+    "version": 1,
+    "panels": [
+      {
+        "id": 1,
+        "type": "stat",
+        "title": "Active WebSocket Connections",
+        "datasource": "Prometheus",
+        "gridPos": { "x": 0, "y": 0, "w": 12, "h": 4 },
+        "targets": [
+          {
+            "expr": "ig_websocket_connections",
+            "legendFormat": "connections",
+            "refId": "A"
+          }
+        ],
+        "options": {
+          "reduceOptions": { "values": false, "calcs": ["last"] }
+        }
+      },
+      {
+        "id": 2,
+        "type": "timeseries",
+        "title": "HTTP Request Rate",
+        "datasource": "Prometheus",
+        "gridPos": { "x": 12, "y": 0, "w": 12, "h": 4 },
+        "targets": [
+          {
+            "expr": "rate(ig_http_requests_total[1m])",
+            "legendFormat": "{method} {path}",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 3,
+        "type": "timeseries",
+        "title": "Impact Batch Size",
+        "datasource": "Prometheus",
+        "gridPos": { "x": 0, "y": 4, "w": 12, "h": 4 },
+        "targets": [
+          {
+            "expr": "avg_over_time(ig_event_batch_size[5m])",
+            "legendFormat": "batch size (avg)",
+            "refId": "A"
+          }
+        ]
+      },
+      {
+        "id": 4,
+        "type": "timeseries",
+        "title": "Propagation Latency",
+        "datasource": "Prometheus",
+        "gridPos": { "x": 12, "y": 4, "w": 12, "h": 4 },
+        "targets": [
+          {
+            "expr": "histogram_quantile(0.95, sum(rate(ig_event_propagation_latency_seconds_bucket[5m])) by (le, event_type))",
+            "legendFormat": "p95 {event_type}",
+            "refId": "A"
+          }
+        ]
+      }
+    ]
+  },
+  "overwrite": true
+}

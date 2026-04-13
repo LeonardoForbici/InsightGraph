@@ -132,12 +132,43 @@ class LocalStateStore:
                         dead_code INTEGER,
                         call_resolution_rate REAL,
                         metrics_json TEXT,
-                        created_at REAL
+                        created_at REAL,
+                        commit_hash TEXT,
+                        branch TEXT,
+                        author TEXT,
+                        commit_message TEXT
                     )
                     """
                 )
                 conn.execute(
                     "CREATE INDEX IF NOT EXISTS idx_snapshots_timestamp ON analysis_snapshots(timestamp)"
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_snapshots_commit ON analysis_snapshots(commit_hash)"
+                )
+                # Stores the node-level state at each snapshot for graph diffing
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS snapshot_nodes (
+                        snapshot_id TEXT NOT NULL,
+                        namespace_key TEXT NOT NULL,
+                        name TEXT,
+                        node_type TEXT,
+                        file TEXT,
+                        layer TEXT,
+                        complexity INTEGER,
+                        coupling INTEGER,
+                        extra_json TEXT,
+                        PRIMARY KEY (snapshot_id, namespace_key),
+                        FOREIGN KEY (snapshot_id) REFERENCES analysis_snapshots(id)
+                    )
+                    """
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_snap_nodes_snapshot ON snapshot_nodes(snapshot_id)"
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_snap_nodes_key ON snapshot_nodes(namespace_key)"
                 )
                 conn.execute(
                     """
@@ -235,6 +266,192 @@ class LocalStateStore:
                 )
                 conn.execute(
                     "CREATE INDEX IF NOT EXISTS idx_report_history_created ON report_history(created_at)"
+                )
+                # Fase 3 — Alert system: custom rules + fired alert history
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS alert_rules (
+                        id TEXT PRIMARY KEY,
+                        name TEXT NOT NULL,
+                        description TEXT,
+                        metric TEXT NOT NULL,
+                        condition TEXT NOT NULL,
+                        threshold REAL NOT NULL,
+                        severity TEXT NOT NULL DEFAULT 'medium',
+                        channel TEXT NOT NULL DEFAULT 'ui',
+                        enabled INTEGER NOT NULL DEFAULT 1,
+                        message_template TEXT,
+                        created_at REAL NOT NULL,
+                        updated_at REAL NOT NULL
+                    )
+                    """
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_alert_rules_enabled ON alert_rules(enabled)"
+                )
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS fired_alerts (
+                        id TEXT PRIMARY KEY,
+                        rule_id TEXT NOT NULL,
+                        rule_name TEXT,
+                        severity TEXT NOT NULL,
+                        message TEXT NOT NULL,
+                        metric TEXT,
+                        value_before REAL,
+                        value_after REAL,
+                        delta REAL,
+                        snapshot_id TEXT,
+                        commit_hash TEXT,
+                        branch TEXT,
+                        channels_notified TEXT,
+                        fired_at REAL NOT NULL
+                    )
+                    """
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_fired_alerts_fired_at ON fired_alerts(fired_at)"
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_fired_alerts_severity ON fired_alerts(severity)"
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_fired_alerts_rule ON fired_alerts(rule_id)"
+                )
+                # Fase 2 - CI/CD build status tracking
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS cicd_builds (
+                        id TEXT PRIMARY KEY,
+                        provider TEXT NOT NULL,
+                        status TEXT NOT NULL,
+                        commit_hash TEXT NOT NULL,
+                        branch TEXT,
+                        build_id TEXT,
+                        pipeline_id TEXT,
+                        author TEXT,
+                        coverage REAL,
+                        duration_seconds REAL,
+                        web_url TEXT,
+                        stack_trace TEXT,
+                        failed_files_json TEXT,
+                        raw_payload_json TEXT,
+                        created_at REAL NOT NULL
+                    )
+                    """
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_cicd_builds_commit ON cicd_builds(commit_hash)"
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_cicd_builds_status ON cicd_builds(status)"
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_cicd_builds_created ON cicd_builds(created_at)"
+                )
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS cicd_build_nodes (
+                        build_id TEXT NOT NULL,
+                        node_key TEXT NOT NULL,
+                        PRIMARY KEY (build_id, node_key),
+                        FOREIGN KEY(build_id) REFERENCES cicd_builds(id)
+                    )
+                    """
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_cicd_build_nodes_node ON cicd_build_nodes(node_key)"
+                )
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS collaboration_sessions (
+                        session_id TEXT PRIMARY KEY,
+                        created_by TEXT NOT NULL,
+                        created_at REAL NOT NULL,
+                        active_node TEXT,
+                        participants_json TEXT NOT NULL,
+                        is_active INTEGER DEFAULT 1
+                    )
+                    """
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_collab_sessions_active ON collaboration_sessions(is_active)"
+                )
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS collaboration_annotations (
+                        id TEXT PRIMARY KEY,
+                        session_id TEXT NOT NULL,
+                        node_key TEXT NOT NULL,
+                        text TEXT NOT NULL,
+                        user_id TEXT NOT NULL,
+                        visibility TEXT NOT NULL DEFAULT 'public',
+                        created_at REAL NOT NULL
+                    )
+                    """
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_collab_annotations_node ON collaboration_annotations(node_key)"
+                )
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS collaboration_chat_messages (
+                        id TEXT PRIMARY KEY,
+                        session_id TEXT NOT NULL,
+                        user_id TEXT NOT NULL,
+                        text TEXT NOT NULL,
+                        context_json TEXT,
+                        created_at REAL NOT NULL
+                    )
+                    """
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_collab_chat_session ON collaboration_chat_messages(session_id, created_at)"
+                )
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS collaboration_session_events (
+                        id TEXT PRIMARY KEY,
+                        session_id TEXT NOT NULL,
+                        event_type TEXT NOT NULL,
+                        payload_json TEXT NOT NULL,
+                        created_at REAL NOT NULL
+                    )
+                    """
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_collab_events_session ON collaboration_session_events(session_id, created_at)"
+                )
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS config_versions (
+                        id TEXT PRIMARY KEY,
+                        format TEXT NOT NULL,
+                        content TEXT NOT NULL,
+                        created_by TEXT,
+                        source TEXT,
+                        created_at REAL NOT NULL
+                    )
+                    """
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_config_versions_created ON config_versions(created_at)"
+                )
+                # Fase 4 — Weekly digest history
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS weekly_digests (
+                        id TEXT PRIMARY KEY,
+                        week_start TEXT NOT NULL,
+                        week_end TEXT NOT NULL,
+                        summary_json TEXT NOT NULL,
+                        narrative TEXT,
+                        generated_at REAL NOT NULL
+                    )
+                    """
+                )
+                conn.execute(
+                    "CREATE INDEX IF NOT EXISTS idx_digests_week ON weekly_digests(week_start)"
                 )
                 conn.commit()
             self._initialized = True
@@ -743,8 +960,9 @@ class LocalStateStore:
                 INSERT INTO analysis_snapshots(
                     id, timestamp, total_nodes, total_edges,
                     god_classes, circular_deps, dead_code,
-                    call_resolution_rate, metrics_json, created_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    call_resolution_rate, metrics_json, created_at,
+                    commit_hash, branch, author, commit_message
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 """,
                 (
                     snapshot["id"],
@@ -757,10 +975,439 @@ class LocalStateStore:
                     snapshot.get("call_resolution_rate"),
                     json.dumps(snapshot.get("metrics", {}), ensure_ascii=False),
                     now,
+                    snapshot.get("commit_hash"),
+                    snapshot.get("branch"),
+                    snapshot.get("author"),
+                    snapshot.get("commit_message"),
                 ),
             )
             conn.commit()
         return self.get_snapshot_by_id(snapshot["id"]) or snapshot
+
+    def get_snapshot_by_commit(self, commit_hash: str) -> dict | None:
+        """Return the most recent snapshot taken at a specific commit, or None."""
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM analysis_snapshots WHERE commit_hash = ? ORDER BY timestamp DESC LIMIT 1",
+                (commit_hash,),
+            ).fetchone()
+        return self._decode_snapshot_row(row) if row else None
+
+    def save_snapshot_nodes(self, snapshot_id: str, nodes: list[dict]) -> None:
+        """Persist the node-level state for a snapshot (enables graph diffing)."""
+        with self._connect() as conn:
+            for node in nodes:
+                ns_key = node.get("namespace_key")
+                if not ns_key:
+                    continue
+                extra = {k: v for k, v in node.items()
+                         if k not in {"namespace_key", "name", "type", "file", "layer", "complexity", "coupling"}}
+                conn.execute(
+                    """
+                    INSERT OR REPLACE INTO snapshot_nodes(
+                        snapshot_id, namespace_key, name, node_type,
+                        file, layer, complexity, coupling, extra_json
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        snapshot_id,
+                        ns_key,
+                        node.get("name"),
+                        node.get("type") or node.get("labels", [""])[0] if node.get("labels") else node.get("type"),
+                        node.get("file"),
+                        node.get("layer"),
+                        node.get("complexity"),
+                        node.get("coupling"),
+                        json.dumps(extra, ensure_ascii=False, default=str),
+                    ),
+                )
+            conn.commit()
+
+    def get_snapshot_nodes(self, snapshot_id: str) -> list[dict]:
+        """Return all nodes stored for a snapshot."""
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM snapshot_nodes WHERE snapshot_id = ?",
+                (snapshot_id,),
+            ).fetchall()
+        return [self._decode_snapshot_node_row(r) for r in rows]
+
+    def diff_snapshot_nodes(self, from_id: str, to_id: str) -> dict:
+        """
+        Compare two snapshots at node level.
+        Returns: added, removed, modified (node keys with changes), unchanged counts.
+        """
+        from_nodes = {n["namespace_key"]: n for n in self.get_snapshot_nodes(from_id)}
+        to_nodes = {n["namespace_key"]: n for n in self.get_snapshot_nodes(to_id)}
+
+        from_keys = set(from_nodes)
+        to_keys = set(to_nodes)
+
+        added_keys = to_keys - from_keys
+        removed_keys = from_keys - to_keys
+        common_keys = from_keys & to_keys
+
+        modified = []
+        unchanged = 0
+        for key in common_keys:
+            old = from_nodes[key]
+            new = to_nodes[key]
+            changes = {}
+            for field in ("complexity", "coupling", "file", "layer"):
+                if old.get(field) != new.get(field):
+                    changes[field] = {"before": old.get(field), "after": new.get(field)}
+            if changes:
+                modified.append({"namespace_key": key, "name": new.get("name"), "changes": changes})
+            else:
+                unchanged += 1
+
+        return {
+            "added": [to_nodes[k] for k in added_keys],
+            "removed": [from_nodes[k] for k in removed_keys],
+            "modified": modified,
+            "unchanged": unchanged,
+            "summary": {
+                "added_count": len(added_keys),
+                "removed_count": len(removed_keys),
+                "modified_count": len(modified),
+                "unchanged_count": unchanged,
+            },
+        }
+
+    def _decode_snapshot_node_row(self, row: sqlite3.Row) -> dict:
+        extra = {}
+        try:
+            extra = json.loads(row["extra_json"] or "{}")
+        except Exception:
+            pass
+        return {
+            "namespace_key": row["namespace_key"],
+            "name": row["name"],
+            "type": row["node_type"],
+            "file": row["file"],
+            "layer": row["layer"],
+            "complexity": row["complexity"],
+            "coupling": row["coupling"],
+            **extra,
+        }
+
+    # ──────────────────────────────────────────────
+    # Fase 3 — Alert rules & fired alerts
+    # ──────────────────────────────────────────────
+
+    def upsert_alert_rule(self, rule: dict) -> None:
+        """Create or update a custom alert rule."""
+        now = self._now()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO alert_rules(
+                    id, name, description, metric, condition, threshold,
+                    severity, channel, enabled, message_template, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    name = excluded.name,
+                    description = excluded.description,
+                    metric = excluded.metric,
+                    condition = excluded.condition,
+                    threshold = excluded.threshold,
+                    severity = excluded.severity,
+                    channel = excluded.channel,
+                    enabled = excluded.enabled,
+                    message_template = excluded.message_template,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    rule["id"],
+                    rule.get("name", rule["id"]),
+                    rule.get("description"),
+                    rule["metric"],
+                    rule["condition"],
+                    float(rule.get("threshold", 0)),
+                    rule.get("severity", "medium"),
+                    rule.get("channel", "ui"),
+                    1 if rule.get("enabled", True) else 0,
+                    rule.get("message_template"),
+                    now,
+                    now,
+                ),
+            )
+            conn.commit()
+
+    def list_alert_rules(self) -> list[dict]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM alert_rules ORDER BY created_at DESC"
+            ).fetchall()
+        return [self._decode_alert_rule_row(r) for r in rows]
+
+    def delete_alert_rule(self, rule_id: str) -> bool:
+        with self._connect() as conn:
+            cur = conn.execute("DELETE FROM alert_rules WHERE id = ?", (rule_id,))
+            conn.commit()
+        return cur.rowcount > 0
+
+    def save_fired_alert(self, alert: dict) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO fired_alerts(
+                    id, rule_id, rule_name, severity, message, metric,
+                    value_before, value_after, delta, snapshot_id,
+                    commit_hash, branch, channels_notified, fired_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    alert["id"],
+                    alert["rule_id"],
+                    alert.get("rule_name"),
+                    alert["severity"],
+                    alert["message"],
+                    alert.get("metric"),
+                    alert.get("value_before"),
+                    alert.get("value_after"),
+                    alert.get("delta"),
+                    alert.get("snapshot_id"),
+                    alert.get("commit_hash"),
+                    alert.get("branch"),
+                    json.dumps(alert.get("channels_notified", []), ensure_ascii=False),
+                    alert.get("fired_at", self._now()),
+                ),
+            )
+            conn.commit()
+
+    def get_alert_history(self, page: int = 1, limit: int = 50) -> dict:
+        offset = (max(page, 1) - 1) * limit
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM fired_alerts ORDER BY fired_at DESC LIMIT ? OFFSET ?",
+                (limit, offset),
+            ).fetchall()
+            total = conn.execute("SELECT COUNT(*) AS cnt FROM fired_alerts").fetchone()["cnt"]
+        return {
+            "items": [self._decode_fired_alert_row(r) for r in rows],
+            "total": total,
+            "page": page,
+            "limit": limit,
+        }
+
+    def _decode_alert_rule_row(self, row: sqlite3.Row) -> dict:
+        return {
+            "id": row["id"],
+            "name": row["name"],
+            "description": row["description"],
+            "metric": row["metric"],
+            "condition": row["condition"],
+            "threshold": row["threshold"],
+            "severity": row["severity"],
+            "channel": row["channel"],
+            "enabled": bool(row["enabled"]),
+            "message_template": row["message_template"],
+            "created_at": row["created_at"],
+            "updated_at": row["updated_at"],
+        }
+
+    def _decode_fired_alert_row(self, row: sqlite3.Row) -> dict:
+        channels = []
+        try:
+            channels = json.loads(row["channels_notified"] or "[]")
+        except Exception:
+            pass
+        return {
+            "id": row["id"],
+            "rule_id": row["rule_id"],
+            "rule_name": row["rule_name"],
+            "severity": row["severity"],
+            "message": row["message"],
+            "metric": row["metric"],
+            "value_before": row["value_before"],
+            "value_after": row["value_after"],
+            "delta": row["delta"],
+            "snapshot_id": row["snapshot_id"],
+            "commit_hash": row["commit_hash"],
+            "branch": row["branch"],
+            "channels_notified": channels,
+            "fired_at": row["fired_at"],
+        }
+
+    # ──────────────────────────────────────────────
+    # Fase 4 — Weekly digest
+    # ──────────────────────────────────────────────
+
+    # CI/CD - Build status tracking
+
+    def save_cicd_build(self, build: dict) -> dict:
+        build_id = build.get("id") or str(uuid.uuid4())
+        created_at = float(build.get("created_at") or self._now())
+        failed_files = build.get("failed_files") or []
+        failed_nodes = build.get("failed_nodes") or []
+
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO cicd_builds(
+                    id, provider, status, commit_hash, branch, build_id, pipeline_id, author,
+                    coverage, duration_seconds, web_url, stack_trace, failed_files_json,
+                    raw_payload_json, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    build_id,
+                    build["provider"],
+                    build["status"],
+                    build["commit_hash"],
+                    build.get("branch"),
+                    build.get("build_id"),
+                    build.get("pipeline_id"),
+                    build.get("author"),
+                    build.get("coverage"),
+                    build.get("duration_seconds"),
+                    build.get("web_url"),
+                    build.get("stack_trace"),
+                    json.dumps(failed_files, ensure_ascii=False),
+                    json.dumps(build.get("raw_payload") or {}, ensure_ascii=False),
+                    created_at,
+                ),
+            )
+
+            conn.execute("DELETE FROM cicd_build_nodes WHERE build_id = ?", (build_id,))
+            for node_key in failed_nodes:
+                conn.execute(
+                    "INSERT OR REPLACE INTO cicd_build_nodes(build_id, node_key) VALUES (?, ?)",
+                    (build_id, node_key),
+                )
+            conn.commit()
+
+        return self.get_cicd_build_by_id(build_id) or {"id": build_id}
+
+    def get_cicd_build_by_id(self, build_id: str) -> dict | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM cicd_builds WHERE id = ?",
+                (build_id,),
+            ).fetchone()
+        if not row:
+            return None
+        return self._decode_cicd_build_row(row)
+
+    def get_cicd_status(self, commit_hash: str) -> dict:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM cicd_builds WHERE commit_hash = ? ORDER BY created_at DESC",
+                (commit_hash,),
+            ).fetchall()
+        items = [self._decode_cicd_build_row(r) for r in rows]
+        latest = items[0] if items else None
+        return {
+            "commit_hash": commit_hash,
+            "latest": latest,
+            "history": items,
+            "total": len(items),
+        }
+
+    def list_cicd_builds(self, limit: int = 50) -> list[dict]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM cicd_builds ORDER BY created_at DESC LIMIT ?",
+                (max(1, min(limit, 500)),),
+            ).fetchall()
+        return [self._decode_cicd_build_row(r) for r in rows]
+
+    def list_failed_nodes_latest(self) -> dict[str, dict]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT n.node_key, b.id, b.status, b.commit_hash, b.stack_trace, b.created_at
+                FROM cicd_build_nodes n
+                JOIN cicd_builds b ON b.id = n.build_id
+                ORDER BY b.created_at DESC
+                """
+            ).fetchall()
+
+        latest_by_node: dict[str, dict] = {}
+        for row in rows:
+            node_key = row["node_key"]
+            if node_key in latest_by_node:
+                continue
+            latest_by_node[node_key] = {
+                "build_record_id": row["id"],
+                "status": row["status"],
+                "commit_hash": row["commit_hash"],
+                "stack_trace": row["stack_trace"],
+                "created_at": row["created_at"],
+            }
+        return latest_by_node
+
+    def _decode_cicd_build_row(self, row: sqlite3.Row) -> dict:
+        failed_files: list[str] = []
+        raw_payload: dict[str, Any] = {}
+        try:
+            failed_files = json.loads(row["failed_files_json"] or "[]")
+        except Exception:
+            pass
+        try:
+            raw_payload = json.loads(row["raw_payload_json"] or "{}")
+        except Exception:
+            pass
+        return {
+            "id": row["id"],
+            "provider": row["provider"],
+            "status": row["status"],
+            "commit_hash": row["commit_hash"],
+            "branch": row["branch"],
+            "build_id": row["build_id"],
+            "pipeline_id": row["pipeline_id"],
+            "author": row["author"],
+            "coverage": row["coverage"],
+            "duration_seconds": row["duration_seconds"],
+            "web_url": row["web_url"],
+            "stack_trace": row["stack_trace"],
+            "failed_files": failed_files,
+            "raw_payload": raw_payload,
+            "created_at": row["created_at"],
+        }
+
+    def save_weekly_digest(self, digest: dict) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO weekly_digests(
+                    id, week_start, week_end, summary_json, narrative, generated_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    digest["id"],
+                    digest["week_start"],
+                    digest["week_end"],
+                    json.dumps(digest.get("summary", {}), ensure_ascii=False, default=str),
+                    digest.get("narrative"),
+                    digest.get("generated_at", self._now()),
+                ),
+            )
+            conn.commit()
+
+    def list_weekly_digests(self, limit: int = 12) -> list[dict]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM weekly_digests ORDER BY week_start DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+        return [self._decode_digest_row(r) for r in rows]
+
+    def _decode_digest_row(self, row: sqlite3.Row) -> dict:
+        summary = {}
+        try:
+            summary = json.loads(row["summary_json"] or "{}")
+        except Exception:
+            pass
+        return {
+            "id": row["id"],
+            "week_start": row["week_start"],
+            "week_end": row["week_end"],
+            "summary": summary,
+            "narrative": row["narrative"],
+            "generated_at": row["generated_at"],
+        }
 
     def get_snapshots(self, page: int = 1, limit: int = 20) -> list[dict]:
         """Return paginated snapshots ordered by timestamp descending."""
@@ -811,6 +1458,7 @@ class LocalStateStore:
         return cur.rowcount
 
     def _decode_snapshot_row(self, row: sqlite3.Row) -> dict:
+        keys = row.keys()
         return {
             "id": row["id"],
             "timestamp": row["timestamp"],
@@ -822,6 +1470,10 @@ class LocalStateStore:
             "call_resolution_rate": row["call_resolution_rate"],
             "metrics": json.loads(row["metrics_json"] or "{}"),
             "created_at": row["created_at"],
+            "commit_hash": row["commit_hash"] if "commit_hash" in keys else None,
+            "branch": row["branch"] if "branch" in keys else None,
+            "author": row["author"] if "author" in keys else None,
+            "commit_message": row["commit_message"] if "commit_message" in keys else None,
         }
 
     # ──────────────────────────────────────────────
@@ -1215,5 +1867,279 @@ class LocalStateStore:
             "file_path": row["file_path"],
             "file_size": row["file_size"],
             "project": row["project"],
+            "created_at": row["created_at"],
+        }
+
+    # Collaboration manager persistence
+    def create_collab_session(self, payload: dict[str, Any]) -> dict[str, Any]:
+        participants_json = json.dumps(payload.get("participants") or [], ensure_ascii=False)
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO collaboration_sessions(
+                    session_id, created_by, created_at, active_node, participants_json, is_active
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    payload["session_id"],
+                    payload.get("created_by"),
+                    float(payload.get("created_at", self._now())),
+                    payload.get("active_node"),
+                    participants_json,
+                    1 if payload.get("is_active", True) else 0,
+                ),
+            )
+            conn.commit()
+        return self.get_collab_session(payload["session_id"]) or payload
+
+    def get_collab_session(self, session_id: str) -> dict[str, Any] | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM collaboration_sessions WHERE session_id = ?",
+                (session_id,),
+            ).fetchone()
+        if not row:
+            return None
+        return self._decode_collab_session_row(row)
+
+    def list_collab_sessions(self, active_only: bool = True) -> list[dict[str, Any]]:
+        query = "SELECT * FROM collaboration_sessions"
+        params: tuple[Any, ...] = ()
+        if active_only:
+            query += " WHERE is_active = 1"
+        query += " ORDER BY created_at DESC"
+        with self._connect() as conn:
+            rows = conn.execute(query, params).fetchall()
+        return [self._decode_collab_session_row(r) for r in rows]
+
+    def update_collab_participants(self, session_id: str, participants: list[dict[str, Any]]) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE collaboration_sessions SET participants_json = ? WHERE session_id = ?",
+                (json.dumps(participants, ensure_ascii=False), session_id),
+            )
+            conn.commit()
+
+    def update_collab_active_node(self, session_id: str, node_key: str) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE collaboration_sessions SET active_node = ? WHERE session_id = ?",
+                (node_key, session_id),
+            )
+            conn.commit()
+
+    def close_collab_session(self, session_id: str) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE collaboration_sessions SET is_active = 0 WHERE session_id = ?",
+                (session_id,),
+            )
+            conn.commit()
+
+    def create_collab_annotation(self, payload: dict[str, Any]) -> dict[str, Any]:
+        annotation_id = str(uuid.uuid4())
+        created_at = self._now()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO collaboration_annotations(
+                    id, session_id, node_key, text, user_id, visibility, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    annotation_id,
+                    payload["session_id"],
+                    payload["node_key"],
+                    payload["text"],
+                    payload["user_id"],
+                    payload.get("visibility", "public"),
+                    created_at,
+                ),
+            )
+            conn.commit()
+        return {
+            "id": annotation_id,
+            "session_id": payload["session_id"],
+            "node_key": payload["node_key"],
+            "text": payload["text"],
+            "user_id": payload["user_id"],
+            "visibility": payload.get("visibility", "public"),
+            "created_at": created_at,
+        }
+
+    def list_collab_annotations(self, node_key: str, user_id: str | None = None) -> list[dict[str, Any]]:
+        query = "SELECT * FROM collaboration_annotations WHERE node_key = ?"
+        params: list[Any] = [node_key]
+        if user_id:
+            query += " AND (visibility = 'public' OR user_id = ?)"
+            params.append(user_id)
+        query += " ORDER BY created_at DESC"
+        with self._connect() as conn:
+            rows = conn.execute(query, tuple(params)).fetchall()
+        return [self._decode_collab_annotation_row(r) for r in rows]
+
+    def save_chat_message(self, payload: dict[str, Any]) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT OR REPLACE INTO collaboration_chat_messages(
+                    id, session_id, user_id, text, context_json, created_at
+                ) VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    payload["id"],
+                    payload["session_id"],
+                    payload["user_id"],
+                    payload["text"],
+                    json.dumps(payload.get("context") or {}, ensure_ascii=False),
+                    float(payload.get("created_at", self._now())),
+                ),
+            )
+            conn.commit()
+
+    def list_chat_messages(self, session_id: str, limit: int = 200) -> list[dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM collaboration_chat_messages
+                WHERE session_id = ?
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (session_id, int(limit)),
+            ).fetchall()
+        return [self._decode_chat_message_row(r) for r in rows]
+
+    def save_session_event(self, session_id: str, event_type: str, payload: dict[str, Any]) -> dict[str, Any]:
+        event_id = str(uuid.uuid4())
+        created_at = self._now()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO collaboration_session_events(id, session_id, event_type, payload_json, created_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (event_id, session_id, event_type, json.dumps(payload, ensure_ascii=False), created_at),
+            )
+            conn.commit()
+        return {
+            "id": event_id,
+            "session_id": session_id,
+            "event_type": event_type,
+            "payload": payload,
+            "created_at": created_at,
+        }
+
+    def list_session_events(self, session_id: str, limit: int = 1000) -> list[dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT * FROM collaboration_session_events
+                WHERE session_id = ?
+                ORDER BY created_at ASC
+                LIMIT ?
+                """,
+                (session_id, int(limit)),
+            ).fetchall()
+        return [self._decode_collab_event_row(r) for r in rows]
+
+    def save_config_version(
+        self,
+        content: str,
+        fmt: str = "yaml",
+        created_by: str | None = None,
+        source: str | None = None,
+    ) -> dict[str, Any]:
+        config_id = str(uuid.uuid4())
+        created_at = self._now()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO config_versions(id, format, content, created_by, source, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (config_id, fmt, content, created_by, source, created_at),
+            )
+            conn.commit()
+        return self.get_config_version(config_id) or {"id": config_id}
+
+    def get_latest_config_version(self) -> dict[str, Any] | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM config_versions ORDER BY created_at DESC LIMIT 1"
+            ).fetchone()
+        if not row:
+            return None
+        return self._decode_config_row(row)
+
+    def get_config_version(self, config_id: str) -> dict[str, Any] | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM config_versions WHERE id = ?",
+                (config_id,),
+            ).fetchone()
+        if not row:
+            return None
+        return self._decode_config_row(row)
+
+    def _decode_collab_session_row(self, row: sqlite3.Row) -> dict[str, Any]:
+        try:
+            participants = json.loads(row["participants_json"] or "[]")
+        except Exception:
+            participants = []
+        return {
+            "session_id": row["session_id"],
+            "created_by": row["created_by"],
+            "created_at": row["created_at"],
+            "active_node": row["active_node"],
+            "participants": participants,
+            "is_active": bool(row["is_active"]),
+        }
+
+    def _decode_collab_annotation_row(self, row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "id": row["id"],
+            "session_id": row["session_id"],
+            "node_key": row["node_key"],
+            "text": row["text"],
+            "user_id": row["user_id"],
+            "visibility": row["visibility"],
+            "created_at": row["created_at"],
+        }
+
+    def _decode_chat_message_row(self, row: sqlite3.Row) -> dict[str, Any]:
+        try:
+            context = json.loads(row["context_json"] or "{}")
+        except Exception:
+            context = {}
+        return {
+            "id": row["id"],
+            "session_id": row["session_id"],
+            "user_id": row["user_id"],
+            "text": row["text"],
+            "context": context,
+            "created_at": row["created_at"],
+        }
+
+    def _decode_collab_event_row(self, row: sqlite3.Row) -> dict[str, Any]:
+        try:
+            payload = json.loads(row["payload_json"] or "{}")
+        except Exception:
+            payload = {}
+        return {
+            "id": row["id"],
+            "session_id": row["session_id"],
+            "event_type": row["event_type"],
+            "payload": payload,
+            "created_at": row["created_at"],
+        }
+
+    def _decode_config_row(self, row: sqlite3.Row) -> dict[str, Any]:
+        return {
+            "id": row["id"],
+            "format": row["format"],
+            "content": row["content"],
+            "created_by": row["created_by"],
+            "source": row["source"],
             "created_at": row["created_at"],
         }

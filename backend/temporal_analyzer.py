@@ -1,11 +1,15 @@
 """
 TemporalAnalyzer — captures and queries analysis snapshots stored in SQLite.
+
+Fase 1 — Temporal Graph:
+  capture_snapshot() now accepts git metadata (commit_hash, branch, author, commit_message)
+  and stores per-node state for full graph diffing between any two commits.
 """
 
 import time
 import uuid
 import logging
-from typing import Literal
+from typing import Literal, Optional
 
 from state_store import LocalStateStore
 
@@ -36,8 +40,21 @@ class TemporalAnalyzer:
     # Public API
     # ──────────────────────────────────────────────
 
-    async def capture_snapshot(self, graph_stats: dict) -> dict:
-        """Persist a new snapshot derived from *graph_stats* and enforce the limit."""
+    async def capture_snapshot(
+        self,
+        graph_stats: dict,
+        git_info: Optional[dict] = None,
+        node_snapshot: Optional[list[dict]] = None,
+    ) -> dict:
+        """
+        Persist a new snapshot derived from *graph_stats* and enforce the limit.
+
+        Args:
+            graph_stats: Metrics dict (total_nodes, total_edges, god_classes, etc.)
+            git_info: Optional dict with keys: commit_hash, branch, author, commit_message
+            node_snapshot: Optional list of node dicts for graph-level diffing.
+                           Each node must have at least 'namespace_key'.
+        """
         snapshot = {
             "id": str(uuid.uuid4()),
             "timestamp": time.time(),
@@ -49,8 +66,24 @@ class TemporalAnalyzer:
             "call_resolution_rate": float(graph_stats.get("call_resolution_rate", 0.0) or 0.0),
             "metrics": graph_stats.get("metrics", {}),
         }
+        if git_info:
+            snapshot["commit_hash"] = git_info.get("commit_hash")
+            snapshot["branch"] = git_info.get("branch")
+            snapshot["author"] = git_info.get("author")
+            snapshot["commit_message"] = git_info.get("commit_message")
         try:
             saved = self._store.save_snapshot(snapshot)
+            if node_snapshot:
+                try:
+                    self._store.save_snapshot_nodes(saved["id"], node_snapshot)
+                    logger.info(
+                        "Saved %d node states for snapshot %s (commit=%s)",
+                        len(node_snapshot),
+                        saved["id"],
+                        snapshot.get("commit_hash", "—"),
+                    )
+                except Exception as node_exc:
+                    logger.warning("Failed to save snapshot nodes: %s", node_exc)
             self._enforce_limit()
             return saved
         except Exception as exc:
@@ -95,6 +128,40 @@ class TemporalAnalyzer:
             "to_snapshot": snap_to,
             **deltas,
             "metrics_trend": trends,
+        }
+
+    def get_by_commit(self, commit_hash: str) -> dict | None:
+        """Return the most recent snapshot for a specific commit hash."""
+        return self._store.get_snapshot_by_commit(commit_hash)
+
+    def diff_commits(self, from_commit: str, to_commit: str) -> dict:
+        """
+        Compare two commits at metrics AND node level.
+
+        Returns a combined diff: metric deltas + node-level added/removed/modified.
+        Raises ValueError if either commit has no snapshot.
+        """
+        snap_from = self._store.get_snapshot_by_commit(from_commit)
+        snap_to = self._store.get_snapshot_by_commit(to_commit)
+
+        if snap_from is None:
+            raise ValueError(f"No snapshot found for commit: {from_commit}")
+        if snap_to is None:
+            raise ValueError(f"No snapshot found for commit: {to_commit}")
+
+        # Metric-level diff
+        metric_diff = self.get_diff(snap_from["id"], snap_to["id"])
+
+        # Node-level diff
+        node_diff = self._store.diff_snapshot_nodes(snap_from["id"], snap_to["id"])
+
+        return {
+            "from_commit": from_commit,
+            "to_commit": to_commit,
+            "from_snapshot": snap_from,
+            "to_snapshot": snap_to,
+            "metrics_diff": metric_diff,
+            "graph_diff": node_diff,
         }
 
     def get_trend(self, metric: str, window: int = 10) -> dict:

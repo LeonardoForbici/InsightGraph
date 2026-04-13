@@ -1,0 +1,27 @@
+{
+  "title": "InsightGraph - Prediction Engine",
+  "schemaVersion": 39,
+  "version": 1,
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Prediction Requests / min",
+      "targets": [
+        {
+          "expr": "sum(rate(ig_prediction_requests_total[1m]))"
+        }
+      ],
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 8 }
+    },
+    {
+      "type": "stat",
+      "title": "Total Prediction Requests",
+      "targets": [
+        {
+          "expr": "sum(ig_prediction_requests_total)"
+        }
+      ],
+      "gridPos": { "x": 0, "y": 8, "w": 8, "h": 6 }
+    }
+  ]
+}

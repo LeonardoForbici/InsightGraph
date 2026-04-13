@@ -143,11 +143,6 @@ const AIQueryEngine: React.FC<AIQueryEngineProps> = ({
     }
   };
 
-  const formatTimestamp = (timestamp: number): string => {
-    const date = new Date(timestamp);
-    return date.toLocaleTimeString();
-  };
-
   return (
     <div className="ai-query-engine">
       <div className="ai-header">

@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
+import { fetchCicdStatus, fetchGraphActivityHeatmap } from '../api';
 
 interface GitCommit {
   hash: string;
@@ -46,6 +47,15 @@ const Timeline4D: React.FC<Timeline4DProps> = ({ onCommitSelected, onReturnToPre
   const [selectedIndex, setSelectedIndex] = useState<number>(-1);
   const [isLoading, setIsLoading] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
+  const [cicdStatus, setCicdStatus] = useState<any | null>(null);
+  const [replaySpeed, setReplaySpeed] = useState<number>(1);
+  const [isReplaying, setIsReplaying] = useState(false);
+  const [compareIndex, setCompareIndex] = useState<number | null>(null);
+  const [heatmapAuthor, setHeatmapAuthor] = useState('');
+  const [heatmapType, setHeatmapType] = useState('');
+  const [heatmapArea, setHeatmapArea] = useState('');
+  const [activityHotspots, setActivityHotspots] = useState<any[]>([]);
+  const axisRef = useRef<HTMLCanvasElement | null>(null);
 
   // Load commit history on mount
   useEffect(() => {
@@ -78,6 +88,56 @@ const Timeline4D: React.FC<Timeline4DProps> = ({ onCommitSelected, onReturnToPre
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [selectedIndex, commits]);
+
+  useEffect(() => {
+    if (!isReplaying || commits.length === 0) return;
+    const current = selectedIndex >= 0 ? selectedIndex : 0;
+    const timeoutMs = Math.max(80, Math.round(900 / Math.max(1, replaySpeed)));
+    const timer = window.setTimeout(() => {
+      if (current >= commits.length - 1) {
+        setIsReplaying(false);
+        return;
+      }
+      loadGraphSnapshot(commits[current + 1], current + 1);
+    }, timeoutMs);
+    return () => window.clearTimeout(timer);
+  }, [isReplaying, selectedIndex, commits, replaySpeed]);
+
+  useEffect(() => {
+    const canvas = axisRef.current;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    const w = canvas.width;
+    const h = canvas.height;
+    ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = '#0b1220';
+    ctx.fillRect(0, 0, w, h);
+    ctx.strokeStyle = '#334155';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(20, h / 2);
+    ctx.lineTo(w - 20, h / 2);
+    ctx.stroke();
+    commits.forEach((_, idx) => {
+      const x = 20 + ((w - 40) * idx) / Math.max(1, commits.length - 1);
+      const selected = idx === selectedIndex;
+      ctx.fillStyle = selected ? '#60a5fa' : '#64748b';
+      ctx.beginPath();
+      ctx.arc(x, h / 2, selected ? 5 : 3, 0, Math.PI * 2);
+      ctx.fill();
+    });
+  }, [commits, selectedIndex]);
+
+  useEffect(() => {
+    fetchGraphActivityHeatmap({
+      author: heatmapAuthor || undefined,
+      type: heatmapType || undefined,
+      area: heatmapArea || undefined,
+    })
+      .then((res) => setActivityHotspots((res.items || []).slice(0, 8)))
+      .catch(() => setActivityHotspots([]));
+  }, [heatmapAuthor, heatmapType, heatmapArea]);
 
   const loadCommitHistory = async () => {
     setIsLoading(true);
@@ -179,6 +239,12 @@ const Timeline4D: React.FC<Timeline4DProps> = ({ onCommitSelected, onReturnToPre
       
       console.log('Calling onCommitSelected...');
       onCommitSelected(commit.hash, snapshot);
+      try {
+        const cicd = await fetchCicdStatus(commit.hash);
+        setCicdStatus(cicd);
+      } catch {
+        setCicdStatus(null);
+      }
       
       console.log('=== loadGraphSnapshot SUCCESS ===');
     } catch (err) {
@@ -215,6 +281,7 @@ const Timeline4D: React.FC<Timeline4DProps> = ({ onCommitSelected, onReturnToPre
   const handleReturnToPresent = () => {
     setSelectedCommit(null);
     setSelectedIndex(-1);
+    setCicdStatus(null);
     onReturnToPresent();
   };
 
@@ -274,6 +341,44 @@ const Timeline4D: React.FC<Timeline4DProps> = ({ onCommitSelected, onReturnToPre
           </p>
         </div>
       )}
+
+      <div className="timeline-controls" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, marginBottom: 10 }}>
+        <div className="panel">
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <strong>Replay</strong>
+            <button className="btn btn-secondary" onClick={() => setIsReplaying((prev) => !prev)} disabled={commits.length === 0}>
+              {isReplaying ? 'Pausar' : 'Reproduzir'}
+            </button>
+            <label style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+              Velocidade {replaySpeed}x
+              <input
+                type="range"
+                min={1}
+                max={100}
+                value={replaySpeed}
+                onChange={(e) => setReplaySpeed(Number(e.target.value))}
+              />
+            </label>
+          </div>
+          <canvas ref={axisRef} width={520} height={72} style={{ width: '100%', marginTop: 8, borderRadius: 8 }} />
+        </div>
+        <div className="panel">
+          <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' }}>
+            <strong>Heatmap temporal</strong>
+            <input className="input" placeholder="autor" value={heatmapAuthor} onChange={(e) => setHeatmapAuthor(e.target.value)} />
+            <input className="input" placeholder="tipo" value={heatmapType} onChange={(e) => setHeatmapType(e.target.value)} />
+            <input className="input" placeholder="área" value={heatmapArea} onChange={(e) => setHeatmapArea(e.target.value)} />
+          </div>
+          <div style={{ marginTop: 8, maxHeight: 72, overflowY: 'auto' }}>
+            {activityHotspots.map((item) => (
+              <div key={item.node_key} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+                <span>{item.node_key}</span>
+                <span>{item.change_frequency}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
 
       {commits.length > 0 && (
         <div className="timeline-slider-container">
@@ -391,6 +496,50 @@ const Timeline4D: React.FC<Timeline4DProps> = ({ onCommitSelected, onReturnToPre
               </div>
             </div>
           </div>
+          <div className="snapshot-mode-info" style={{ marginTop: '12px' }}>
+            <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+              <strong>Comparação side-by-side</strong>
+              <select
+                className="input"
+                value={compareIndex ?? ''}
+                onChange={(e) => {
+                  const v = e.target.value;
+                  setCompareIndex(v === '' ? null : Number(v));
+                }}
+              >
+                <option value="">sem comparação</option>
+                {commits.map((c, idx) => (
+                  <option value={idx} key={c.hash}>
+                    {c.hash.slice(0, 7)} - {c.author}
+                  </option>
+                ))}
+              </select>
+            </div>
+            {compareIndex !== null && commits[compareIndex] && (
+              <p className="snapshot-description" style={{ marginTop: 6 }}>
+                Atual: <strong>{selectedCommit.hash.slice(0, 8)}</strong> vs
+                comparação: <strong> {commits[compareIndex].hash.slice(0, 8)}</strong>
+              </p>
+            )}
+          </div>
+          {cicdStatus?.latest && (
+            <div className="snapshot-mode-info" style={{ marginTop: '12px' }}>
+              <p className="snapshot-hint">
+                CI/CD: <strong>{String(cicdStatus.latest.status || 'unknown').toUpperCase()}</strong>
+              </p>
+              <p className="snapshot-description">
+                Provider: {cicdStatus.latest.provider} | Commit: {String(cicdStatus.latest.commit_hash || '').slice(0, 8)}
+              </p>
+              {cicdStatus.latest.coverage !== undefined && cicdStatus.latest.coverage !== null && (
+                <p className="snapshot-description">Coverage: {Number(cicdStatus.latest.coverage).toFixed(1)}%</p>
+              )}
+              {cicdStatus.latest.stack_trace && (
+                <pre className="snapshot-description" style={{ whiteSpace: 'pre-wrap', maxHeight: '120px', overflowY: 'auto' }}>
+                  {String(cicdStatus.latest.stack_trace).slice(0, 1200)}
+                </pre>
+              )}
+            </div>
+          )}
         </div>
       )}
 

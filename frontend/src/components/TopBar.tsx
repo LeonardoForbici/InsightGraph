@@ -258,10 +258,6 @@ export default function TopBar({
                     active: false, onClick: onRebuildRagIndex, disabled: ragReindexing,
                     icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M13.5 2.5C12 1 10 0.5 8 0.5A7.5 7.5 0 0 0 0.5 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none"/><polyline points="0.5,4 0.5,8 4.5,8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none"/><path d="M2.5 13.5C4 15 6 15.5 8 15.5A7.5 7.5 0 0 0 15.5 8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" fill="none"/><polyline points="15.5,12 15.5,8 11.5,8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" fill="none"/></svg>,
                 },
-                {
-                    id: 'settings', label: 'Settings', active: settingsOpen, onClick: onToggleSettings,
-                    icon: <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M6.5 1.5A1 1 0 0 1 7.5 1h1a1 1 0 0 1 1 .886L9.63 2.8a5 5 0 0 1 .87.506l.883-.317a1 1 0 0 1 1.18.447l.5.866a1 1 0 0 1-.228 1.265l-.714.573a5 5 0 0 1 0 1.02l.714.573a1 1 0 0 1 .228 1.264l-.5.866a1 1 0 0 1-1.18.447l-.883-.317a5 5 0 0 1-.87.506l-.13.914A1 1 0 0 1 9.5 15h-1a1 1 0 0 1-.992-.886L7.37 13.2a5 5 0 0 1-.87-.506l-.883.317a1 1 0 0 1-1.18-.447l-.5-.866a1 1 0 0 1 .228-1.265l.714-.573a5 5 0 0 1 0-1.02l-.714-.573A1 1 0 0 1 3.937 7.1l.5-.866a1 1 0 0 1 1.18-.447l.883.317a5 5 0 0 1 .87-.506L7.5 4.5A1 1 0 0 1 6.5 1.5z" stroke="currentColor" strokeWidth="1.2" fill="none"/><circle cx="8" cy="8" r="2" stroke="currentColor" strokeWidth="1.4" fill="none"/></svg>,
-                },
             ],
         },
     ];
@@ -384,37 +380,30 @@ export default function TopBar({
             </div>
 
             {/* Row 2: Navigation Tabs — Grouped */}
-            <div className="topbar-nav">
-                <nav className="nav-tabs" style={{ gap: 0 }}>
+            <div className="topbar-nav" style={{ paddingRight: 0 }}>
+                <nav className="nav-tabs" style={{ gap: 0, flex: 1 }}>
                     {navGroups.map((group, gi) => (
                         <div
                             key={group.id}
                             style={{ display: 'flex', alignItems: 'center', gap: '1px' }}
                         >
-                            {/* Group separator */}
                             {gi > 0 && (
                                 <div style={{
-                                    width: '1px',
-                                    height: '20px',
+                                    width: '1px', height: '20px',
                                     background: 'rgba(139,147,176,0.14)',
-                                    margin: '0 6px',
-                                    flexShrink: 0,
+                                    margin: '0 6px', flexShrink: 0,
                                 }} />
                             )}
-                            {/* Group label */}
                             <span style={{
-                                fontSize: '9.5px',
-                                fontWeight: 700,
+                                fontSize: '9.5px', fontWeight: 700,
                                 letterSpacing: '0.09em',
                                 color: 'rgba(139,147,176,0.45)',
                                 paddingRight: '6px',
                                 paddingLeft: gi === 0 ? '0' : '2px',
-                                userSelect: 'none',
-                                whiteSpace: 'nowrap',
+                                userSelect: 'none', whiteSpace: 'nowrap',
                             }}>
                                 {group.label}
                             </span>
-                            {/* Group items */}
                             {group.items.map((item) => (
                                 <button
                                     key={item.id}
@@ -430,6 +419,29 @@ export default function TopBar({
                         </div>
                     ))}
                 </nav>
+
+                {/* Settings — sempre visível, fixo à direita */}
+                <button
+                    onClick={onToggleSettings}
+                    title="Configurações (⚙)"
+                    style={{
+                        flexShrink: 0,
+                        display: 'flex', alignItems: 'center', gap: 6,
+                        padding: '0 16px', height: '100%',
+                        background: settingsOpen ? 'rgba(79,143,247,0.12)' : 'transparent',
+                        border: 'none',
+                        borderLeft: '1px solid rgba(139,147,176,0.1)',
+                        color: settingsOpen ? '#4f8ff7' : 'rgba(139,147,176,0.55)',
+                        cursor: 'pointer', fontSize: 12.5, fontWeight: settingsOpen ? 600 : 400,
+                        whiteSpace: 'nowrap', transition: 'all 0.15s',
+                    }}
+                >
+                    <svg width="13" height="13" viewBox="0 0 16 16" fill="none">
+                        <path d="M6.5 1.5A1 1 0 0 1 7.5 1h1a1 1 0 0 1 .992.886L9.63 2.8a5 5 0 0 1 .87.506l.883-.317a1 1 0 0 1 1.18.447l.5.866a1 1 0 0 1-.228 1.265l-.714.573a5 5 0 0 1 0 1.02l.714.573a1 1 0 0 1 .228 1.264l-.5.866a1 1 0 0 1-1.18.447l-.883-.317a5 5 0 0 1-.87.506l-.13.914A1 1 0 0 1 9.5 15h-1a1 1 0 0 1-.992-.886L7.37 13.2a5 5 0 0 1-.87-.506l-.883.317a1 1 0 0 1-1.18-.447l-.5-.866a1 1 0 0 1 .228-1.265l.714-.573a5 5 0 0 1 0-1.02l-.714-.573A1 1 0 0 1 3.937 7.1l.5-.866a1 1 0 0 1 1.18-.447l.883.317a5 5 0 0 1 .87-.506L7.5 4.5A1 1 0 0 1 6.5 1.5z" stroke="currentColor" strokeWidth="1.2" fill="none"/>
+                        <circle cx="8" cy="8" r="2" stroke="currentColor" strokeWidth="1.4" fill="none"/>
+                    </svg>
+                    Settings
+                </button>
             </div>
         </div>
     );

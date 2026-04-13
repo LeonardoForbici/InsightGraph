@@ -15,6 +15,7 @@ interface SidebarProps {
     searchTerm: string;
     onSearchChange: (term: string) => void;
     searchInputRef?: RefObject<HTMLInputElement | null>;
+    scanStatus?: string;
     nodeCount: number;
     edgeCount: number;
     tags: Tag[];
@@ -38,6 +39,28 @@ interface SidebarProps {
     onToggleCollapse: () => void;
     onNodeClick?: (nodeKey: string) => void;
     intelligenceRefreshTrigger?: number;
+    homeOpen?: boolean;
+    onOpenHome?: () => void;
+    dashboardOpen?: boolean;
+    onOpenDashboard?: () => void;
+    securityOpen?: boolean;
+    onOpenSecurity?: () => void;
+    timelineOpen?: boolean;
+    onOpenTimeline?: () => void;
+    collaborationOpen?: boolean;
+    onOpenCollaboration?: () => void;
+    autoHealerOpen?: boolean;
+    onOpenAutoHealer?: () => void;
+    liveAlertsOpen?: boolean;
+    onOpenLiveAlerts?: () => void;
+    settingsOpen?: boolean;
+    onOpenSettings?: () => void;
+    watchModeOpen?: boolean;
+    onOpenWatchMode?: () => void;
+    commitTimelineOpen?: boolean;
+    onOpenCommitTimeline?: () => void;
+    weeklyDigestOpen?: boolean;
+    onOpenWeeklyDigest?: () => void;
 }
 
 const LAYERS = [
@@ -80,6 +103,7 @@ export default function Sidebar({
     searchTerm,
     onSearchChange,
     searchInputRef,
+    scanStatus = 'idle',
     tags,
     selectedTag,
     onTagSelect,
@@ -103,13 +127,35 @@ export default function Sidebar({
     onToggleCollapse,
     onNodeClick,
     intelligenceRefreshTrigger,
+    homeOpen = false,
+    onOpenHome,
+    dashboardOpen = false,
+    onOpenDashboard,
+    securityOpen = false,
+    onOpenSecurity,
+    timelineOpen = false,
+    onOpenTimeline,
+    collaborationOpen = false,
+    onOpenCollaboration,
+    autoHealerOpen = false,
+    onOpenAutoHealer,
+    liveAlertsOpen = false,
+    onOpenLiveAlerts,
+    settingsOpen = false,
+    onOpenSettings,
+    watchModeOpen = false,
+    onOpenWatchMode,
+    commitTimelineOpen = false,
+    onOpenCommitTimeline,
+    weeklyDigestOpen = false,
+    onOpenWeeklyDigest,
 }: SidebarProps) {
     const [collapsed, setCollapsed] = useState<Record<string, boolean>>({
         filters: false,
         projects: false,
-        layers: false,
-        tags: false,
-        intelligence: false,
+        layers: true,   // começa colapsado
+        tags: true,     // começa colapsado
+        intelligence: true, // começa colapsado — evita erros visíveis logo de início
     });
     const toggle = (id: string) => setCollapsed(prev => ({ ...prev, [id]: !prev[id] }));
 
@@ -126,6 +172,24 @@ export default function Sidebar({
             <polyline points="2,4 6,8 10,4" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"/>
         </svg>
     );
+
+    const workCount = workspaces.length;
+    const projectCount = projects.length;
+    const browseItems = [
+        { id: 'home', label: 'Dashboard', active: homeOpen, count: `${projectCount}`, onClick: onOpenHome },
+        { id: 'security', label: 'Security', active: securityOpen, count: '', onClick: onOpenSecurity },
+        { id: 'timeline', label: 'Timeline 4D', active: timelineOpen, count: '', onClick: onOpenTimeline },
+        { id: 'collab', label: 'War Rooms', active: collaborationOpen, count: '', onClick: onOpenCollaboration },
+        { id: 'healer', label: 'Auto Healer', active: autoHealerOpen, count: '', onClick: onOpenAutoHealer },
+        { id: 'watch', label: 'Watch Mode', active: watchModeOpen, count: '', onClick: onOpenWatchMode },
+    ];
+    const resourceItems = [
+        { id: 'alerts', label: 'Live Alerts', active: liveAlertsOpen, count: '', onClick: onOpenLiveAlerts },
+        { id: 'commits', label: 'Commit Timeline', active: commitTimelineOpen, count: '', onClick: onOpenCommitTimeline },
+        { id: 'digest', label: 'Weekly Digest', active: weeklyDigestOpen, count: '', onClick: onOpenWeeklyDigest },
+        { id: 'settings', label: 'Settings', active: settingsOpen, count: '', onClick: onOpenSettings },
+        { id: 'system', label: 'Scanner', active: dashboardOpen, count: scanStatus === 'scanning' ? 'RUN' : 'IDLE', onClick: onOpenDashboard },
+    ];
 
     return (
         <>
@@ -148,6 +212,57 @@ export default function Sidebar({
             </button>
 
             <div className={`sidebar ${isCollapsed ? 'sidebar-hidden' : ''}`}>
+                <div className="sidebar-pro-header">
+                    <div className="sidebar-pro-brand">
+                        <div className="sidebar-pro-brand-icon">◈</div>
+                        <div>
+                            <strong>InsightGraph</strong>
+                            <p>Control Center</p>
+                        </div>
+                    </div>
+                    <div className="sidebar-pro-meta">{workCount} ws</div>
+                </div>
+
+                <div className="sidebar-pro-search">
+                    <input
+                        type="text"
+                        value={searchTerm}
+                        onChange={(e) => onSearchChange(e.target.value)}
+                        placeholder="Search components..."
+                    />
+                    <span>⌘K</span>
+                </div>
+
+                <div className="sidebar-pro-group">
+                    <div className="sidebar-pro-group-title">WORKSPACE</div>
+                    {browseItems.map((item) => (
+                        <button
+                            key={item.id}
+                            type="button"
+                            className={`sidebar-pro-item ${item.active ? 'active' : ''}`}
+                            onClick={item.onClick}
+                        >
+                            <span>{item.label}</span>
+                            {item.count ? <span className="sidebar-pro-pill">{item.count}</span> : <span className="sidebar-pro-dot" />}
+                        </button>
+                    ))}
+                </div>
+
+                <div className="sidebar-pro-group">
+                    <div className="sidebar-pro-group-title">RESOURCES</div>
+                    {resourceItems.map((item) => (
+                        <button
+                            key={item.id}
+                            type="button"
+                            className={`sidebar-pro-item ${item.active ? 'active' : ''}`}
+                            onClick={item.onClick}
+                        >
+                            <span>{item.label}</span>
+                            {item.count ? <span className="sidebar-pro-pill">{item.count}</span> : <span className="sidebar-pro-dot" />}
+                        </button>
+                    ))}
+                </div>
+
                 {/* Workspaces */}
                 <div className="sidebar-section">
                     <div className="sidebar-section-title">

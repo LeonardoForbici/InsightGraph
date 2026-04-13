@@ -19,7 +19,7 @@ type UpdateCallback = (updates: NodeUpdate[]) => void;
 export class BatchUpdateManager {
   private updateQueue: Map<string, NodeUpdate> = new Map();
   private flushInterval: number = 100; // 100ms
-  private flushTimer: NodeJS.Timeout | null = null;
+  private flushTimer: ReturnType<typeof setTimeout> | null = null;
   private rafId: number | null = null;
   private callback: UpdateCallback | null = null;
   private isProcessing: boolean = false;

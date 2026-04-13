@@ -1,0 +1,15 @@
+global:
+  scrape_interval: 15s
+  evaluation_interval: 15s
+
+rule_files:
+  - backend/monitoring/alert_rules.yml
+
+scrape_configs:
+  - job_name: "insightgraph-backend"
+    metrics_path: /metrics
+    static_configs:
+      - targets: ["backend:8000"]
+  - job_name: "redis"
+    static_configs:
+      - targets: ["redis:6379"]

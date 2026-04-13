@@ -12,8 +12,8 @@ type CleanupFunction = () => void;
 
 export class MemoryManager {
   private subscriptions: Set<CleanupFunction> = new Set();
-  private intervals: Set<NodeJS.Timeout> = new Set();
-  private timeouts: Set<NodeJS.Timeout> = new Set();
+  private intervals: Set<ReturnType<typeof setTimeout>> = new Set();
+  private timeouts: Set<ReturnType<typeof setTimeout>> = new Set();
   private eventListeners: Array<{
     target: EventTarget;
     event: string;
@@ -36,7 +36,7 @@ export class MemoryManager {
    * 
    * @param intervalId - Interval ID from setInterval
    */
-  addInterval(intervalId: NodeJS.Timeout): void {
+  addInterval(intervalId: ReturnType<typeof setTimeout>): void {
     this.intervals.add(intervalId);
   }
 
@@ -45,7 +45,7 @@ export class MemoryManager {
    * 
    * @param timeoutId - Timeout ID from setTimeout
    */
-  addTimeout(timeoutId: NodeJS.Timeout): void {
+  addTimeout(timeoutId: ReturnType<typeof setTimeout>): void {
     this.timeouts.add(timeoutId);
   }
 
@@ -86,7 +86,7 @@ export class MemoryManager {
   /**
    * Remove a specific interval.
    */
-  removeInterval(intervalId: NodeJS.Timeout): void {
+  removeInterval(intervalId: ReturnType<typeof setTimeout>): void {
     if (this.intervals.has(intervalId)) {
       clearInterval(intervalId);
       this.intervals.delete(intervalId);
@@ -96,7 +96,7 @@ export class MemoryManager {
   /**
    * Remove a specific timeout.
    */
-  removeTimeout(timeoutId: NodeJS.Timeout): void {
+  removeTimeout(timeoutId: ReturnType<typeof setTimeout>): void {
     if (this.timeouts.has(timeoutId)) {
       clearTimeout(timeoutId);
       this.timeouts.delete(timeoutId);

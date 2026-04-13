@@ -1,0 +1,38 @@
+#!/bin/sh
+# InsightGraph — post-commit hook
+#
+# Notifica o EventEngine a cada commit para que o grafo arquitetural
+# seja atualizado automaticamente em background.
+#
+# Install:
+#   sh scripts/install-hooks.sh
+#
+# Env vars:
+#   INSIGHTGRAPH_API  — URL do backend (default: http://localhost:8000)
+
+INSIGHTGRAPH_API="${INSIGHTGRAPH_API:-http://localhost:8000}"
+PROJECT_PATH="$(git rev-parse --show-toplevel)"
+COMMIT_HASH="$(git rev-parse HEAD)"
+
+echo "[InsightGraph] Commit detectado: $COMMIT_HASH"
+
+# Tenta notificar via /api/webhooks/local (EventEngine)
+# Fallback para /api/scan caso o EventEngine não esteja disponível
+RESPONSE=$(curl -s -o /dev/null -w "%{http_code}" \
+  -X POST "$INSIGHTGRAPH_API/api/webhooks/local" \
+  -H "Content-Type: application/json" \
+  -d "{\"commit_hash\": \"$COMMIT_HASH\", \"project_path\": \"$PROJECT_PATH\"}" \
+  --max-time 5 2>/dev/null)
+
+if [ "$RESPONSE" = "200" ]; then
+  echo "[InsightGraph] EventEngine notificado — scan agendado em background."
+else
+  # Fallback: dispara o scan diretamente
+  curl -s -X POST "$INSIGHTGRAPH_API/api/scan" \
+    -H "Content-Type: application/json" \
+    -d "{\"paths\": [\"$PROJECT_PATH\"], \"triggered_by\": \"post-commit\", \"commit_hash\": \"$COMMIT_HASH\"}" \
+    --max-time 5 > /dev/null 2>&1 &
+  echo "[InsightGraph] Scan direto agendado (fallback, status=$RESPONSE)."
+fi
+
+exit 0

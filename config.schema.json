@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://insightgraph.local/config.schema.json",
+  "title": "InsightGraph Runtime Configuration",
+  "type": "object",
+  "required": [
+    "feature_flags",
+    "realtime",
+    "security",
+    "integrations"
+  ],
+  "properties": {
+    "feature_flags": {
+      "type": "object",
+      "required": [
+        "enable_gesture_control",
+        "enable_collaboration"
+      ],
+      "properties": {
+        "enable_gesture_control": { "type": "boolean" },
+        "enable_collaboration": { "type": "boolean" },
+        "enable_auto_healer": { "type": "boolean", "default": true }
+      },
+      "additionalProperties": false
+    },
+    "realtime": {
+      "type": "object",
+      "required": [
+        "ws_heartbeat_seconds",
+        "event_batch_window_ms"
+      ],
+      "properties": {
+        "ws_heartbeat_seconds": { "type": "integer", "minimum": 5, "maximum": 300 },
+        "event_batch_window_ms": { "type": "integer", "minimum": 10, "maximum": 5000 }
+      },
+      "additionalProperties": false
+    },
+    "security": {
+      "type": "object",
+      "required": ["jwt_expiration_seconds", "rate_limit_per_minute"],
+      "properties": {
+        "jwt_expiration_seconds": { "type": "integer", "minimum": 60 },
+        "rate_limit_per_minute": { "type": "integer", "minimum": 1 },
+        "enforce_wss_in_production": { "type": "boolean", "default": true }
+      },
+      "additionalProperties": false
+    },
+    "integrations": {
+      "type": "object",
+      "required": ["ollama_url"],
+      "properties": {
+        "ollama_url": { "type": "string", "minLength": 1 },
+        "redis_url": { "type": "string" },
+        "postgres_dsn": { "type": "string" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

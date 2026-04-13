@@ -1,0 +1,28 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(ls /c/git/InsightGraph/backend/*.py)",
+      "Bash(ls -1 /c/git/InsightGraph/backend/*.py)",
+      "Bash(python -c ':*)",
+      "Bash(python3 -c ':*)",
+      "Bash(where py:*)",
+      "Bash(where python3.11)",
+      "Bash(where python3.12)",
+      "Bash(py -c ':*)",
+      "Bash(py -c \"import ast; ast.parse\\(open\\('git_service.py', encoding='utf-8'\\).read\\(\\)\\); print\\('OK git_service.py'\\)\")",
+      "Bash(grep -l \"alerts/history\\\\|graph/diff\\\\|digest/weekly\\\\|alerts/rules\" /c/git/InsightGraph/frontend/src/components/*.tsx)",
+      "Bash(grep -n \"alerting\\\\|fitness\\\\|rules.*engine\\\\|constraint\" /c/git/InsightGraph/backend/*.py)",
+      "Bash(grep -n \"class.*Rules\\\\|def.*rules\\\\|user.*rules\\\\|architecture.*rules\" /c/git/InsightGraph/backend/*.py)",
+      "Bash(npm run:*)",
+      "Bash(python -m py_compile main.py git_poller.py alert_engine.py event_engine.py weekly_digest.py)",
+      "Bash(awk '{print $4}')",
+      "Bash(npx tsc:*)",
+      "Bash(py -3 --version)",
+      "Bash(pip3 --version)",
+      "Bash(py -3 -m pip --version)",
+      "Bash(py -3 -m pip list)",
+      "Bash(ls frontend/.env*)",
+      "Bash(cat frontend/.env*)"
+    ]
+  }
+}

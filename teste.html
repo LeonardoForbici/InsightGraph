@@ -1,0 +1,546 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Beta Webcam Forks - Hand Tracking Real</title>
+  <style>
+    :root {
+      --bg: #000;
+      --panel: rgba(12,12,16,.92);
+      --border: rgba(255,255,255,.08);
+      --text: #eef2f7;
+      --muted: #a7b0bf;
+      --ok: #22c55e;
+      --warn: #f59e0b;
+      --err: #ef4444;
+      --blue: #3b82f6;
+      --violet: #8b5cf6;
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; width: 100%; height: 100%; background: #000; color: var(--text); font-family: Inter, system-ui, sans-serif; overflow: hidden; }
+    .app { display: grid; grid-template-columns: 360px 1fr; width: 100vw; height: 100vh; gap: 12px; padding: 12px; }
+    .panel, .stage { border: 1px solid var(--border); border-radius: 18px; background: var(--panel); overflow: hidden; }
+    .panel { padding: 16px; overflow: auto; }
+    h1,h2,p { margin: 0; }
+    h1 { font-size: 1.05rem; }
+    h2 { font-size: .92rem; margin-bottom: 10px; }
+    p { color: var(--muted); line-height: 1.45; font-size: .86rem; }
+    .section { padding: 14px; border-radius: 14px; border: 1px solid var(--border); background: rgba(255,255,255,.03); margin-bottom: 12px; }
+    .row { display: flex; gap: 10px; align-items: center; }
+    .stack { display: grid; gap: 10px; }
+    button, input { width: 100%; border-radius: 12px; border: 1px solid rgba(255,255,255,.08); background: rgba(255,255,255,.05); color: var(--text); padding: 12px; font: inherit; }
+    button { cursor: pointer; font-weight: 600; }
+    .primary { background: linear-gradient(135deg, var(--blue), var(--violet)); border: none; }
+    .danger { background: rgba(239,68,68,.12); color: #fecaca; }
+    .ok { color: #bbf7d0; }
+    .warn { color: #fde68a; }
+    .err { color: #fecaca; }
+    .chip { display: inline-block; padding: 6px 10px; border-radius: 999px; border: 1px solid var(--border); background: rgba(255,255,255,.04); margin: 4px 6px 0 0; font-size: .75rem; }
+    .stage { position: relative; background: #000; }
+    .toolbar { position: absolute; top: 12px; left: 12px; right: 12px; z-index: 20; display: flex; justify-content: space-between; gap: 10px; pointer-events: none; }
+    .pill { padding: 10px 12px; border-radius: 12px; border: 1px solid var(--border); background: rgba(0,0,0,.42); backdrop-filter: blur(8px); font-size: .82rem; }
+    #video, #fx, #ui { position: absolute; inset: 0; width: 100%; height: 100%; }
+    #video { object-fit: cover; transform: scaleX(-1); opacity: .14; display: none; }
+    .fork-layer { position: absolute; inset: 0; z-index: 8; }
+    .fork { position: absolute; width: 120px; height: 70px; margin-left: -60px; margin-top: -35px; border-radius: 18px; background: linear-gradient(135deg, rgba(59,130,246,.16), rgba(139,92,246,.12)); border: 1px solid rgba(255,255,255,.09); box-shadow: 0 14px 28px rgba(0,0,0,.42); display: flex; flex-direction: column; align-items: center; justify-content: center; user-select: none; transition: transform .08s ease, box-shadow .08s ease; }
+    .fork.active { box-shadow: 0 0 0 1px rgba(147,197,253,.22), 0 0 32px rgba(59,130,246,.35), 0 16px 38px rgba(0,0,0,.5); transform: scale(1.05); }
+    .fork small { color: #c9d5ff; opacity: .82; }
+    .fork strong { font-size: .94rem; }
+    #log { max-height: 180px; overflow: auto; display: grid; gap: 8px; margin-top: 10px; }
+    .log-item { font-size: .78rem; padding: 10px 12px; border-radius: 12px; border: 1px solid var(--border); background: rgba(255,255,255,.03); }
+    .mono { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; }
+    @media (max-width: 980px) { .app { grid-template-columns: 1fr; grid-template-rows: auto 1fr; } }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <aside class="panel">
+      <div class="section">
+        <h1>Beta Webcam + Forks</h1>
+        <p style="margin-top:8px;">Versão com hand tracking real. Gesto: aproxime polegar e indicador para selecionar o fork mais próximo e arraste com a mão.</p>
+      </div>
+
+      <div class="section stack">
+        <h2>Controle</h2>
+        <button id="btnStartCamera" class="primary">Iniciar câmera + tracking</button>
+        <button id="btnEnableBeta">Ativar modo beta</button>
+        <button id="btnStopCamera" class="danger">Parar câmera</button>
+        <div class="row">
+          <input id="showVideo" type="checkbox" style="width:auto" />
+          <label for="showVideo">Exibir vídeo ao fundo</label>
+        </div>
+      </div>
+
+      <div class="section">
+        <h2>Diagnóstico</h2>
+        <p id="diagSecure">Contexto seguro: verificando...</p>
+        <p id="diagMedia">getUserMedia: verificando...</p>
+        <p id="diagPermission">Permissão câmera: aguardando...</p>
+        <p id="diagTracker">Hand tracking: aguardando...</p>
+        <p id="diagBeta">Modo beta: desativado</p>
+      </div>
+
+      <div class="section">
+        <h2>Uso</h2>
+        <p>1. Rode em <strong>localhost</strong> ou <strong>HTTPS</strong>.</p>
+        <p>2. Clique em <strong>Iniciar câmera + tracking</strong>.</p>
+        <p>3. Ative <strong>modo beta</strong>.</p>
+        <p>4. Una polegar + indicador para pegar o fork mais próximo.</p>
+        <p>5. Se preferir, marque <strong>Exibir vídeo</strong>.</p>
+      </div>
+
+      <div class="section">
+        <h2>Logs</h2>
+        <div id="log"></div>
+      </div>
+    </aside>
+
+    <main class="stage" id="stage">
+      <div class="toolbar">
+        <div class="pill" id="statusPill">Aguardando inicialização</div>
+        <div class="pill">Pinch: polegar + indicador</div>
+      </div>
+      <video id="video" autoplay playsinline muted></video>
+      <canvas id="fx"></canvas>
+      <canvas id="ui"></canvas>
+      <div class="fork-layer" id="forkLayer"></div>
+    </main>
+  </div>
+
+  <script type="module">
+    import { HandLandmarker, FilesetResolver } from "https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14";
+
+    const stage = document.getElementById('stage');
+    const video = document.getElementById('video');
+    const fx = document.getElementById('fx');
+    const ui = document.getElementById('ui');
+    const fxCtx = fx.getContext('2d');
+    const uiCtx = ui.getContext('2d');
+    const forkLayer = document.getElementById('forkLayer');
+    const logEl = document.getElementById('log');
+    const statusPill = document.getElementById('statusPill');
+    const showVideo = document.getElementById('showVideo');
+
+    const diagSecure = document.getElementById('diagSecure');
+    const diagMedia = document.getElementById('diagMedia');
+    const diagPermission = document.getElementById('diagPermission');
+    const diagTracker = document.getElementById('diagTracker');
+    const diagBeta = document.getElementById('diagBeta');
+
+    const btnStartCamera = document.getElementById('btnStartCamera');
+    const btnEnableBeta = document.getElementById('btnEnableBeta');
+    const btnStopCamera = document.getElementById('btnStopCamera');
+
+    let stream = null;
+    let betaEnabled = false;
+    let cameraReady = false;
+    let trackerReady = false;
+    let handLandmarker = null;
+    let lastVideoTime = -1;
+    let raf = 0;
+    let particles = [];
+    let hue = 180;
+    let selectedId = null;
+    let lastPalm = null;
+    let velocitySmooth = 0;
+    let lastTs = performance.now();
+    let pinchActive = false;
+
+    const fingertipIndices = [4, 8, 12, 16, 20];
+    const palmCenterIndices = [0, 1, 5, 9, 13, 17];
+    const adjacentPairs = [[4,8],[8,12],[12,16],[16,20]];
+
+    const forks = [
+      { id: 'a', title: 'Fork A', subtitle: 'Parser', x: 16, y: 28 },
+      { id: 'b', title: 'Fork B', subtitle: 'Rules', x: 34, y: 36 },
+      { id: 'c', title: 'Fork C', subtitle: 'Diff', x: 54, y: 24 },
+      { id: 'd', title: 'Fork D', subtitle: 'Cache', x: 26, y: 62 },
+      { id: 'e', title: 'Fork E', subtitle: 'GitHub', x: 52, y: 58 },
+      { id: 'f', title: 'Fork F', subtitle: 'Presentation', x: 74, y: 46 },
+    ];
+
+    function log(msg) {
+      const item = document.createElement('div');
+      item.className = 'log-item';
+      item.textContent = `[${new Date().toLocaleTimeString('pt-BR')}] ${msg}`;
+      logEl.prepend(item);
+      while (logEl.children.length > 12) logEl.removeChild(logEl.lastChild);
+    }
+
+    function setStatus(msg) {
+      statusPill.textContent = msg;
+    }
+
+    function updateDiagnostics() {
+      diagSecure.innerHTML = `Contexto seguro: <strong class="${window.isSecureContext ? 'ok' : 'err'}">${window.isSecureContext ? 'sim' : 'não'}</strong>`;
+      diagMedia.innerHTML = `getUserMedia: <strong class="${navigator.mediaDevices && navigator.mediaDevices.getUserMedia ? 'ok' : 'err'}">${navigator.mediaDevices && navigator.mediaDevices.getUserMedia ? 'disponível' : 'indisponível'}</strong>`;
+      diagTracker.innerHTML = `Hand tracking: <strong class="${trackerReady ? 'ok' : 'warn'}">${trackerReady ? 'carregado' : 'aguardando'}</strong>`;
+      diagBeta.innerHTML = `Modo beta: <strong class="${betaEnabled ? 'ok' : 'warn'}">${betaEnabled ? 'ativado' : 'desativado'}</strong>`;
+    }
+
+    async function updatePermissionStatus() {
+      try {
+        if (!navigator.permissions || !navigator.permissions.query) {
+          diagPermission.innerHTML = 'Permissão câmera: <strong class="warn">API de permissions indisponível</strong>';
+          return;
+        }
+        const result = await navigator.permissions.query({ name: 'camera' });
+        diagPermission.innerHTML = `Permissão câmera: <strong class="${result.state === 'granted' ? 'ok' : result.state === 'denied' ? 'err' : 'warn'}">${result.state}</strong>`;
+        result.onchange = () => {
+          diagPermission.innerHTML = `Permissão câmera: <strong class="${result.state === 'granted' ? 'ok' : result.state === 'denied' ? 'err' : 'warn'}">${result.state}</strong>`;
+        };
+      } catch {
+        diagPermission.innerHTML = 'Permissão câmera: <strong class="warn">não foi possível consultar</strong>';
+      }
+    }
+
+    function resize() {
+      const rect = stage.getBoundingClientRect();
+      for (const c of [fx, ui]) {
+        c.width = rect.width * devicePixelRatio;
+        c.height = rect.height * devicePixelRatio;
+        c.style.width = rect.width + 'px';
+        c.style.height = rect.height + 'px';
+      }
+      fxCtx.setTransform(1,0,0,1,0,0);
+      uiCtx.setTransform(1,0,0,1,0,0);
+      fxCtx.scale(devicePixelRatio, devicePixelRatio);
+      uiCtx.scale(devicePixelRatio, devicePixelRatio);
+      renderForks();
+    }
+
+    function renderForks() {
+      forkLayer.innerHTML = '';
+      forks.forEach(f => {
+        const el = document.createElement('div');
+        el.className = 'fork' + (selectedId === f.id ? ' active' : '');
+        el.dataset.id = f.id;
+        el.style.left = `${f.x}%`;
+        el.style.top = `${f.y}%`;
+        el.innerHTML = `<small>${f.subtitle}</small><strong>${f.title}</strong>`;
+        forkLayer.appendChild(el);
+      });
+    }
+
+    function clamp(v, min, max) { return Math.max(min, Math.min(max, v)); }
+    function lerp(a, b, t) { return a + (b - a) * t; }
+    function dist(a, b) { return Math.hypot(a.x - b.x, a.y - b.y); }
+    function average(points) {
+      const sum = points.reduce((acc, p) => ({ x: acc.x + p.x, y: acc.y + p.y }), { x: 0, y: 0 });
+      return { x: sum.x / points.length, y: sum.y / points.length };
+    }
+
+    function normalizedToStage(lm) {
+      const rect = stage.getBoundingClientRect();
+      return {
+        x: (1 - lm.x) * rect.width,
+        y: lm.y * rect.height
+      };
+    }
+
+    function addParticle(x, y, h, intensity = 1) {
+      const a = Math.random() * Math.PI * 2;
+      const s = (0.4 + Math.random() * 1.6) * (0.8 + intensity * 0.8);
+      particles.push({ x, y, vx: Math.cos(a)*s, vy: Math.sin(a)*s, life: 22 + Math.random()*28, maxLife: 50, size: 1.2 + Math.random()*2.8, h });
+      if (particles.length > 800) particles.splice(0, particles.length - 800);
+    }
+
+    function drawParticles() {
+      for (let i = particles.length - 1; i >= 0; i--) {
+        const p = particles[i];
+        p.x += p.vx;
+        p.y += p.vy;
+        p.vx *= .986;
+        p.vy *= .986;
+        p.life -= 1;
+        if (p.life <= 0) {
+          particles.splice(i, 1);
+          continue;
+        }
+        const a = p.life / p.maxLife;
+        fxCtx.beginPath();
+        fxCtx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
+        fxCtx.fillStyle = `hsla(${p.h},100%,65%,${a*.75})`;
+        fxCtx.shadowBlur = 18;
+        fxCtx.shadowColor = `hsla(${p.h},100%,65%,${a})`;
+        fxCtx.fill();
+      }
+    }
+
+    function drawGlowLine(a, b, hue, width, intensity, pulse) {
+      const glow = width * (2.5 + intensity * 2 + pulse * 0.7);
+      fxCtx.save();
+      fxCtx.lineCap = 'round';
+      fxCtx.lineJoin = 'round';
+
+      fxCtx.strokeStyle = `hsla(${hue},100%,60%,${0.12 + intensity*0.16})`;
+      fxCtx.lineWidth = width + glow;
+      fxCtx.shadowBlur = glow * 2.1;
+      fxCtx.shadowColor = `hsla(${hue},100%,60%,1)`;
+      fxCtx.beginPath();
+      fxCtx.moveTo(a.x, a.y);
+      fxCtx.lineTo(b.x, b.y);
+      fxCtx.stroke();
+
+      fxCtx.strokeStyle = `hsla(${hue},100%,74%,${0.46 + intensity*0.18})`;
+      fxCtx.lineWidth = width * 1.7;
+      fxCtx.beginPath();
+      fxCtx.moveTo(a.x, a.y);
+      fxCtx.lineTo(b.x, b.y);
+      fxCtx.stroke();
+
+      fxCtx.strokeStyle = `hsla(${hue},100%,88%,.95)`;
+      fxCtx.lineWidth = Math.max(.8, width * .48);
+      fxCtx.shadowBlur = 10;
+      fxCtx.beginPath();
+      fxCtx.moveTo(a.x, a.y);
+      fxCtx.lineTo(b.x, b.y);
+      fxCtx.stroke();
+      fxCtx.restore();
+    }
+
+    function drawOrb(p, h, radius, intensity) {
+      fxCtx.save();
+      fxCtx.beginPath();
+      fxCtx.arc(p.x, p.y, radius * (1.7 + intensity * 0.4), 0, Math.PI * 2);
+      fxCtx.fillStyle = `hsla(${h},100%,60%,${0.12 + intensity * 0.12})`;
+      fxCtx.shadowBlur = 28 + intensity * 18;
+      fxCtx.shadowColor = `hsla(${h},100%,60%,1)`;
+      fxCtx.fill();
+
+      fxCtx.beginPath();
+      fxCtx.arc(p.x, p.y, radius, 0, Math.PI * 2);
+      fxCtx.fillStyle = `hsla(${h},100%,88%,.96)`;
+      fxCtx.fill();
+      fxCtx.restore();
+    }
+
+    function closestFork(x, y) {
+      const rect = stage.getBoundingClientRect();
+      let best = null;
+      let bestD = Infinity;
+      for (const f of forks) {
+        const fx = rect.width * (f.x / 100);
+        const fy = rect.height * (f.y / 100);
+        const d = Math.hypot(x - fx, y - fy);
+        if (d < bestD) { bestD = d; best = f; }
+      }
+      return bestD < 120 ? best : null;
+    }
+
+    function moveFork(id, x, y) {
+      const rect = stage.getBoundingClientRect();
+      const f = forks.find(v => v.id === id);
+      if (!f) return;
+      f.x = clamp((x / rect.width) * 100, 7, 93);
+      f.y = clamp((y / rect.height) * 100, 8, 92);
+      renderForks();
+    }
+
+    async function initTracker() {
+      setStatus('Carregando hand tracking...');
+      log('Carregando MediaPipe Tasks Vision...');
+      const vision = await FilesetResolver.forVisionTasks("https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision@0.10.14/wasm");
+      handLandmarker = await HandLandmarker.createFromOptions(vision, {
+        baseOptions: {
+          modelAssetPath: "https://storage.googleapis.com/mediapipe-models/hand_landmarker/hand_landmarker/float16/1/hand_landmarker.task"
+        },
+        runningMode: "VIDEO",
+        numHands: 1,
+        minHandDetectionConfidence: 0.5,
+        minHandPresenceConfidence: 0.5,
+        minTrackingConfidence: 0.5
+      });
+      trackerReady = true;
+      updateDiagnostics();
+      log('Hand tracking carregado com sucesso.');
+    }
+
+    async function startCameraAndTracker() {
+      if (!window.isSecureContext) throw new Error('Sem contexto seguro. Use localhost ou HTTPS.');
+      if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error('getUserMedia indisponível neste ambiente.');
+
+      if (!trackerReady) {
+        await initTracker();
+      }
+
+      setStatus('Solicitando câmera...');
+      stream = await navigator.mediaDevices.getUserMedia({
+        video: { facingMode: 'user', width: { ideal: 1280 }, height: { ideal: 720 } },
+        audio: false
+      });
+
+      video.srcObject = stream;
+      await new Promise((resolve, reject) => {
+        video.onloadedmetadata = () => resolve();
+        video.onerror = () => reject(new Error('Falha ao carregar vídeo da câmera.'));
+      });
+
+      await video.play();
+      cameraReady = true;
+      video.style.display = showVideo.checked ? 'block' : 'none';
+      updatePermissionStatus();
+      setStatus('Câmera e tracking prontos');
+      log('Câmera iniciada com sucesso.');
+    }
+
+    function stopCamera() {
+      if (stream) {
+        stream.getTracks().forEach(t => t.stop());
+        stream = null;
+      }
+      cameraReady = false;
+      pinchActive = false;
+      selectedId = null;
+      lastPalm = null;
+      velocitySmooth = 0;
+      video.srcObject = null;
+      video.style.display = 'none';
+      renderForks();
+      setStatus('Câmera parada');
+      log('Câmera parada.');
+    }
+
+    function drawPointer(x, y, pinching) {
+      uiCtx.beginPath();
+      uiCtx.arc(x, y, pinching ? 14 : 10, 0, Math.PI * 2);
+      uiCtx.fillStyle = pinching ? 'rgba(34,197,94,.92)' : 'rgba(245,158,11,.82)';
+      uiCtx.shadowBlur = 16;
+      uiCtx.shadowColor = uiCtx.fillStyle;
+      uiCtx.fill();
+    }
+
+    function processHand(points, ts) {
+      const palm = average(palmCenterIndices.map(i => points[i]));
+      if (lastPalm) {
+        const speed = dist(lastPalm, palm);
+        velocitySmooth = lerp(velocitySmooth, speed, 0.25);
+      }
+      lastPalm = palm;
+
+      const intensity = clamp(velocitySmooth / 20, 0, 1.4);
+      const pulse = (Math.sin(ts / 160) + 1) * 0.5;
+
+      for (const tipIndex of fingertipIndices) {
+        const tip = points[tipIndex];
+        const d = dist(palm, tip);
+        const segs = Math.max(10, Math.floor(d / 18));
+        let prev = palm;
+        for (let i = 1; i <= segs; i++) {
+          const t = i / segs;
+          const offset = Math.sin(t * Math.PI) * (8 + intensity * 10) * (tip.x > palm.x ? 1 : -1);
+          const cur = { x: lerp(palm.x, tip.x, t) + offset * 0.12, y: lerp(palm.y, tip.y, t) };
+          const h = (hue + t * 40 + tipIndex * 5) % 360;
+          drawGlowLine(prev, cur, h, 2.4 + intensity * 1.5, intensity, pulse);
+          if (Math.random() < 0.55) addParticle(cur.x, cur.y, h, intensity);
+          prev = cur;
+        }
+        drawOrb(tip, (hue + tipIndex * 6) % 360, 3.8 + intensity * 1.2, intensity);
+      }
+
+      for (const [a, b] of adjacentPairs) {
+        drawGlowLine(points[a], points[b], (hue + a * 3) % 360, 1 + intensity * 0.55, intensity * 0.72, pulse);
+      }
+
+      drawOrb(palm, hue, 6 + intensity * 2, intensity);
+
+      const indexTip = points[8];
+      const thumbTip = points[4];
+      const pinchDistance = dist(indexTip, thumbTip);
+      const isPinching = pinchDistance < 42;
+
+      drawPointer(indexTip.x, indexTip.y, isPinching);
+
+      if (betaEnabled) {
+        if (isPinching && !pinchActive) {
+          pinchActive = true;
+          const near = closestFork(indexTip.x, indexTip.y);
+          if (near) {
+            selectedId = near.id;
+            renderForks();
+            log(`Pinch detectado. ${near.title} selecionado.`);
+          }
+        }
+
+        if (isPinching && selectedId) {
+          moveFork(selectedId, indexTip.x, indexTip.y);
+        }
+
+        if (!isPinching && pinchActive) {
+          pinchActive = false;
+          if (selectedId) {
+            const moved = forks.find(f => f.id === selectedId);
+            log(`${moved.title} atualizado para x=${moved.x.toFixed(1)}%, y=${moved.y.toFixed(1)}%.`);
+          }
+          selectedId = null;
+          renderForks();
+        }
+      }
+    }
+
+    function loop(ts = performance.now()) {
+      raf = requestAnimationFrame(loop);
+      const rect = stage.getBoundingClientRect();
+      hue = (hue + 0.35) % 360;
+
+      fxCtx.fillStyle = 'rgba(0,0,0,.18)';
+      fxCtx.fillRect(0, 0, rect.width, rect.height);
+      uiCtx.clearRect(0, 0, rect.width, rect.height);
+      drawParticles();
+
+      if (!cameraReady || !trackerReady || !handLandmarker || video.readyState < 2) return;
+      if (video.currentTime === lastVideoTime) return;
+
+      lastVideoTime = video.currentTime;
+      const results = handLandmarker.detectForVideo(video, ts);
+
+      if (results.landmarks && results.landmarks.length) {
+        const points = results.landmarks[0].map(normalizedToStage);
+        processHand(points, ts);
+      } else {
+        pinchActive = false;
+        selectedId = null;
+        renderForks();
+      }
+    }
+
+    btnStartCamera.addEventListener('click', async () => {
+      try {
+        await startCameraAndTracker();
+      } catch (err) {
+        setStatus('Falha ao iniciar');
+        log('Erro: ' + err.message);
+      }
+    });
+
+    btnEnableBeta.addEventListener('click', () => {
+      betaEnabled = !betaEnabled;
+      updateDiagnostics();
+      if (betaEnabled) {
+        setStatus(cameraReady ? 'Beta ativado' : 'Beta ativado sem câmera');
+        log(cameraReady ? 'Modo beta ativado.' : 'Modo beta ativado, mas a câmera ainda não foi iniciada.');
+      } else {
+        selectedId = null;
+        pinchActive = false;
+        renderForks();
+        setStatus(cameraReady ? 'Câmera pronta' : 'Beta desativado');
+        log('Modo beta desativado.');
+      }
+    });
+
+    btnStopCamera.addEventListener('click', stopCamera);
+    showVideo.addEventListener('change', () => {
+      video.style.display = showVideo.checked && cameraReady ? 'block' : 'none';
+    });
+
+    updateDiagnostics();
+    updatePermissionStatus();
+    resize();
+    renderForks();
+    loop();
+    window.addEventListener('resize', resize);
+    log('Página carregada. Agora o tracking é real.');
+  </script>
+</body>
+</html>

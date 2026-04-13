@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useCallback, useState } from 'react';
 import ForceGraph3D from 'react-force-graph-3d';
 import * as THREE from 'three';
 import type { GraphNode, GraphEdge } from '../api';
-import { getHeatmapColor, hotspotColorScale, getTypeColor } from '../utils/graphColors';
+import { getHeatmapColor, hotspotColorScale } from '../utils/graphColors';
 import { getRiskColor, getNodeSize, getBrightness, shouldPulse, applyBrightness } from '../utils/visualEncoding';
 import { WaveAnimationManager } from '../utils/WaveAnimationManager';
 
@@ -27,6 +27,27 @@ interface GraphCanvas3DProps {
         affectedNodes: string[];
         timestamp: number;
     } | null;
+    gestureCursor?: { x: number; y: number; active: boolean };
+    gestureCommand?: {
+        type:
+            | 'select'
+            | 'drag'
+            | 'pan'
+            | 'zoom_in'
+            | 'zoom_out'
+            | 'fit_view'
+            | 'expand_all_clusters'
+            | 'collapse_all_clusters'
+            | 'deselect'
+            | 'pause'
+            | 'resume';
+        x?: number;
+        y?: number;
+        dx?: number;
+        dy?: number;
+        timestamp: number;
+    } | null;
+    onClearSelection?: () => void;
 }
 
 type ClusterNode = {
@@ -104,17 +125,23 @@ export default function GraphCanvas3D({
     focusRequestId,
     recentChanges: externalRecentChanges,
     waveAnimationTrigger,
+    gestureCursor,
+    gestureCommand,
+    onClearSelection,
 }: GraphCanvas3DProps) {
     const fgRef = useRef<any>(null);
     const pulseMeshes = useRef(new Map<string, THREE.Mesh>());
     const clusterBubbleRefs = useRef<THREE.Object3D[]>([]);
     
     // Track recent changes internally if not provided externally
-    const [internalRecentChanges, setInternalRecentChanges] = useState<Map<string, number>>(new Map());
+    const [internalRecentChanges] = useState<Map<string, number>>(new Map());
     const recentChanges = externalRecentChanges ?? internalRecentChanges;
     
     // NEW: Wave animation manager
     const waveManagerRef = useRef<WaveAnimationManager | null>(null);
+    const [gesturePaused, setGesturePaused] = useState(false);
+    const lastGestureTimestampRef = useRef(0);
+    const orbitTargetRef = useRef<{ x: number; y: number; z: number }>({ x: 0, y: 0, z: 0 });
     
     // Initialize wave animation manager
     useEffect(() => {
@@ -319,7 +346,7 @@ export default function GraphCanvas3D({
         const interval = setInterval(() => {
             // Check if any nodes need brightness update
             let needsUpdate = false;
-            recentChanges.forEach((timestamp, nodeKey) => {
+            recentChanges.forEach((timestamp) => {
                 const elapsed = Date.now() - timestamp;
                 if (elapsed < 10000) {
                     needsUpdate = true;
@@ -432,6 +459,7 @@ export default function GraphCanvas3D({
                     y: start.y + (end.y - start.y) * eased,
                     z: start.z + (end.z - start.z) * eased,
                 };
+                orbitTargetRef.current = { x: target.x ?? 0, y: target.y ?? 0, z: target.z ?? 0 };
                 fgRef.current.cameraPosition(next, { x: target.x ?? 0, y: target.y ?? 0, z: target.z ?? 0 }, 0);
                 if (progress < 1) {
                     frameId = requestAnimationFrame(step);
@@ -450,6 +478,135 @@ export default function GraphCanvas3D({
         const cancel = animateFocus(target);
         return cancel;
     }, [focusNodeKey, focusRequestId, graphStructure.nodes, animateFocus]);
+
+    const selectClosestNodeFromCursor = useCallback((cx: number, cy: number) => {
+        const fg = fgRef.current;
+        if (!fg) return;
+        const renderer = fg.renderer?.();
+        const camera = fg.camera?.();
+        if (!renderer || !camera || !renderer.domElement) return;
+
+        const width = renderer.domElement.clientWidth || 1;
+        const height = renderer.domElement.clientHeight || 1;
+        const targetX = Math.max(0, Math.min(1, cx)) * width;
+        const targetY = Math.max(0, Math.min(1, cy)) * height;
+
+        let best: ClusterNode | null = null;
+        let bestDistance = Number.POSITIVE_INFINITY;
+
+        for (const node of graphStructure.nodes) {
+            if (typeof node.x !== 'number' || typeof node.y !== 'number' || typeof node.z !== 'number') continue;
+            const p = new THREE.Vector3(node.x, node.y, node.z).project(camera);
+            const sx = ((p.x + 1) / 2) * width;
+            const sy = ((1 - p.y) / 2) * height;
+            const d2 = ((sx - targetX) ** 2) + ((sy - targetY) ** 2);
+            if (d2 < bestDistance) {
+                bestDistance = d2;
+                best = node;
+            }
+        }
+
+        if (best?.raw?.namespace_key) {
+            orbitTargetRef.current = { x: best.x ?? 0, y: best.y ?? 0, z: best.z ?? 0 };
+            onNodeClick(best.raw.namespace_key, best.raw);
+        }
+    }, [graphStructure.nodes, onNodeClick]);
+
+    useEffect(() => {
+        if (!gestureCommand || gestureCommand.timestamp <= lastGestureTimestampRef.current) return;
+        lastGestureTimestampRef.current = gestureCommand.timestamp;
+
+        if (gestureCommand.type === 'pause') {
+            setGesturePaused(true);
+            return;
+        }
+        if (gestureCommand.type === 'resume') {
+            setGesturePaused(false);
+            return;
+        }
+        if (gesturePaused) return;
+
+        const fg = fgRef.current;
+        if (!fg) return;
+
+        if (gestureCommand.type === 'select') {
+            const x = typeof gestureCommand.x === 'number' ? gestureCommand.x : gestureCursor?.x;
+            const y = typeof gestureCommand.y === 'number' ? gestureCommand.y : gestureCursor?.y;
+            if (typeof x === 'number' && typeof y === 'number') {
+                selectClosestNodeFromCursor(x, y);
+            }
+            return;
+        }
+
+        if (gestureCommand.type === 'drag') {
+            const cam = fg.cameraPosition();
+            const dx = Number(gestureCommand.dx || 0);
+            const dy = Number(gestureCommand.dy || 0);
+            const next = {
+                x: cam.x - dx * 0.65,
+                y: cam.y + dy * 0.65,
+                z: cam.z,
+            };
+            fg.cameraPosition(next, orbitTargetRef.current, 80);
+            return;
+        }
+
+        if (gestureCommand.type === 'pan') {
+            const cam = fg.cameraPosition();
+            const dx = Number(gestureCommand.dx || 0);
+            const dy = Number(gestureCommand.dy || 0);
+            const nextTarget = {
+                x: orbitTargetRef.current.x - dx * 0.8,
+                y: orbitTargetRef.current.y + dy * 0.8,
+                z: orbitTargetRef.current.z,
+            };
+            orbitTargetRef.current = nextTarget;
+            fg.cameraPosition(
+                {
+                    x: cam.x - dx * 0.8,
+                    y: cam.y + dy * 0.8,
+                    z: cam.z,
+                },
+                nextTarget,
+                70
+            );
+            return;
+        }
+
+        if (gestureCommand.type === 'zoom_in' || gestureCommand.type === 'zoom_out') {
+            const cam = fg.cameraPosition();
+            const t = orbitTargetRef.current;
+            const vx = t.x - cam.x;
+            const vy = t.y - cam.y;
+            const vz = t.z - cam.z;
+            const len = Math.hypot(vx, vy, vz) || 1;
+            const step = gestureCommand.type === 'zoom_in' ? 22 : -22;
+            fg.cameraPosition(
+                {
+                    x: cam.x + (vx / len) * step,
+                    y: cam.y + (vy / len) * step,
+                    z: cam.z + (vz / len) * step,
+                },
+                t,
+                90
+            );
+            return;
+        }
+
+        if (gestureCommand.type === 'fit_view') {
+            if (typeof fg.zoomToFit === 'function') {
+                fg.zoomToFit(500, 40);
+            } else {
+                fg.cameraPosition({ x: 0, y: 120, z: 420 }, { x: 0, y: 0, z: 0 }, 450);
+            }
+            orbitTargetRef.current = { x: 0, y: 0, z: 0 };
+            return;
+        }
+
+        if (gestureCommand.type === 'deselect') {
+            onClearSelection?.();
+        }
+    }, [gestureCommand, gestureCursor?.x, gestureCursor?.y, gesturePaused, onClearSelection, selectClosestNodeFromCursor]);
 
     return (
         <div style={{ width: '100%', height: '100%' }}>

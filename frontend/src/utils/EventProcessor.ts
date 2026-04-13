@@ -12,8 +12,8 @@
 type EventHandler = (...args: any[]) => void;
 
 export class EventProcessor {
-  private debounceTimers: Map<string, NodeJS.Timeout> = new Map();
-  private throttleTimers: Map<string, NodeJS.Timeout> = new Map();
+  private debounceTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
+  private throttleTimers: Map<string, ReturnType<typeof setTimeout>> = new Map();
   private throttleLastCall: Map<string, number> = new Map();
 
   /**

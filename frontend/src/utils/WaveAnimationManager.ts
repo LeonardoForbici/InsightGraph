@@ -279,9 +279,6 @@ export class WaveAnimationManager {
     const elapsed = Date.now() - state.startTime;
     const progress = Math.min(1, elapsed / state.duration);
     
-    // Ease in-out animation: 1.0 -> 1.3 -> 1.0
-    const eased = this.easeInOutQuad(progress);
-    
     // Scale up then down
     let scale: number;
     if (progress < 0.5) {
@@ -339,7 +336,7 @@ export class WaveAnimationManager {
    * @param t - Progress [0, 1]
    * @returns Eased value [0, 1]
    */
-  private easeInOutQuad(t: number): number {
+  protected easeInOutQuad(t: number): number {
     return t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t;
   }
   

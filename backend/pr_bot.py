@@ -2,7 +2,8 @@
 PR Bot — InsightGraph GitHub Actions integration.
 
 Analyzes Pull Requests by calling the InsightGraph backend API and posting
-a structured comment with impact score, affected services, and antipatterns.
+a structured comment with impact score, affected services, antipatterns,
+and an LLM-generated plain-language explanation.
 
 Usage (via GitHub Actions):
     python backend/pr_bot.py
@@ -13,6 +14,8 @@ Environment variables:
     GITHUB_REPOSITORY  — Repository in "owner/repo" format
     PR_NUMBER          — Pull Request number
     CHANGED_FILES      — Space-separated list of changed file paths
+    OLLAMA_URL         — Ollama base URL for LLM explanation (default: http://localhost:11434)
+    OLLAMA_CHAT_MODEL  — Model to use for explanation (default: qwen3.5:4b)
 """
 
 from __future__ import annotations
@@ -84,10 +87,19 @@ class PRBot:
       6. POST or PATCH the PR comment (upsert)
     """
 
-    def __init__(self, api_url: str, github_token: str, repo: str):
+    def __init__(
+        self,
+        api_url: str,
+        github_token: str,
+        repo: str,
+        ollama_url: str = "http://localhost:11434",
+        ollama_model: str = "qwen3.5:4b",
+    ):
         self.api_url = api_url.rstrip("/")
         self.github_token = github_token
         self.repo = repo  # "owner/repo"
+        self._ollama_url = ollama_url.rstrip("/")
+        self._ollama_model = ollama_model
 
     # ──────────────────────────────────────────────
     # Public API
@@ -121,10 +133,15 @@ class PRBot:
         # 4. Score
         score = await self.compute_impact_score(affected_set, antipatterns)
 
-        # 5. Build comment body
-        body = self._build_comment_body(score, affected_set, antipatterns)
+        # 5. LLM explanation — plain language summary of the PR impact
+        llm_explanation = await self._generate_llm_explanation(
+            changed_files, affected_set, antipatterns, score
+        )
 
-        # 6. Upsert comment
+        # 6. Build comment body
+        body = self._build_comment_body(score, affected_set, antipatterns, llm_explanation)
+
+        # 7. Upsert comment
         await self.post_or_update_comment(pr_number, body)
 
         return PRComment(
@@ -133,6 +150,61 @@ class PRBot:
             antipatterns=antipatterns,
             body=body,
         )
+
+    async def _generate_llm_explanation(
+        self,
+        changed_files: list[str],
+        affected_set: AffectedSet,
+        antipatterns: dict,
+        score: int,
+    ) -> str:
+        """
+        Ask the local LLM to explain the PR impact in plain language.
+        Returns empty string if LLM is unavailable (non-fatal).
+        """
+        antipattern_list = []
+        for category, items in antipatterns.items():
+            if isinstance(items, list) and items:
+                antipattern_list.append(f"{category.replace('_', ' ')}: {len(items)} instance(s)")
+
+        affected_names = [
+            item.get("name") or item.get("namespace_key", "unknown")
+            for item in affected_set.items[:10]
+        ]
+
+        prompt = f"""You are a senior software architect reviewing a Pull Request.
+
+Changed files ({len(changed_files)}):
+{chr(10).join(f'  - {f}' for f in changed_files[:15])}
+
+Impact analysis:
+  - Impact score: {score}/100
+  - Affected services/modules ({affected_set.affected_count}): {', '.join(affected_names) or 'none'}
+  - Max propagation depth: {affected_set.max_depth}
+
+Antipatterns detected:
+{chr(10).join(f'  - {a}' for a in antipattern_list) or '  - none'}
+
+Write a concise 2-3 sentence explanation of this PR's architectural impact in plain language.
+Focus on: what changed, what is at risk, and one specific recommendation.
+Be direct. No markdown. No bullet points. Write as if speaking to the PR author."""
+
+        try:
+            async with httpx.AsyncClient(timeout=45.0) as client:
+                resp = await client.post(
+                    f"{self._ollama_url}/api/generate",
+                    json={
+                        "model": self._ollama_model,
+                        "prompt": prompt,
+                        "stream": False,
+                        "options": {"temperature": 0.2, "num_predict": 200},
+                    },
+                )
+                resp.raise_for_status()
+                return resp.json().get("response", "").strip()
+        except Exception as exc:
+            logger.debug("LLM explanation unavailable: %s", exc)
+            return ""
 
     async def compute_impact_score(
         self, affected_set: AffectedSet, antipatterns: dict
@@ -280,9 +352,15 @@ class PRBot:
         score: int,
         affected_set: AffectedSet,
         antipatterns: dict,
+        llm_explanation: str = "",
     ) -> str:
         """Build the markdown body for the PR comment."""
         lines: list[str] = [BOT_MARKER, "## 🔍 InsightGraph — Impact Analysis", ""]
+
+        # LLM plain-language summary at the top
+        if llm_explanation:
+            lines.append(f"> {llm_explanation}")
+            lines.append("")
 
         # Score badge
         badge_color = "brightgreen" if score < 40 else ("yellow" if score < 70 else "red")
@@ -461,7 +539,15 @@ def main() -> None:
         logger.warning("No changed files provided — skipping analysis")
         sys.exit(0)
 
-    bot = PRBot(api_url=api_url, github_token=github_token, repo=repo)
+    ollama_url   = os.environ.get("OLLAMA_URL", "http://localhost:11434")
+    ollama_model = os.environ.get("OLLAMA_CHAT_MODEL", "qwen3.5:4b")
+    bot = PRBot(
+        api_url=api_url,
+        github_token=github_token,
+        repo=repo,
+        ollama_url=ollama_url,
+        ollama_model=ollama_model,
+    )
     asyncio.run(_run_with_error_handling(bot, pr_number, changed_files))
 
 

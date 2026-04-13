@@ -12,6 +12,7 @@ import sys
 import json
 import re
 import asyncio
+import base64
 import logging
 import datetime
 import argparse
@@ -23,16 +24,29 @@ import time
 import uuid
 import shutil
 import tempfile
+import hashlib
 from dataclasses import asdict
 from pathlib import Path
-from typing import Iterable, List, Literal, Optional, Set
+from typing import Callable, Iterable, List, Literal, Optional, Set
 from contextlib import asynccontextmanager
 from collections import Counter, defaultdict, deque
 import xml.etree.ElementTree as ET
 import numpy as np
+from urllib.parse import parse_qs
 
 import httpx
-from fastapi import FastAPI, HTTPException, BackgroundTasks, Query, Header, Request
+from fastapi import (
+    FastAPI,
+    HTTPException,
+    BackgroundTasks,
+    Query,
+    Header,
+    Request,
+    WebSocket,
+    WebSocketDisconnect,
+    status,
+)
+from starlette.types import ASGIApp, Receive, Scope, Send
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, PlainTextResponse, StreamingResponse, Response
 from pydantic import BaseModel, Field
@@ -61,10 +75,15 @@ from contract_break_detector import ContractBreakDetector
 from data_flow_tracker import DataFlowTracker
 from deep_parser import DeepParser
 from fragility_calculator import FragilityCalculator
-from impact_engine import ChangeDescriptor, ImpactEngine
+from impact_engine import ChangeDescriptor, ImpactEngine, PredictiveImpactEngine
 from semantic_analyzer import SemanticAnalyzer
 from side_effect_detector import SideEffectDetector
 from symbol_resolver import SymbolResolver
+from scanner_orchestrator import (
+    ScannerOrchestrator,
+    GitHubConfig as OrchestratorGitHubConfig,
+    ScanProgress as OrchestratorScanProgress,
+)
 from taint_propagator import TaintPropagator
 from state import AppState
 from state_store import LocalStateStore
@@ -75,11 +94,44 @@ from rag_store import RagStore
 from temporal_analyzer import TemporalAnalyzer
 from audit_job import AuditJob
 from event_stream import EventStream, SSEEvent
+from event_engine import EventEngine
+from alert_engine import AlertEngine
+from cicd_store import CICDStore
+from cicd_integrator import CICDIntegrator
+from weekly_digest import WeeklyDigestGenerator
+from git_poller import GitPoller
+from watch_service import WatchService
+from metrics_collector import metrics_collector
+from collaboration_manager import CollaborationManager
+from chat_manager import ChatManager
+from auto_healer import AutoHealer
+from config_parser import ConfigParser
+from auth import (
+    validate_jwt,
+    generate_jwt,
+    create_refresh_token,
+    consume_refresh_token,
+    JWT_EXPIRATION_SECONDS,
+)
+from impact_propagator import ImpactPropagator
+from monitoring import MetricsMiddleware, metrics_response
+from prediction_engine import PredictionEngine
+from redis_client import get_redis_client, init_redis, close_redis
+from websocket_manager import BroadcastEvent, WebSocketManager
+from logging_setup import configure_logging, CorrelationIdMiddleware
+from mediapipe_handler import MediaPipeHandler
+from gesture_recognizer import GestureRecognizer
+from local_scanner import (
+    SKIP_DIRS_DEFAULT,
+    SUPPORTED_EXTENSIONS_DEFAULT,
+    count_supported_files,
+    should_report_progress,
+)
 
 # Module-level analysis runtime (initialized in lifespan)
 intelligence_engine: Optional[IntelligenceEngine] = None
 
-logging.basicConfig(level=logging.INFO)
+configure_logging()
 logger = logging.getLogger("insightgraph")
 
 # ──────────────────────────────────────────────
@@ -142,6 +194,13 @@ RAG_STORE_FILE = Path(os.getenv("RAG_STORE_FILE", "rag_store.db"))
 QUALITY_HISTORY_FILE = Path(os.getenv("QUALITY_HISTORY_FILE", "quality_gate_history.json"))
 QUALITY_HISTORY_LIMIT = int(os.getenv("QUALITY_HISTORY_LIMIT", "20"))
 STATE_DB_FILE = Path(os.getenv("STATE_DB_FILE", "insightgraph_state.db"))
+CONFIG_FILE = Path(os.getenv("INSIGHTGRAPH_CONFIG_FILE", "insightgraph.config.yaml"))
+CONFIG_SCHEMA_FILE = Path(
+    os.getenv(
+        "INSIGHTGRAPH_CONFIG_SCHEMA",
+        str((Path(__file__).resolve().parent.parent / "config.schema.json")),
+    )
+)
 OLLAMA_FORCE_GPU = os.getenv("OLLAMA_FORCE_GPU", "0").lower() in ("1", "true", "yes", "on")
 OLLAMA_NUM_GPU = int(os.getenv("OLLAMA_NUM_GPU", "999") or "999")
 # Task 12.4 — Multi-tenant support: optional tenant ID for data isolation
@@ -151,6 +210,32 @@ state_store = LocalStateStore(str(STATE_DB_FILE))
 rag_store = RagStore(RAG_STORE_FILE)
 temporal_analyzer = TemporalAnalyzer(state_store)
 audit_job = AuditJob(state_store)
+redis_client = get_redis_client()
+websocket_manager = WebSocketManager()
+prediction_engine = PredictionEngine()
+cicd_integrator = CICDIntegrator()
+cicd_store = CICDStore()
+impact_propagator: Optional[ImpactPropagator] = None
+collaboration_manager: Optional[CollaborationManager] = None
+chat_manager: Optional[ChatManager] = None
+auto_healer: Optional[AutoHealer] = None
+config_parser: Optional[ConfigParser] = None
+
+# Fase 2 — Event Engine (initialized after event_stream is created)
+GITHUB_WEBHOOK_SECRET = os.getenv("GITHUB_WEBHOOK_SECRET", None)
+GITHUB_TOKEN          = os.getenv("GITHUB_TOKEN", None)
+GITHUB_REPOSITORY     = os.getenv("GITHUB_REPOSITORY", None)
+SLACK_WEBHOOK_URL     = os.getenv("SLACK_WEBHOOK_URL", None)
+POLLER_PROJECT_PATH   = os.getenv("POLLER_PROJECT_PATH", None)
+POLLER_INTERVAL_SECS  = int(os.getenv("POLLER_INTERVAL_SECONDS", "60"))
+
+# event_stream is created further below; event_engine and alert_engine
+# are initialized in lifespan after event_stream is ready.
+event_engine: Optional[EventEngine] = None
+alert_engine: Optional[AlertEngine] = None
+weekly_digest_generator: Optional[WeeklyDigestGenerator] = None
+git_poller: Optional[GitPoller] = None
+
 TEMPLATES_DIR = Path(__file__).resolve().parent / "templates" / "reports"
 REPORT_ENV = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)))
 REPORTS_OUTPUT_DIR = Path(os.getenv("REPORTS_OUTPUT_DIR", "./reports"))
@@ -177,6 +262,59 @@ if REPORT_GENERATOR_AVAILABLE:
 # ──────────────────────────────────────────────
 # FastAPI App
 # ──────────────────────────────────────────────
+class WebSocketAuthMiddleware:
+    """ASGI middleware that enforces JWT validation on /ws connections."""
+
+    def __init__(self, app: ASGIApp):
+        self.app = app
+
+    @staticmethod
+    def _extract_token(scope: Scope) -> str | None:
+        query = scope.get("query_string", b"").decode("utf-8", errors="ignore")
+        params = parse_qs(query)
+        token = params.get("token", [])
+        if token:
+            return token[0]
+
+        headers = scope.get("headers", [])
+        for name, value in headers:
+            if name.lower() == b"authorization":
+                auth = value.decode("utf-8", errors="ignore")
+                if auth.lower().startswith("bearer "):
+                    return auth.split(" ", 1)[1]
+        return None
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "websocket" or scope.get("path") != "/ws":
+            await self.app(scope, receive, send)
+            return
+
+        token = self._extract_token(scope)
+        if not token:
+            await send(
+                {
+                    "type": "websocket.close",
+                    "code": status.WS_1008_POLICY_VIOLATION,
+                    "reason": "Missing authentication token",
+                }
+            )
+            return
+
+        claims = validate_jwt(token)
+        if not claims:
+            await send(
+                {
+                    "type": "websocket.close",
+                    "code": status.WS_1008_POLICY_VIOLATION,
+                    "reason": "Invalid or expired authentication token",
+                }
+            )
+            return
+
+        scope["auth_claims"] = claims
+        await self.app(scope, receive, send)
+
+
 @asynccontextmanager
 async def lifespan(application):
     """Connect to Neo4j on startup (non-fatal if unavailable)."""
@@ -191,6 +329,12 @@ async def lifespan(application):
         logger.info("RAG store initialized at %s", RAG_STORE_FILE)
     except Exception as e:
         logger.warning("RAG store initialization failed: %s", e)
+
+    redis_ready = await init_redis()
+    if redis_ready:
+        logger.info("Redis client connected")
+    else:
+        logger.warning("Redis unavailable at startup; real-time features degraded")
 
     try:
         if neo4j_service.connect():
@@ -230,17 +374,105 @@ async def lifespan(application):
     # Start periodic audit job
     audit_task = asyncio.create_task(_periodic_audit_job())
     logger.info("Periodic audit job started (30-minute interval)")
-    
+
     # Start EventStream broadcast loop
     event_stream.start_broadcast_loop()
     logger.info("EventStream broadcast loop started")
-    
+
+    global impact_propagator
+    if impact_propagator is None:
+        impact_propagator = ImpactPropagator(
+            impact_engine_factory=_create_impact_engine,
+            websocket_manager=websocket_manager,
+            redis_client=get_redis_client(),
+            batch_window_ms=100,
+        )
+    await websocket_manager.start_heartbeat()
+    logger.info(
+        "WebSocket manager heartbeat started (interval=%ds)",
+        websocket_manager.heartbeat_interval,
+    )
+
+    # Fase 2 — Initialize EventEngine
+    global event_engine, alert_engine, weekly_digest_generator
+    event_engine = EventEngine(
+        api_url=f"http://localhost:{os.getenv('PORT', '8000')}",
+        webhook_secret=GITHUB_WEBHOOK_SECRET,
+        github_token=GITHUB_TOKEN,
+        github_repo=GITHUB_REPOSITORY,
+        impact_propagator=impact_propagator,
+    )
+    event_engine.start()
+    logger.info("EventEngine started")
+
+    # Fase 3 — Initialize AlertEngine
+    alert_engine = AlertEngine(
+        state_store=state_store,
+        event_stream=event_stream,
+        slack_webhook_url=SLACK_WEBHOOK_URL,
+    )
+    logger.info("AlertEngine initialized (Slack=%s)", "enabled" if SLACK_WEBHOOK_URL else "disabled")
+
+    # Fase 4 — Initialize WeeklyDigestGenerator
+    weekly_digest_generator = WeeklyDigestGenerator(
+        state_store=state_store,
+        ollama_url=OLLAMA_URL,
+        ollama_model=OLLAMA_CHAT_MODEL,
+    )
+    logger.info("WeeklyDigestGenerator initialized")
+
+    global collaboration_manager, chat_manager, auto_healer, config_parser
+    collaboration_manager = CollaborationManager(
+        state_store=state_store,
+        redis_client=get_redis_client(),
+    )
+    chat_manager = ChatManager(state_store=state_store)
+    auto_healer = AutoHealer(
+        state_store=state_store,
+        ollama_url=OLLAMA_URL,
+        model=OLLAMA_CHAT_MODEL,
+    )
+    if CONFIG_SCHEMA_FILE.exists():
+        config_parser = ConfigParser(CONFIG_SCHEMA_FILE)
+    else:
+        logger.warning("Config schema file not found at %s", CONFIG_SCHEMA_FILE)
+        config_parser = None
+
+    # Automação — Initialize GitPoller
+    global git_poller
+    git_poller = GitPoller(
+        project_path=POLLER_PROJECT_PATH,
+        interval_seconds=POLLER_INTERVAL_SECS,
+        state_store=state_store,
+        scan_callback=lambda paths, commit: asyncio.create_task(run_scan(paths, commit)),
+    )
+    poller_task = asyncio.create_task(git_poller.run())
+    logger.info("GitPoller started (interval=%ds, path=%s)", POLLER_INTERVAL_SECS, git_poller._project_path)
+
     yield
-    
+
+    # Stop GitPoller
+    if git_poller:
+        git_poller.stop()
+        try:
+            await poller_task
+        except asyncio.CancelledError:
+            pass
+        logger.info("GitPoller stopped")
+
+    # Stop EventEngine
+    if event_engine:
+        await event_engine.stop()
+        logger.info("EventEngine stopped")
+
     # Stop EventStream broadcast loop on shutdown
     await event_stream.stop_broadcast_loop()
     logger.info("EventStream broadcast loop stopped")
-    
+
+    await websocket_manager.stop_heartbeat()
+    logger.info("WebSocket manager heartbeat stopped")
+    await close_redis()
+
     # Cancel periodic audit job on shutdown
     audit_task.cancel()
     try:
@@ -290,6 +522,10 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+app.add_middleware(WebSocketAuthMiddleware)
+app.add_middleware(CorrelationIdMiddleware)
+app.add_middleware(MetricsMiddleware)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -298,14 +534,78 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+
+@app.get("/api/metrics/pulse")
+async def get_metrics_pulse():
+    return await metrics_collector.get_pulse_metrics()
+
+
+@app.get("/metrics")
+async def prometheus_metrics():
+    return metrics_response()
+
+
+class AuthTokenRequest(BaseModel):
+    user_id: str
+    roles: list[str] = []
+
+
+class AuthRefreshRequest(BaseModel):
+    refresh_token: str
+
+
+class AuthTokenResponse(BaseModel):
+    access_token: str
+    refresh_token: str
+    expires_in: int
+
+
+@app.post("/api/auth/token", response_model=AuthTokenResponse)
+async def issue_auth_token(payload: AuthTokenRequest):
+    access_token = generate_jwt(payload.user_id, payload.roles)
+    refresh_token = await create_refresh_token(payload.user_id, payload.roles)
+    return AuthTokenResponse(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        expires_in=JWT_EXPIRATION_SECONDS,
+    )
+
+
+@app.post("/api/auth/refresh", response_model=AuthTokenResponse)
+async def refresh_auth_token(payload: AuthRefreshRequest):
+    token_data = await consume_refresh_token(payload.refresh_token)
+    if not token_data or not token_data.get("user_id"):
+        raise HTTPException(status_code=401, detail="Invalid refresh token")
+
+    user_id = token_data["user_id"]
+    roles = token_data.get("roles") or []
+    access_token = generate_jwt(user_id, roles)
+    refresh_token = await create_refresh_token(user_id, roles)
+    return AuthTokenResponse(
+        access_token=access_token,
+        refresh_token=refresh_token,
+        expires_in=JWT_EXPIRATION_SECONDS,
+    )
+
 # ──────────────────────────────────────────────
 # Pydantic Models
 # ──────────────────────────────────────────────
+class GitHubScanConfig(BaseModel):
+    repository: str
+    branch: str = "main"
+    token: str | None = None
+    shallow_clone: bool = True
+
 class ScanRequest(BaseModel):
-    paths: list[str]
+    mode: Literal["local", "github"] = "local"
+    paths: list[str] = Field(default_factory=list)
+    github_config: GitHubScanConfig | None = None
+    triggered_by: str = "manual"   # "manual" | "post-commit" | "ci" | "watch"
+    commit_hash: str | None = None  # override git auto-detection when provided
 
 class ScanStatus(BaseModel):
     status: str
+    scan_id: str | None = None
     scanned_files: int = 0
     total_files: int = 0
     total_nodes: int = 0
@@ -465,6 +765,7 @@ class ComplexityTrendResponse(BaseModel):
 
 class HealthStatus(BaseModel):
     neo4j: str = "disconnected"
+    redis: str = "unknown"
     ollama_scanner: str = "unknown"
     ollama_chat: str = "unknown"
     ollama_embed: str = "unknown"
@@ -521,6 +822,69 @@ class AnnotationUpdateRequest(BaseModel):
     tag_color: str | None = None
 
 
+class WarRoomCreateRequest(BaseModel):
+    session_id: str | None = None
+    user_id: str
+
+
+class WarRoomJoinRequest(BaseModel):
+    user_id: str
+    session_id: str
+
+
+class CursorBroadcastRequest(BaseModel):
+    user_id: str
+    session_id: str
+    position: dict
+    selected_node: str | None = None
+
+
+class NodeSelectionRequest(BaseModel):
+    user_id: str
+    session_id: str
+    node_key: str
+
+
+class CollaborationAnnotationRequest(BaseModel):
+    session_id: str
+    node_key: str
+    text: str
+    user_id: str
+    visibility: Literal["public", "private"] = "public"
+
+
+class ChatMessageRequest(BaseModel):
+    session_id: str
+    user_id: str
+    text: str
+    context: dict = Field(default_factory=dict)
+
+
+class AutoHealerPatternRequest(BaseModel):
+    changes: list[dict] = Field(default_factory=list)
+    commit_history: list[dict] = Field(default_factory=list)
+    pr_history: list[dict] = Field(default_factory=list)
+
+
+class AutoHealerGenerateTestsRequest(BaseModel):
+    fragility_point: dict
+
+
+class AutoHealerRefactorRequest(BaseModel):
+    node_profile: dict
+
+
+class AutoHealerDocUpdateRequest(BaseModel):
+    changed_docs: list[dict] = Field(default_factory=list)
+
+
+class RuntimeConfigRequest(BaseModel):
+    format: Literal["yaml", "json"] = "yaml"
+    content: str
+    created_by: str | None = None
+    source: str | None = None
+
+
 class ArchitecturalDecisionRequest(BaseModel):
     node_key: str
     decision_type: Literal["aceito", "excecao", "padrao_valido"]
@@ -529,6 +893,9 @@ class ArchitecturalDecisionRequest(BaseModel):
 
 # Global state built on AppState
 app_state = AppState.instance()
+scanner_orchestrator = ScannerOrchestrator()
+mediapipe_handler = MediaPipeHandler(min_detection_confidence=0.7, min_tracking_confidence=0.7)
+gesture_recognizer = GestureRecognizer(debounce_ms=100)
 scan_state = app_state.scan_status
 ai_semaphore = app_state.ai_semaphore
 scan_lock = app_state.scan_lock
@@ -2702,24 +3069,18 @@ async def ask_complex_ai(prompt_text: str) -> str:
 # ──────────────────────────────────────────────
 # Project Scanner
 # ──────────────────────────────────────────────
-SKIP_DIRS = {
-    "node_modules", ".git", "__pycache__", ".gradle", "build", "dist",
-    ".idea", ".vscode", "target", "bin", ".next", "venv", "env",
-}
+SKIP_DIRS = set(SKIP_DIRS_DEFAULT)
 
-SUPPORTED_EXTENSIONS = {".java", ".ts", ".tsx", ".sql", ".prc", ".fnc", ".pkg"}
+SUPPORTED_EXTENSIONS = set(SUPPORTED_EXTENSIONS_DEFAULT)
 
 
 def _count_files(project_path: str) -> int:
     """Count all supported files in a project for progress tracking."""
-    count = 0
-    for root_dir, dirs, files in os.walk(project_path):
-        dirs[:] = [d for d in dirs if d not in SKIP_DIRS]
-        for file_name in files:
-            ext = os.path.splitext(file_name)[1].lower()
-            if ext in SUPPORTED_EXTENSIONS:
-                count += 1
-    return count
+    return count_supported_files(
+        project_path,
+        skip_dirs=SKIP_DIRS,
+        supported_extensions=SUPPORTED_EXTENSIONS,
+    )
 
 
 def _normalize_route(route: str) -> str:
@@ -3397,7 +3758,10 @@ def _apply_git_hotspots(entities: dict, project_path: str) -> None:
         node["hotspot_score"] = round(hotspot_score, 2)
 
 
-async def scan_project(project_path: str) -> dict:
+async def scan_project(
+    project_path: str,
+    progress_callback: Optional[Callable[[OrchestratorScanProgress], None]] = None,
+) -> dict:
     """Walk a project directory and parse all supported files."""
     global scan_state, scanned_projects
     project_path = os.path.normpath(project_path)
@@ -3471,6 +3835,26 @@ async def scan_project(project_path: str) -> dict:
                         (scan_state.scanned_files / scan_state.total_files) * 100, 1
                     )
 
+                if progress_callback and should_report_progress(
+                    scan_state.scanned_files,
+                    scan_state.total_files,
+                    every=10,
+                ):
+                    try:
+                        progress_callback(
+                            OrchestratorScanProgress(
+                                scanned_files=scan_state.scanned_files,
+                                total_files=scan_state.total_files,
+                                total_nodes=scan_state.total_nodes + len(all_entities["nodes"]),
+                                total_relationships=scan_state.total_relationships + len(all_entities["relationships"]),
+                                progress_percent=scan_state.progress_percent,
+                                current_file=scan_state.current_file,
+                                errors=list(scan_state.errors),
+                            )
+                        )
+                    except Exception as cb_err:
+                        logger.debug("progress_callback failed: %s", cb_err)
+
             except Exception as e:
                 error_msg = f"Error parsing {file_path}: {e}"
                 logger.error(error_msg)
@@ -3509,6 +3893,17 @@ async def ingest_to_neo4j(entities: dict) -> None:
     """Persist parsed entities into Neo4j (if connected) and always into memory."""
     global scan_state, memory_nodes, memory_edges
 
+    pending_nodes: list[tuple[str, str, dict]] = []
+
+    def _flush_nodes() -> None:
+        if not neo4j_service.is_connected or not pending_nodes:
+            return
+        for label, namespace_key, node_props in pending_nodes:
+            try:
+                neo4j_service.merge_node(label, namespace_key, node_props)
+            except Exception as e:
+                logger.error("Failed to merge node %s: %s", namespace_key, e)
+
     for node in entities["nodes"]:
         label = node.pop("label")
         ns_key = node["namespace_key"]
@@ -3520,13 +3915,16 @@ async def ingest_to_neo4j(entities: dict) -> None:
         # Always store in memory
         memory_nodes.append({**node, "labels": [label, "Entity"]})
 
-        # Try Neo4j if connected
-        if neo4j_service.is_connected:
-            try:
-                neo4j_service.merge_node(label, ns_key, node)
-            except Exception as e:
-                logger.error("Failed to merge node %s: %s", ns_key, e)
+        # Batch Neo4j node writes to reduce overhead.
+        pending_nodes.append((label, ns_key, node))
+        if len(pending_nodes) >= 50:
+            _flush_nodes()
+            pending_nodes.clear()
         scan_state.total_nodes += 1
+
+    if pending_nodes:
+        _flush_nodes()
+        pending_nodes.clear()
 
     for rel in entities["relationships"]:
         # Handle IMPORTS separately - create external dependency node
@@ -3575,6 +3973,7 @@ async def ingest_to_neo4j(entities: dict) -> None:
 def _prepare_scan_status() -> None:
     """Reset the shared scan status object before a new run."""
     scan_state.status = "scanning"
+    scan_state.scan_id = str(uuid.uuid4())
     scan_state.scanned_files = 0
     scan_state.total_files = 0
     scan_state.total_nodes = 0
@@ -3584,7 +3983,11 @@ def _prepare_scan_status() -> None:
     scan_state.errors.clear()
 
 
-async def run_scan(paths: list[str]):
+async def run_scan(
+    paths: list[str],
+    override_commit_hash: str | None = None,
+    progress_callback: Optional[Callable[[OrchestratorScanProgress], None]] = None,
+):
     """Background task to scan all projects."""
     global scan_state, memory_nodes, memory_edges
     async with scan_lock:
@@ -3603,8 +4006,23 @@ async def run_scan(paths: list[str]):
 
             for project_path in paths:
                 logger.info("Scanning project: %s", project_path)
-                entities = await scan_project(project_path)
+                entities = await scan_project(project_path, progress_callback=progress_callback)
                 await ingest_to_neo4j(entities)
+                if progress_callback:
+                    try:
+                        progress_callback(
+                            OrchestratorScanProgress(
+                                scanned_files=scan_state.scanned_files,
+                                total_files=scan_state.total_files,
+                                total_nodes=scan_state.total_nodes,
+                                total_relationships=scan_state.total_relationships,
+                                progress_percent=scan_state.progress_percent,
+                                current_file=scan_state.current_file,
+                                errors=list(scan_state.errors),
+                            )
+                        )
+                    except Exception as cb_err:
+                        logger.debug("progress_callback failed: %s", cb_err)
 
             scan_state.status = "completed"
             scan_state.progress_percent = 100.0
@@ -3620,6 +4038,20 @@ async def run_scan(paths: list[str]):
                 scan_state.total_nodes,
                 scan_state.total_relationships,
             )
+            try:
+                scan_payload = {
+                    "status": scan_state.status,
+                    "scan_id": scan_state.scan_id,
+                    "scanned_files": scan_state.scanned_files,
+                    "total_files": scan_state.total_files,
+                    "total_nodes": scan_state.total_nodes,
+                    "total_relationships": scan_state.total_relationships,
+                    "errors": list(scan_state.errors),
+                }
+                await event_stream.publish(SSEEvent(type="graph_updated", payload=scan_payload, timestamp=time.time()))
+                await event_stream.publish(SSEEvent(type="scan_complete", payload=scan_payload, timestamp=time.time()))
+            except Exception as sse_err:
+                logger.debug("Failed to emit scan SSE events: %s", sse_err)
 
             try:
                 anti = await get_antipatterns()
@@ -3654,7 +4086,7 @@ async def run_scan(paths: list[str]):
             except Exception as embed_err:
                 logger.warning("Failed to persist RAG embeddings: %s", embed_err)
 
-            # Task 5.3 — non-blocking temporal snapshot
+            # Fase 1 — non-blocking temporal snapshot with git metadata + node state
             try:
                 graph_stats = {
                     "total_nodes": scan_state.total_nodes,
@@ -3666,10 +4098,36 @@ async def run_scan(paths: list[str]):
                         _compute_call_resolution_summary(top_n=1).get("resolution_rate", 0.0) or 0.0
                     ),
                 }
-                asyncio.create_task(temporal_analyzer.capture_snapshot(graph_stats))
+                git_info = _detect_git_head(paths[0] if paths else None)
+                if override_commit_hash and git_info:
+                    git_info["commit_hash"] = override_commit_hash
+                elif override_commit_hash:
+                    git_info = {"commit_hash": override_commit_hash}
+                node_snap = _snapshot_nodes(limit=500)
+                snapshot_task = asyncio.create_task(
+                    temporal_analyzer.capture_snapshot(graph_stats, git_info=git_info, node_snapshot=node_snap)
+                )
+                # Fase 3 — fire alerts after snapshot is ready
+                async def _run_alerts_after_snapshot(snap_task, stats):
+                    try:
+                        current_snap = await snap_task
+                        previous_snaps = temporal_analyzer.get_history(page=1, limit=2)
+                        items = previous_snaps.get("items", [])
+                        previous_snap = items[1] if len(items) >= 2 else None
+                        if alert_engine:
+                            await alert_engine.evaluate_scan(current_snap, previous_snap)
+                    except Exception as ae:
+                        logger.warning("Alert evaluation failed: %s", ae)
+                asyncio.create_task(_run_alerts_after_snapshot(snapshot_task, graph_stats))
             except Exception as snap_err:
                 logger.warning("Failed to schedule temporal snapshot: %s", snap_err)
 
+        except asyncio.CancelledError:
+            scan_state.status = "cancelled"
+            scan_state.current_file = ""
+            state_store.set_state("scan_status", scan_state.model_dump())
+            logger.info("Scan cancelled")
+            raise
         except Exception as e:
             scan_state.status = "error"
             scan_state.errors.append(str(e))
@@ -3678,25 +4136,91 @@ async def run_scan(paths: list[str]):
 
 
 # ──────────────────────────────────────────────
+# Wire enhanced orchestrator to the existing scan pipeline (Requirement 11.1/11.2)
+async def _orchestrator_local_scan(
+    paths: list[str],
+    progress_callback: Optional[Callable[[OrchestratorScanProgress], None]] = None,
+    override_commit_hash: str | None = None,
+) -> dict:
+    await run_scan(paths, override_commit_hash=override_commit_hash, progress_callback=progress_callback)
+    return {
+        "nodes_created": scan_state.total_nodes,
+        "relationships_created": scan_state.total_relationships,
+    }
+
+scanner_orchestrator.set_local_scan_fn(_orchestrator_local_scan)
+
 # API Endpoints
 # ──────────────────────────────────────────────
 
 
-@app.post("/api/scan", response_model=ScanStatus)
-async def trigger_scan(request: ScanRequest, background_tasks: BackgroundTasks):
-    """Start scanning the provided project paths."""
-    if scan_state.status == "scanning" or scan_lock.locked():
+@app.post("/api/scan", response_model=ScanStatus, status_code=202)
+async def trigger_scan(request: ScanRequest):
+    """Start scanning projects (local or GitHub) in a background task."""
+    if scan_state.status == "scanning" or scan_lock.locked() or scanner_orchestrator.is_scanning():
         raise HTTPException(status_code=409, detail="A scan is already in progress")
 
-    background_tasks.add_task(run_scan, request.paths)
-    _prepare_scan_status()
-    return scan_state
+    async def _run_and_sync(orchestrator_coro):
+        try:
+            result = await orchestrator_coro
+            if result.status != "completed":
+                scan_state.status = result.status
+                scan_state.current_file = ""
+                scan_state.errors.clear()
+                scan_state.errors.extend(list(result.errors or []))
+                state_store.set_state("scan_status", scan_state.model_dump())
+        except Exception as exc:
+            scan_state.status = "error"
+            scan_state.current_file = ""
+            scan_state.errors.append(str(exc))
+            state_store.set_state("scan_status", scan_state.model_dump())
+
+    if request.mode == "local":
+        if not request.paths:
+            raise HTTPException(status_code=400, detail="Local mode requires at least one path")
+        invalid = [p for p in request.paths if not os.path.isdir(p)]
+        if invalid:
+            raise HTTPException(status_code=400, detail=f"Directory not found: {invalid[0]}")
+
+        _prepare_scan_status()
+        asyncio.create_task(_run_and_sync(scanner_orchestrator.execute_scan(
+            mode="local",
+            paths=request.paths,
+            override_commit_hash=request.commit_hash,
+        )))
+        return scan_state
+
+    if request.mode == "github":
+        if not request.github_config:
+            raise HTTPException(status_code=400, detail="GitHub mode requires github_config")
+        cfg = OrchestratorGitHubConfig(
+            repository=request.github_config.repository,
+            branch=request.github_config.branch,
+            token=request.github_config.token,
+            shallow_clone=request.github_config.shallow_clone,
+        )
+        _prepare_scan_status()
+        asyncio.create_task(_run_and_sync(scanner_orchestrator.execute_scan(
+            mode="github",
+            github_config=cfg,
+            override_commit_hash=request.commit_hash,
+        )))
+        return scan_state
+
+    raise HTTPException(status_code=400, detail=f"Invalid mode: {request.mode}")
 
 
 @app.get("/api/scan/status", response_model=ScanStatus)
 async def get_scan_status():
     """Get the current scan status with progress."""
     return scan_state
+
+
+@app.post("/api/scan/cancel")
+async def cancel_scan():
+    """Cancel a running scan (best effort)."""
+    cancelled = await scanner_orchestrator.cancel_scan()
+    return {"cancelled": cancelled, "status": scan_state.status}
 
 
 # ──────────────────────────────────────────────
@@ -3722,6 +4246,632 @@ async def get_analysis_diff(from_id: str = Query(...), to_id: str = Query(...)):
 async def get_analysis_trend(metric: str = Query(...), window: int = Query(10)):
     """Return time-series for a given metric over the last *window* snapshots."""
     return temporal_analyzer.get_trend(metric, window)
+
+
+@app.get("/api/graph/diff")
+async def get_graph_diff(
+    from_commit: str = Query(..., description="Source commit hash"),
+    to_commit: str = Query(..., description="Target commit hash"),
+):
+    """
+    Fase 1 — Temporal Graph.
+
+    Compare the architecture between two commits. Returns:
+    - metrics_diff: delta in god_classes, circular_deps, coupling, etc.
+    - graph_diff: nodes added, removed, modified (with field-level changes).
+
+    Requires that both commits have been scanned (snapshots exist in the DB).
+    """
+    try:
+        return temporal_analyzer.diff_commits(from_commit, to_commit)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+
+@app.get("/api/graph/snapshots")
+async def list_graph_snapshots(page: int = 1, limit: int = 30):
+    """
+    Fase 1 — List all architecture snapshots enriched with git metadata.
+    Each snapshot includes commit_hash, branch, author, and metric summary.
+    """
+    return temporal_analyzer.get_history(page, limit)
+
+
+@app.get("/api/graph/history")
+async def get_graph_history(
+    from_ts: Optional[float] = Query(None, alias="from"),
+    to_ts: Optional[float] = Query(None, alias="to"),
+    limit: int = 200,
+):
+    """
+    Timeline 4D history endpoint.
+    Returns snapshots between timestamps plus diff against previous snapshot.
+    """
+    history = temporal_analyzer.get_history(page=1, limit=max(2, min(limit, 1000))).get("items", [])
+    history_sorted = sorted(history, key=lambda item: float(item.get("timestamp") or 0.0))
+    filtered = [
+        item
+        for item in history_sorted
+        if (from_ts is None or float(item.get("timestamp") or 0.0) >= from_ts)
+        and (to_ts is None or float(item.get("timestamp") or 0.0) <= to_ts)
+    ]
+    result: list[dict] = []
+    prev: Optional[dict] = None
+    for snap in filtered:
+        diff = {"added": [], "modified": [], "removed": [], "summary": {}}
+        if prev:
+            try:
+                diff_raw = state_store.diff_snapshot_nodes(prev["id"], snap["id"])
+                diff = {
+                    "added": diff_raw.get("added", []),
+                    "modified": [item.get("namespace_key") for item in diff_raw.get("modified", []) if item.get("namespace_key")],
+                    "removed": diff_raw.get("removed", []),
+                    "summary": diff_raw.get("summary", {}),
+                }
+            except Exception:
+                diff = {"added": [], "modified": [], "removed": [], "summary": {}}
+        result.append({**snap, "diff": diff})
+        prev = snap
+    return {
+        "items": result,
+        "count": len(result),
+        "from": from_ts,
+        "to": to_ts,
+    }
+
+
+@app.get("/api/graph/activity-heatmap")
+async def get_graph_activity_heatmap(
+    author: Optional[str] = None,
+    change_type: Optional[str] = None,
+    area: Optional[str] = None,
+):
+    """
+    Aggregate temporal change frequency by node for Timeline 4D heatmap.
+    """
+    snapshots = temporal_analyzer.get_history(page=1, limit=500).get("items", [])
+    counts: dict[str, int] = defaultdict(int)
+    last_seen: dict[str, float] = {}
+    for snap in snapshots:
+        if author and str(snap.get("author") or "") != author:
+            continue
+        if area and area not in str(snap.get("branch") or ""):
+            continue
+        snap_nodes = state_store.get_snapshot_nodes(snap["id"])
+        for node in snap_nodes:
+            if change_type and change_type.lower() not in str(node.get("node_type") or "").lower():
+                continue
+            key = node.get("namespace_key")
+            if not key:
+                continue
+            counts[key] += 1
+            last_seen[key] = max(last_seen.get(key, 0.0), float(snap.get("timestamp") or 0.0))
+    max_count = max(counts.values(), default=1)
+    items = [
+        {
+            "node_key": key,
+            "change_frequency": value,
+            "normalized_heat": round(value / max_count, 4),
+            "last_seen": last_seen.get(key),
+            "pulse": value >= max(3, int(max_count * 0.6)),
+        }
+        for key, value in counts.items()
+    ]
+    items.sort(key=lambda item: item["change_frequency"], reverse=True)
+    return {"items": items, "max_frequency": max_count}
+
+
+@app.get("/api/poller/status")
+async def get_poller_status():
+    """Automação — Return current status of the git poller."""
+    if not git_poller:
+        return {"active": False, "message": "GitPoller not initialized"}
+    return git_poller.get_status()
+
+
+@app.get("/api/graph/snapshots/{commit_hash}")
+async def get_graph_snapshot_by_commit(commit_hash: str):
+    """
+    Fase 1 — Return the snapshot captured for a specific commit.
+    Includes node-level state if available.
+    """
+    snap = temporal_analyzer.get_by_commit(commit_hash)
+    if not snap:
+        raise HTTPException(status_code=404, detail=f"No snapshot for commit: {commit_hash}")
+    nodes = state_store.get_snapshot_nodes(snap["id"])
+    return {**snap, "nodes": nodes}
+
+
+@app.post("/api/graph/snapshots/deploy")
+async def capture_deploy_snapshot(payload: dict):
+    """Fase 2 — Capture an architectural snapshot tagged as a deployment milestone."""
+    git_info = {
+        "commit_hash": payload.get("commit_hash"),
+        "branch": payload.get("environment"),
+        "author": "deploy",
+        "commit_message": f"Deploy to {payload.get('environment', 'unknown')}",
+    }
+    stats = {
+        "total_nodes": len(memory_nodes),
+        "total_edges": len(memory_edges),
+        "god_classes": 0,
+        "circular_deps": 0,
+        "dead_code": 0,
+        "call_resolution_rate": 0.0,
+    }
+    snap = await temporal_analyzer.capture_snapshot(stats, git_info=git_info)
+    return {"ok": True, "snapshot_id": snap.get("id")}
+
+
+# ──────────────────────────────────────────────
+# Fase 2 — GitHub Webhook Endpoint
+# ──────────────────────────────────────────────
+
+@app.post("/api/webhooks/github")
+async def github_webhook(request: Request):
+    """
+    Fase 2 — Receive GitHub webhook events (push, pull_request, deployment).
+
+    Setup in GitHub: Settings → Webhooks → Payload URL = https://your-host/api/webhooks/github
+    Content type: application/json
+    Secret: set GITHUB_WEBHOOK_SECRET env var
+
+    Supported events: push, pull_request, deployment, ping
+    """
+    if not event_engine:
+        raise HTTPException(status_code=503, detail="EventEngine not initialized")
+
+    raw_body = await request.body()
+    event_type = request.headers.get("X-GitHub-Event", "")
+    signature = request.headers.get("X-Hub-Signature-256", "")
+
+    try:
+        payload = json.loads(raw_body)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid JSON payload")
+
+    ok = await event_engine.enqueue_github_event(
+        event_type=event_type,
+        payload=payload,
+        raw_body=raw_body,
+        signature=signature,
+    )
+    if not ok:
+        raise HTTPException(status_code=401, detail="Invalid webhook signature")
+
+    return {"ok": True, "event": event_type}
+
+
+@app.post("/api/webhooks/local")
+async def local_webhook(payload: dict):
+    """
+    Fase 2 — Endpoint for the local post-commit hook.
+    Receives: { commit_hash, project_path }
+    """
+    if not event_engine:
+        raise HTTPException(status_code=503, detail="EventEngine not initialized")
+
+    commit_hash = payload.get("commit_hash", "")
+    project_path = payload.get("project_path", "")
+
+    if not commit_hash:
+        raise HTTPException(status_code=400, detail="commit_hash is required")
+
+    await event_engine.enqueue_local_push(commit_hash=commit_hash, project_path=project_path)
+    return {"ok": True, "commit_hash": commit_hash}
+
+
+# ──────────────────────────────────────────────
+# Fase 3 — Alert System Endpoints
+# ──────────────────────────────────────────────
+
+def _map_failed_files_to_nodes(failed_files: list[str]) -> list[str]:
+    if not failed_files:
+        return []
+    keys: list[str] = []
+    for node in memory_nodes:
+        node_key = node.get("namespace_key")
+        node_file = str(node.get("file") or "").replace("\\", "/")
+        if not node_key or not node_file:
+            continue
+        for failed in failed_files:
+            normalized = failed.replace("\\", "/").strip()
+            if normalized and (node_file.endswith(normalized) or normalized.endswith(node_file)):
+                keys.append(node_key)
+                break
+    return list(dict.fromkeys(keys))
+
+
+def _apply_cicd_status_to_memory(build_record: dict) -> None:
+    failed_nodes = set(build_record.get("failed_nodes") or [])
+    failed_files = build_record.get("failed_files") or []
+    failed_stack = build_record.get("stack_trace")
+    commit_hash = build_record.get("commit_hash")
+    status = build_record.get("status", "unknown")
+
+    for node in memory_nodes:
+        node_key = node.get("namespace_key")
+        node_file = str(node.get("file") or "").replace("\\", "/")
+        has_file_failure = any(
+            node_file and f and (node_file.endswith(f.replace("\\", "/")) or f.replace("\\", "/").endswith(node_file))
+            for f in failed_files
+        )
+        failed = (node_key in failed_nodes) or has_file_failure
+        if failed:
+            node["build_status"] = "failed"
+            node["build_failed"] = True
+            node["build_commit_hash"] = commit_hash
+            node["build_stack_trace"] = failed_stack
+        elif status == "success":
+            node["build_status"] = "success"
+            node["build_failed"] = False
+            node["build_commit_hash"] = commit_hash
+            node["build_stack_trace"] = None
+
+
+async def _notify_cicd_update(build_record: dict) -> None:
+    await event_stream.publish(
+        SSEEvent(
+            type="cicd_build_update",
+            payload=build_record,
+            timestamp=time.time(),
+        )
+    )
+    await websocket_manager.broadcast(
+        BroadcastEvent(
+            event_type="cicd_build_update",
+            payload=build_record,
+        )
+    )
+
+
+async def _emit_coverage_alert_if_needed(build_record: dict) -> None:
+    coverage = build_record.get("coverage")
+    if coverage is None:
+        return
+    try:
+        cov = float(coverage)
+    except (TypeError, ValueError):
+        return
+    if cov >= 80.0:
+        return
+
+    if alert_engine:
+        alert = await alert_engine.emit_runtime_alert(
+            rule_id="cicd_coverage_low",
+            rule_name="CI/CD Coverage Low",
+            severity="high",
+            message=f"Coverage dropped below 80% (current: {cov:.1f}%).",
+            metric="coverage",
+            value_before=80.0,
+            value_after=cov,
+            commit_hash=build_record.get("commit_hash"),
+            branch=build_record.get("branch"),
+        )
+        await websocket_manager.broadcast(
+            BroadcastEvent(
+                event_type="audit_alert",
+                payload={
+                    "alert_id": alert.id,
+                    "rule_id": alert.rule_id,
+                    "severity": alert.severity,
+                    "message": alert.message,
+                    "metric": alert.metric,
+                    "delta": alert.delta,
+                    "commit_hash": alert.commit_hash,
+                    "branch": alert.branch,
+                    "fired_at": alert.fired_at,
+                },
+            )
+        )
+
+
+async def _emit_build_failure_alert_if_needed(build_record: dict) -> None:
+    if str(build_record.get("status") or "").lower() != "failed":
+        return
+    if not alert_engine:
+        return
+
+    alert = await alert_engine.emit_runtime_alert(
+        rule_id="cicd_build_failed",
+        rule_name="CI/CD Build Failed",
+        severity="high",
+        message="Build failed in CI/CD pipeline. Possible quality regression detected.",
+        metric="build_status",
+        value_before=1.0,
+        value_after=0.0,
+        commit_hash=build_record.get("commit_hash"),
+        branch=build_record.get("branch"),
+    )
+    await websocket_manager.broadcast(
+        BroadcastEvent(
+            event_type="audit_alert",
+            payload={
+                "alert_id": alert.id,
+                "rule_id": alert.rule_id,
+                "severity": alert.severity,
+                "message": alert.message,
+                "metric": alert.metric,
+                "delta": alert.delta,
+                "commit_hash": alert.commit_hash,
+                "branch": alert.branch,
+                "fired_at": alert.fired_at,
+            },
+        )
+    )
+
+
+def _default_runtime_config() -> dict:
+    return {
+        "feature_flags": {
+            "enable_gesture_control": os.getenv("ENABLE_GESTURE_CONTROL", "false").lower() in {"1", "true", "yes", "on"},
+            "enable_collaboration": True,
+            "enable_auto_healer": True,
+        },
+        "realtime": {
+            "ws_heartbeat_seconds": websocket_manager.heartbeat_interval,
+            "event_batch_window_ms": 100,
+        },
+        "security": {
+            "jwt_expiration_seconds": JWT_EXPIRATION_SECONDS,
+            "rate_limit_per_minute": int(os.getenv("RATE_LIMIT_PER_MINUTE", "100")),
+            "enforce_wss_in_production": True,
+        },
+        "integrations": {
+            "ollama_url": OLLAMA_URL,
+            "redis_url": os.getenv("REDIS_URL", "redis://localhost:6379/0"),
+            "postgres_dsn": os.getenv("POSTGRES_DSN", ""),
+        },
+    }
+
+
+def _load_runtime_config_file() -> tuple[dict, str]:
+    if config_parser is None:
+        raise HTTPException(status_code=500, detail="Config parser not initialized")
+    if not CONFIG_FILE.exists():
+        payload = _default_runtime_config()
+        rendered = config_parser.pretty_print(payload, fmt="yaml")
+        CONFIG_FILE.parent.mkdir(parents=True, exist_ok=True)
+        CONFIG_FILE.write_text(rendered, encoding="utf-8")
+        return payload, "yaml"
+
+    raw = CONFIG_FILE.read_text(encoding="utf-8")
+    suffix = CONFIG_FILE.suffix.lower()
+    if suffix == ".json":
+        return config_parser.parse_json(raw), "json"
+    return config_parser.parse_yaml(raw), "yaml"
+
+
+def _write_runtime_config_file(payload: dict, fmt: str) -> str:
+    if config_parser is None:
+        raise HTTPException(status_code=500, detail="Config parser not initialized")
+    rendered = config_parser.pretty_print(payload, fmt=fmt)
+    if fmt == "json":
+        target = CONFIG_FILE.with_suffix(".json")
+    else:
+        target = CONFIG_FILE.with_suffix(".yaml")
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(rendered, encoding="utf-8")
+    return str(target)
+
+
+def _git_commit_config(path: str, created_by: str | None = None) -> dict:
+    actor = created_by or "system"
+    try:
+        subprocess.run(
+            ["git", "add", path],
+            cwd=str(Path(__file__).resolve().parent.parent),
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        msg = f"chore(config): update runtime config by {actor}"
+        subprocess.run(
+            ["git", "commit", "-m", msg],
+            cwd=str(Path(__file__).resolve().parent.parent),
+            check=True,
+            capture_output=True,
+            text=True,
+        )
+        commit_hash = subprocess.check_output(
+            ["git", "rev-parse", "HEAD"],
+            cwd=str(Path(__file__).resolve().parent.parent),
+            text=True,
+        ).strip()
+        return {"committed": True, "commit_hash": commit_hash}
+    except Exception as exc:
+        return {"committed": False, "error": str(exc)}
+
+
+@app.post("/api/cicd/webhook")
+async def cicd_webhook(request: Request, provider: Optional[str] = Query(None)):
+    """Receive CI/CD webhooks from GitHub Actions, GitLab CI, and Jenkins."""
+    raw_body = await request.body()
+    try:
+        payload = json.loads(raw_body)
+    except json.JSONDecodeError:
+        raise HTTPException(status_code=400, detail="Invalid JSON payload")
+
+    headers_map = {k: v for k, v in request.headers.items()}
+    detected_provider = provider or cicd_integrator.detect_provider(headers_map, payload)
+    if not detected_provider:
+        raise HTTPException(status_code=400, detail="Could not detect CI/CD provider")
+
+    if detected_provider not in {"github_actions", "gitlab_ci", "jenkins"}:
+        raise HTTPException(status_code=400, detail="Unsupported provider")
+
+    build_record = cicd_integrator.normalize(detected_provider, payload).to_dict()
+    if not build_record.get("failed_nodes"):
+        build_record["failed_nodes"] = _map_failed_files_to_nodes(build_record.get("failed_files") or [])
+
+    stored = state_store.save_cicd_build(build_record)
+    if cicd_store.available:
+        cicd_store.save_build(stored)
+    _apply_cicd_status_to_memory(stored)
+    await _notify_cicd_update(stored)
+    await _emit_coverage_alert_if_needed(stored)
+    await _emit_build_failure_alert_if_needed(stored)
+
+    return {
+        "ok": True,
+        "provider": detected_provider,
+        "status": stored.get("status"),
+        "commit_hash": stored.get("commit_hash"),
+        "build_record_id": stored.get("id"),
+    }
+
+
+@app.get("/api/cicd/status/{commit_hash}")
+async def get_cicd_status(commit_hash: str):
+    """Return CI/CD status history for a specific commit."""
+    status_payload = state_store.get_cicd_status(commit_hash)
+    if status_payload.get("latest") is None:
+        raise HTTPException(status_code=404, detail=f"No CI/CD status found for commit {commit_hash}")
+    return status_payload
+
+
+@app.get("/api/cicd/builds")
+async def list_cicd_builds(limit: int = 50):
+    """Return latest CI/CD build records plus latest failed-node map."""
+    return {
+        "items": state_store.list_cicd_builds(limit=limit),
+        "node_status": state_store.list_failed_nodes_latest(),
+    }
+
+
+@app.get("/api/alerts/history")
+async def get_alert_history(page: int = 1, limit: int = 50):
+    """Fase 3 — Return paginated history of fired alerts."""
+    if not alert_engine:
+        return {"items": [], "total": 0, "page": page, "limit": limit}
+    return alert_engine.get_alert_history(page=page, limit=limit)
+
+
+@app.get("/api/alerts/rules")
+async def list_alert_rules():
+    """Fase 3 — List all alert rules (builtin + custom)."""
+    if not alert_engine:
+        return []
+    return alert_engine.get_active_rules()
+
+
+@app.post("/api/alerts/rules")
+async def create_alert_rule(rule: dict):
+    """
+    Fase 3 — Create or update a custom alert rule.
+
+    Example body:
+    {
+      "name": "High Coupling",
+      "metric": "total_edges",
+      "condition": "above",
+      "threshold": 500,
+      "severity": "high",
+      "channel": "slack",
+      "message_template": "Edge count exceeded {after:.0f} (threshold: {threshold:.0f})"
+    }
+    """
+    if not alert_engine:
+        raise HTTPException(status_code=503, detail="AlertEngine not initialized")
+    return alert_engine.upsert_rule(rule)
+
+
+@app.delete("/api/alerts/rules/{rule_id}")
+async def delete_alert_rule(rule_id: str):
+    """Fase 3 — Delete a custom alert rule. Builtin rules can only be disabled."""
+    if not alert_engine:
+        raise HTTPException(status_code=503, detail="AlertEngine not initialized")
+    deleted = alert_engine.delete_rule(rule_id)
+    if not deleted:
+        raise HTTPException(status_code=400, detail="Rule not found or is a builtin (set enabled=false instead)")
+    return {"ok": True}
+
+
+@app.post("/api/alerts/evaluate")
+async def evaluate_alerts_now():
+    """Fase 3 — Manually trigger alert evaluation against the last two snapshots."""
+    if not alert_engine:
+        raise HTTPException(status_code=503, detail="AlertEngine not initialized")
+    history = temporal_analyzer.get_history(page=1, limit=2)
+    items = history.get("items", [])
+    if len(items) < 2:
+        return {"fired": [], "message": "Need at least 2 snapshots to evaluate"}
+    fired = await alert_engine.evaluate_scan(items[0], items[1])
+    return {"fired": [{"id": a.id, "rule_name": a.rule_name, "severity": a.severity, "message": a.message} for a in fired]}
+
+
+# ──────────────────────────────────────────────
+# Fase 4 — PR Analysis + Weekly Digest Endpoints
+# ──────────────────────────────────────────────
+
+class PRAnalyzeRequest(BaseModel):
+    pr_number: int
+    changed_files: list[str]
+    head_sha: str | None = None
+    github_token: str | None = None
+    github_repo: str | None = None
+
+
+@app.post("/api/pr/analyze")
+async def analyze_pr(request: PRAnalyzeRequest, background_tasks: BackgroundTasks):
+    """
+    Fase 4 — Analyze a PR and post an LLM-enriched comment to GitHub.
+    Can be triggered by the EventEngine (webhook) or manually.
+    """
+    from pr_bot import PRBot, _run_with_error_handling
+
+    token = request.github_token or GITHUB_TOKEN
+    repo  = request.github_repo  or GITHUB_REPOSITORY
+
+    if not token or not repo:
+        raise HTTPException(status_code=400, detail="github_token and github_repo are required")
+
+    bot = PRBot(
+        api_url=f"http://localhost:{os.getenv('PORT', '8000')}",
+        github_token=token,
+        repo=repo,
+        ollama_url=OLLAMA_URL,
+        ollama_model=OLLAMA_CHAT_MODEL,
+    )
+
+    async def _run_pr_analysis():
+        await _run_with_error_handling(bot, request.pr_number, request.changed_files)
+
+    # Run in background — don't block the webhook response
+    background_tasks.add_task(_run_pr_analysis)
+    return {"ok": True, "pr_number": request.pr_number, "status": "analysis_started"}
+
+
+@app.get("/api/digest/weekly")
+async def get_weekly_digests(limit: int = 12):
+    """Fase 4 — Return stored weekly architecture digests."""
+    if not weekly_digest_generator:
+        return []
+    return weekly_digest_generator.get_history(limit=limit)
+
+
+@app.post("/api/digest/generate")
+async def generate_weekly_digest(weeks_back: int = 1, background_tasks: BackgroundTasks = None):
+    """
+    Fase 4 — Generate a weekly architecture digest on demand.
+    The LLM synthesis runs in the background; poll /api/digest/weekly for results.
+    """
+    if not weekly_digest_generator:
+        raise HTTPException(status_code=503, detail="WeeklyDigestGenerator not initialized")
+
+    async def _generate():
+        try:
+            digest = await weekly_digest_generator.generate(weeks_back=weeks_back)
+            logger.info("Weekly digest generated: %s → %s", digest["week_start"], digest["week_end"])
+        except Exception as exc:
+            logger.error("Weekly digest generation failed: %s", exc)
+
+    if background_tasks:
+        background_tasks.add_task(_generate)
+    else:
+        asyncio.create_task(_generate())
+
+    return {"ok": True, "message": "Digest generation started. Check /api/digest/weekly in a moment."}
 
 
 @app.get("/api/graph")
@@ -3760,6 +4910,51 @@ async def get_graph(
     return {"nodes": nodes, "edges": filtered_edges}
 
 
+def _inject_prediction_metadata(node_key: str, payload: dict) -> dict:
+    """Attach prediction metadata to /api/impact responses."""
+    try:
+        base_score = prediction_engine.predict_risk_score(
+            node_key,
+            "code_change",
+            {"target_key": node_key},
+        )
+    except Exception:
+        base_score = 0.0
+
+    for entry in payload.get("upstream", []):
+        key = entry.get("key")
+        if not key:
+            continue
+        try:
+            entry["predicted_risk"] = prediction_engine.predict_risk_score(
+                key,
+                "code_change",
+                {"target_key": node_key},
+            )
+        except Exception:
+            entry["predicted_risk"] = 0.0
+
+    for entry in payload.get("downstream", []):
+        key = entry.get("key")
+        if not key:
+            continue
+        try:
+            entry["predicted_risk"] = prediction_engine.predict_risk_score(
+                key,
+                "code_change",
+                {"target_key": node_key},
+            )
+        except Exception:
+            entry["predicted_risk"] = 0.0
+
+    payload["prediction"] = {
+        "node_key": node_key,
+        "predicted_risk": base_score,
+        "fragility_points": prediction_engine.identify_fragility_points(limit=20),
+    }
+    return payload
+
+
 @app.get("/api/impact/{node_key:path}")
 async def get_impact(node_key: str, x_tenant_id: str = Header(None, alias="X-Tenant-ID")):
     """Return upstream and downstream neighbors of a node.
@@ -3768,7 +4963,8 @@ async def get_impact(node_key: str, x_tenant_id: str = Header(None, alias="X-Ten
     """
     if neo4j_service.is_connected:
         try:
-            return neo4j_service.get_impact(node_key, tenant=x_tenant_id)
+            impact_payload = neo4j_service.get_impact(node_key, tenant=x_tenant_id)
+            return _inject_prediction_metadata(node_key, impact_payload)
         except Exception as e:
             logger.warning("Neo4j impact query failed, falling back to memory: %s", e)
 
@@ -3804,7 +5000,8 @@ async def get_impact(node_key: str, x_tenant_id: str = Header(None, alias="X-Ten
             "labels": tgt_node.get("labels", []),
             "rel_type": edge.get("type"),
         })
-    return {"upstream": upstream[:100], "downstream": downstream[:100]}
+    payload = {"upstream": upstream[:100], "downstream": downstream[:100]}
+    return _inject_prediction_metadata(node_key, payload)
 
 
 @app.post("/api/nodes/metadata")
@@ -4385,13 +5582,29 @@ def _normalized_memory_edges() -> list[dict]:
     return normalized
 
 
+def _create_impact_engine() -> ImpactEngine:
+    """Build an ImpactEngine that always reflects the current graph snapshot."""
+    normalized_edges = _normalized_memory_edges()
+    return PredictiveImpactEngine(
+        neo4j_service,
+        memory_nodes,
+        normalized_edges,
+        prediction_engine=prediction_engine,
+    )
+
+
 def _build_analysis_runtime() -> dict[str, object]:
     """Create analyzer instances wired with current graph state."""
     memory_index = _memory_nodes_index()
     normalized_edges = _normalized_memory_edges()
     deep_parser = DeepParser()
     semantic_analyzer = SemanticAnalyzer(ollama_url=OLLAMA_URL, model=OLLAMA_COMPLEX_MODEL)
-    impact_engine = ImpactEngine(neo4j_service, memory_nodes, normalized_edges)
+    impact_engine = PredictiveImpactEngine(
+        neo4j_service,
+        memory_nodes,
+        normalized_edges,
+        prediction_engine=prediction_engine,
+    )
     intelligence_engine = IntelligenceEngine(neo4j_service)
     taint_propagator = TaintPropagator(neo4j_service, memory_index, normalized_edges)
     symbol_resolver = SymbolResolver(neo4j_service, memory_index, deep_parser)
@@ -4421,6 +5634,7 @@ def _build_analysis_runtime() -> dict[str, object]:
         "memory_index": memory_index,
         "semantic_analyzer": semantic_analyzer,
         "impact_engine": impact_engine,
+        "prediction_engine": prediction_engine,
         "intelligence_engine": intelligence_engine,
         "taint_propagator": taint_propagator,
         "symbol_resolver": symbol_resolver,
@@ -4726,6 +5940,52 @@ def _build_debt_history(entries: list[dict]) -> list[dict]:
             }
         )
     return history
+
+
+def _detect_git_head(project_path: str | None = None) -> dict | None:
+    """
+    Detect the current git HEAD commit, branch, author and message.
+    Returns None if the path is not a git repo or git is unavailable.
+    """
+    try:
+        cwd = project_path if project_path and Path(project_path).is_dir() else str(Path.cwd())
+        # Get commit hash, author, message in one call
+        result = subprocess.run(
+            ["git", "log", "-1", "--pretty=format:%H|%an|%s"],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode != 0:
+            return None
+        parts = result.stdout.strip().split("|", 2)
+        commit_hash = parts[0] if len(parts) > 0 else None
+        author = parts[1] if len(parts) > 1 else None
+        message = parts[2] if len(parts) > 2 else None
+
+        # Get branch name
+        branch_result = subprocess.run(
+            ["git", "rev-parse", "--abbrev-ref", "HEAD"],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        branch = branch_result.stdout.strip() if branch_result.returncode == 0 else None
+
+        if not commit_hash:
+            return None
+
+        return {
+            "commit_hash": commit_hash,
+            "branch": branch,
+            "author": author,
+            "commit_message": message,
+        }
+    except Exception as e:
+        logger.debug("Could not detect git HEAD: %s", e)
+        return None
 
 
 def _snapshot_nodes(limit: int = 200) -> list[dict]:
@@ -5294,6 +6554,55 @@ def _ck_risk_score(node: dict) -> float:
     lcom = float(node.get("lcom", 0.0) or 0.0)
     raw = (wmc * 1.6) + (cbo * 2.2) + (rfc * 0.5) + (lcom * 20.0)
     return round(min(100.0, max(0.0, raw / 3.0)), 2)
+
+
+@app.get("/api/prediction/heatmap")
+async def get_prediction_heatmap(limit: int = 2500):
+    """Return predicted heatmap metrics for visible graph nodes."""
+    _ensure_memory_graph_loaded()
+    safe_limit = max(100, min(limit, 10000))
+    items = []
+
+    for node in memory_nodes[:safe_limit]:
+        node_key = node.get("namespace_key")
+        if not node_key:
+            continue
+
+        complexity = float(node.get("complexity") or 0.0)
+        git_churn = float(node.get("git_churn") or 0.0)
+        hotspot = float(node.get("hotspot_score") or 0.0)
+        activity_score = max(0.0, min(100.0, (git_churn * 4.0) + (hotspot * 0.7)))
+        complexity_score = max(0.0, min(100.0, complexity * 4.0))
+
+        predicted_risk = prediction_engine.predict_risk_score(
+            node_key,
+            "code_change",
+            {
+                "change_frequency": node.get("change_frequency", git_churn),
+                "cyclomatic_complexity": complexity,
+                "hotspot_score": hotspot,
+                "fan_in": node.get("fan_in", node.get("cbo", 0)),
+                "fan_out": node.get("fan_out", node.get("rfc", 0)),
+                "bug_history_count": node.get("bug_history_count", 0),
+                "semantic_text": f"{node_key} {node.get('file', '')} {node.get('layer', '')}",
+                "disable_semantic_embedding": True,
+            },
+        )
+
+        items.append(
+            {
+                "node_key": node_key,
+                "predicted_risk": round(float(predicted_risk), 2),
+                "activity_score": round(activity_score, 2),
+                "complexity_score": round(complexity_score, 2),
+            }
+        )
+
+    return {
+        "items": items,
+        "generated_at": time.time(),
+        "fragility_points": prediction_engine.identify_fragility_points(limit=20),
+    }
 
 
 @app.post("/api/impact/analyze")
@@ -8597,6 +9906,171 @@ async def delete_annotation(annotation_id: str):
     return JSONResponse({"status": "deleted", "id": annotation_id})
 
 
+@app.post("/api/collaboration/sessions")
+async def create_war_room(request: WarRoomCreateRequest):
+    if not collaboration_manager:
+        raise HTTPException(status_code=503, detail="Collaboration manager unavailable")
+    session_id = request.session_id or CollaborationManager.new_session_id()
+    session = collaboration_manager.create_war_room(session_id=session_id, created_by=request.user_id)
+    await websocket_manager.broadcast(
+        BroadcastEvent(
+            event_type="collaboration_event",
+            payload={"event": "session_created", "session": session},
+        )
+    )
+    await event_stream.publish(
+        SSEEvent(type="collaboration_event", payload={"event": "session_created", "session": session}, timestamp=time.time())
+    )
+    return session
+
+
+@app.post("/api/collaboration/sessions/join")
+async def join_war_room(request: WarRoomJoinRequest):
+    if not collaboration_manager:
+        raise HTTPException(status_code=503, detail="Collaboration manager unavailable")
+    try:
+        session = await collaboration_manager.join_session(user_id=request.user_id, session_id=request.session_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    payload = {
+        "event": "participant_joined",
+        "session_id": request.session_id,
+        "user_id": request.user_id,
+        "participants": session.get("participants", []),
+    }
+    await websocket_manager.broadcast(BroadcastEvent(event_type="collaboration_event", payload=payload))
+    await event_stream.publish(SSEEvent(type="collaboration_event", payload=payload, timestamp=time.time()))
+    return session
+
+
+@app.post("/api/collaboration/sessions/leave")
+async def leave_war_room(request: WarRoomJoinRequest):
+    if not collaboration_manager:
+        raise HTTPException(status_code=503, detail="Collaboration manager unavailable")
+    try:
+        session = await collaboration_manager.leave_session(user_id=request.user_id, session_id=request.session_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    payload = {
+        "event": "participant_left",
+        "session_id": request.session_id,
+        "user_id": request.user_id,
+        "participants": session.get("participants", []),
+    }
+    await websocket_manager.broadcast(BroadcastEvent(event_type="collaboration_event", payload=payload))
+    await event_stream.publish(SSEEvent(type="collaboration_event", payload=payload, timestamp=time.time()))
+    return session
+
+
+@app.get("/api/collaboration/sessions")
+async def list_war_rooms(active_only: bool = True):
+    if not collaboration_manager:
+        raise HTTPException(status_code=503, detail="Collaboration manager unavailable")
+    return {"items": collaboration_manager.list_sessions(active_only=active_only)}
+
+
+@app.post("/api/collaboration/cursor")
+async def broadcast_cursor(request: CursorBroadcastRequest):
+    if not collaboration_manager:
+        raise HTTPException(status_code=503, detail="Collaboration manager unavailable")
+    payload = await collaboration_manager.broadcast_cursor(
+        session_id=request.session_id,
+        user_id=request.user_id,
+        position=request.position,
+        selected_node=request.selected_node,
+    )
+    await websocket_manager.broadcast(BroadcastEvent(event_type="collaboration_event", payload=payload))
+    await event_stream.publish(SSEEvent(type="collaboration_event", payload=payload, timestamp=time.time()))
+    return {"status": "ok", "payload": payload}
+
+
+@app.post("/api/collaboration/select")
+async def broadcast_node_selection(request: NodeSelectionRequest):
+    if not collaboration_manager:
+        raise HTTPException(status_code=503, detail="Collaboration manager unavailable")
+    payload = await collaboration_manager.broadcast_selection(
+        session_id=request.session_id,
+        user_id=request.user_id,
+        node_key=request.node_key,
+    )
+    await websocket_manager.broadcast(BroadcastEvent(event_type="collaboration_event", payload=payload))
+    await event_stream.publish(SSEEvent(type="collaboration_event", payload=payload, timestamp=time.time()))
+    return {"status": "ok", "payload": payload}
+
+
+@app.post("/api/collaboration/annotations")
+async def add_collaboration_annotation(request: CollaborationAnnotationRequest):
+    if not collaboration_manager:
+        raise HTTPException(status_code=503, detail="Collaboration manager unavailable")
+    annotation = await collaboration_manager.add_annotation(
+        session_id=request.session_id,
+        node_key=request.node_key,
+        text=request.text,
+        user_id=request.user_id,
+        visibility=request.visibility,
+    )
+    await websocket_manager.broadcast(
+        BroadcastEvent(
+            event_type="collaboration_event",
+            payload={"event": "annotation_added", "annotation": annotation, "session_id": request.session_id},
+        )
+    )
+    return annotation
+
+
+@app.get("/api/collaboration/annotations")
+async def get_collaboration_annotations(node_key: str, user_id: Optional[str] = None):
+    if not collaboration_manager:
+        raise HTTPException(status_code=503, detail="Collaboration manager unavailable")
+    return {"items": collaboration_manager.get_annotations(node_key=node_key, user_id=user_id)}
+
+
+@app.post("/api/collaboration/chat")
+async def send_collaboration_message(request: ChatMessageRequest):
+    if not chat_manager:
+        raise HTTPException(status_code=503, detail="Chat manager unavailable")
+    # Add graph context automatically to satisfy task 9.3.4.
+    node_context = {}
+    selected_key = request.context.get("selected_node")
+    if selected_key:
+        node_context = next((n for n in memory_nodes if n.get("namespace_key") == selected_key), {}) or {}
+    enriched_context = {**request.context, "graph_context": node_context}
+    message = chat_manager.send_message(
+        session_id=request.session_id,
+        user_id=request.user_id,
+        text=request.text,
+        context=enriched_context,
+    )
+    await websocket_manager.broadcast(BroadcastEvent(event_type="chat_message", payload=message))
+    await event_stream.publish(SSEEvent(type="chat_message", payload=message, timestamp=time.time()))
+    return message
+
+
+@app.get("/api/collaboration/chat/{session_id}")
+async def list_collaboration_messages(session_id: str, limit: int = 200):
+    if not chat_manager:
+        raise HTTPException(status_code=503, detail="Chat manager unavailable")
+    return {"items": chat_manager.list_messages(session_id=session_id, limit=limit)}
+
+
+@app.get("/api/sessions/{session_id}/replay")
+async def get_session_replay(session_id: str, limit: int = 1000):
+    if not collaboration_manager:
+        raise HTTPException(status_code=503, detail="Collaboration manager unavailable")
+    try:
+        replay = collaboration_manager.get_session_replay(session_id=session_id, limit=limit)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+    await event_stream.publish(
+        SSEEvent(
+            type="session_replay_ready",
+            payload={"session_id": session_id, "events": len(replay.get("events", []))},
+            timestamp=time.time(),
+        )
+    )
+    return replay
+
+
 def _collect_api_endpoints(project: str | None = None, method: str | None = None, q: str | None = None):
     _ensure_memory_graph_loaded()
     term = (q or "").lower().strip()
@@ -9448,6 +10922,16 @@ async def get_health():
     else:
         status.neo4j = "disconnected"
 
+    redis_client_instance = get_redis_client()
+    if redis_client_instance.is_available:
+        try:
+            redis_ok = await redis_client_instance.ping()
+            status.redis = "connected" if redis_ok else "disconnected"
+        except Exception:
+            status.redis = "error"
+    else:
+        status.redis = "disconnected"
+
     # Check Ollama scanner model
     try:
         async with httpx.AsyncClient(timeout=5.0) as client:
@@ -9609,6 +11093,101 @@ async def save_settings(settings: SettingsConfig):
     # Settings are currently read-only from environment variables
     # This endpoint is for future persistence support
     return {"status": "success", "message": "Settings saved (read-only mode)"}
+
+
+@app.get("/api/config")
+async def get_runtime_config(format: Literal["yaml", "json"] = "yaml"):
+    payload, source_format = _load_runtime_config_file()
+    rendered = config_parser.pretty_print(payload, fmt=format) if config_parser else json.dumps(payload)
+    latest = state_store.get_latest_config_version()
+    return {
+        "format": format,
+        "source_format": source_format,
+        "content": rendered,
+        "payload": payload,
+        "latest_version": latest,
+    }
+
+
+@app.put("/api/config")
+async def put_runtime_config(request: RuntimeConfigRequest):
+    if config_parser is None:
+        raise HTTPException(status_code=503, detail="Config parser unavailable")
+    if request.format == "json":
+        payload = config_parser.parse_json(request.content)
+    else:
+        payload = config_parser.parse_yaml(request.content)
+    path = _write_runtime_config_file(payload, request.format)
+    version = state_store.save_config_version(
+        content=request.content,
+        fmt=request.format,
+        created_by=request.created_by,
+        source=request.source,
+    )
+    git_result = _git_commit_config(path, created_by=request.created_by)
+
+    # Hot reload of selected runtime fields
+    realtime = payload.get("realtime") or {}
+    heartbeat = realtime.get("ws_heartbeat_seconds")
+    if isinstance(heartbeat, int) and heartbeat >= 5:
+        websocket_manager.heartbeat_interval = heartbeat
+
+    feature_flags = payload.get("feature_flags") or {}
+    os.environ["ENABLE_GESTURE_CONTROL"] = "true" if feature_flags.get("enable_gesture_control") else "false"
+    return {
+        "ok": True,
+        "path": path,
+        "version": version,
+        "git": git_result,
+        "hot_reload": {
+            "ws_heartbeat_seconds": websocket_manager.heartbeat_interval,
+            "enable_gesture_control": os.environ.get("ENABLE_GESTURE_CONTROL"),
+        },
+    }
+
+
+@app.post("/api/auto-healer/patterns")
+async def auto_healer_detect_patterns(request: AutoHealerPatternRequest):
+    if not auto_healer:
+        raise HTTPException(status_code=503, detail="Auto Healer unavailable")
+    patterns = auto_healer.detect_bug_patterns(
+        changes=request.changes,
+        commit_history=request.commit_history,
+        pr_history=request.pr_history,
+    )
+    return {"items": patterns}
+
+
+@app.post("/api/auto-healer/suggest-fix")
+async def auto_healer_suggest_fix(payload: dict):
+    if not auto_healer:
+        raise HTTPException(status_code=503, detail="Auto Healer unavailable")
+    result = await auto_healer.suggest_fix(payload)
+    await event_stream.publish(SSEEvent(type="auto_healer_suggestion", payload=result, timestamp=time.time()))
+    return result
+
+
+@app.post("/api/auto-healer/generate-tests")
+async def auto_healer_generate_tests(request: AutoHealerGenerateTestsRequest):
+    if not auto_healer:
+        raise HTTPException(status_code=503, detail="Auto Healer unavailable")
+    result = await auto_healer.generate_tests(request.fragility_point)
+    return result
+
+
+@app.post("/api/auto-healer/suggest-refactor")
+async def auto_healer_suggest_refactor(request: AutoHealerRefactorRequest):
+    if not auto_healer:
+        raise HTTPException(status_code=503, detail="Auto Healer unavailable")
+    result = await auto_healer.suggest_refactor(request.node_profile)
+    return result
+
+
+@app.post("/api/auto-healer/documentation")
+async def auto_healer_documentation(request: AutoHealerDocUpdateRequest):
+    if not auto_healer:
+        raise HTTPException(status_code=503, detail="Auto Healer unavailable")
+    return await auto_healer.generate_doc_updates(request.changed_docs)
 
 
 @app.get("/api/system/diagnostics")
@@ -9926,7 +11505,149 @@ async def _start_demo_cleanup():
 # Watch Mode — WebSocket & REST endpoints
 # ──────────────────────────────────────────────
 
-from fastapi import WebSocket, WebSocketDisconnect
+def _extract_bearer_token(token: str | None, authorization: str | None) -> str | None:
+    if token and token.strip():
+        return token.strip()
+    if authorization:
+        header = authorization.strip()
+        if header.lower().startswith("bearer "):
+            return header.split(" ", 1)[1]
+    return None
+
+
+def _decode_hand_tracking_payload(payload: dict) -> bytes | None:
+    image_b64 = payload.get("image_base64")
+    if not image_b64:
+        return None
+    try:
+        return base64.b64decode(image_b64)
+    except Exception:
+        return None
+
+
+@app.websocket("/ws/hand-tracking")
+async def hand_tracking_websocket(websocket: WebSocket):
+    """
+    Hand tracking endpoint.
+
+    Client message format:
+      {"type":"frame","image_base64":"<jpeg-base64>","width":640,"height":480,"client_ts":<ms>}
+    """
+    await websocket.accept()
+    frame_count = 0
+    try:
+        while True:
+            message = await websocket.receive()
+            frame_bytes: bytes | None = None
+            target_width = 640
+            target_height = 480
+            client_ts = None
+
+            if "text" in message and message["text"]:
+                payload = json.loads(message["text"])
+                frame_bytes = _decode_hand_tracking_payload(payload)
+                target_width = int(payload.get("width") or 640)
+                target_height = int(payload.get("height") or 480)
+                client_ts = payload.get("client_ts")
+            elif "bytes" in message and message["bytes"]:
+                raw_bytes = message["bytes"]
+                if raw_bytes and len(raw_bytes) <= 1_048_576:
+                    frame_bytes = raw_bytes
+            else:
+                continue
+
+            if not frame_bytes:
+                await websocket.send_json({"type": "tracking", "hands": [], "gesture": "none"})
+                continue
+
+            if len(frame_bytes) > 1_048_576:
+                await websocket.send_json(
+                    {
+                        "type": "error",
+                        "error": "frame_too_large",
+                        "message": "Frame exceeds max size of 1MB",
+                    }
+                )
+                continue
+
+            result = mediapipe_handler.process_frame(
+                frame_bytes,
+                target_width=min(max(target_width, 320), 640),
+                target_height=min(max(target_height, 240), 480),
+            )
+            gesture = gesture_recognizer.recognize(result.hands)
+
+            primary = None
+            if result.hands:
+                right_hands = [h for h in result.hands if str(h.get("handedness", "")).lower() == "right"]
+                source = right_hands if right_hands else result.hands
+                primary = max(source, key=lambda h: float(h.get("score", 0.0)))
+
+            latency_ms = result.latency_ms
+            if client_ts:
+                try:
+                    now_ms = time.time() * 1000.0
+                    latency_ms = max(latency_ms, float(now_ms - float(client_ts)))
+                except Exception:
+                    pass
+
+            await websocket.send_json(
+                {
+                    "type": "tracking",
+                    "hands": result.hands,
+                    "primary_hand": primary,
+                    "gesture": gesture.name,
+                    "gesture_confidence": gesture.confidence,
+                    "fps": result.fps,
+                    "latency_ms": latency_ms,
+                    "resolution": {"width": result.resolution[0], "height": result.resolution[1]},
+                }
+            )
+
+            frame_count += 1
+            if frame_count % 60 == 0:
+                # periodic buffer cleanup for long-running sessions
+                gesture_recognizer._last_v_distance = None  # noqa: SLF001
+
+    except WebSocketDisconnect:
+        return
+    except Exception as exc:
+        logger.warning("hand-tracking websocket error: %s", exc)
+        try:
+            await websocket.close(code=1011)
+        except Exception:
+            pass
+
+
+@app.websocket("/ws")
+async def realtime_websocket(
+    websocket: WebSocket,
+    connection_id: str | None = Query(None),
+    token: str | None = Query(None),
+    authorization: str | None = Header(None),
+):
+    raw_token = _extract_bearer_token(token, authorization)
+    claims = websocket.scope.get("auth_claims") or {}
+    if not claims:
+        claims = validate_jwt(raw_token) if raw_token else {}
+
+    if not claims:
+        await websocket.close(
+            code=status.WS_1008_POLICY_VIOLATION,
+            reason="Invalid or expired authentication token",
+        )
+        return
+
+    user_id = claims.get("sub") or claims.get("user_id")
+    if not user_id:
+        await websocket.close(
+            code=status.WS_1008_POLICY_VIOLATION,
+            reason="Token missing subject",
+        )
+        return
+
+    await websocket_manager.handle_connection(websocket, user_id, connection_id=connection_id)
+
 from incremental_scanner import IncrementalScanner, ImpactResult
 from watch_manager import WatchManager
 
@@ -10246,7 +11967,6 @@ if __name__ == "__main__":
             print("[InsightGraph] ERROR: at least one --path is required for watch mode.")
             sys.exit(1)
 
-        from watch_service import WatchService
 
         async def run_watch():
             api_url = args.api_url

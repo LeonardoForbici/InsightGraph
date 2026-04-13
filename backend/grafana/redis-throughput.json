@@ -1,0 +1,27 @@
+{
+  "title": "InsightGraph - Redis Throughput",
+  "schemaVersion": 39,
+  "version": 1,
+  "panels": [
+    {
+      "type": "timeseries",
+      "title": "Redis Ops/sec",
+      "targets": [
+        {
+          "expr": "rate(redis_commands_processed_total[1m])"
+        }
+      ],
+      "gridPos": { "x": 0, "y": 0, "w": 24, "h": 8 }
+    },
+    {
+      "type": "timeseries",
+      "title": "Redis Memory",
+      "targets": [
+        {
+          "expr": "redis_memory_used_bytes"
+        }
+      ],
+      "gridPos": { "x": 0, "y": 8, "w": 24, "h": 8 }
+    }
+  ]
+}

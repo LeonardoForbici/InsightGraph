@@ -70,20 +70,40 @@ class GitService:
     def __init__(self, repo_path: str = ".", repo_url: str = None):
         """
         Initialize GitService.
-        
+
         Args:
             repo_path: Path to the Git repository (default: current directory)
             repo_url: Optional GitHub repository URL for remote repos
         """
-        self.repo_path = Path(repo_path).resolve()
+        self.repo_path = self._resolve_git_root(Path(repo_path).resolve())
         self.repo_url = repo_url
         self._validate_git_repo()
         self._original_branch: Optional[str] = None
         self._temp_dir: Optional[Path] = None
-        
+
         # Optimization: Commit cache
         self._commit_cache: dict[str, GitCommit] = {}
         self._commit_cache_max_size = 50
+
+    @staticmethod
+    def _resolve_git_root(start: Path) -> Path:
+        """
+        Walk up from *start* until we find the actual git repository root.
+        Returns *start* unchanged if git is not available or the path is already the root.
+        """
+        try:
+            result = subprocess.run(
+                ["git", "rev-parse", "--show-toplevel"],
+                cwd=start,
+                capture_output=True,
+                text=True,
+                timeout=5,
+            )
+            if result.returncode == 0:
+                return Path(result.stdout.strip())
+        except Exception:
+            pass
+        return start
     
     def clone_remote_repo(self, repo_url: str, target_path: Path, use_shallow_clone: bool = True) -> None:
         """
@@ -400,39 +420,33 @@ class GitService:
             # Create temporary directory
             self._temp_dir = Path(tempfile.mkdtemp(prefix="insightgraph_"))
             logger.info(f"Created temporary directory: {self._temp_dir}")
-            
-            # Clone repository to temp directory with optimization
-            logger.info(f"Cloning repository to {self._temp_dir}...")
-            
-            clone_cmd = ["git", "clone"]
-            
-            # Optimization: Use shallow clone for faster checkout
-            if use_shallow_clone:
-                clone_cmd.extend(["--depth", "1", "--single-branch"])
-                logger.debug("Using shallow clone for faster checkout")
-            
-            clone_cmd.extend([str(self.repo_path), str(self._temp_dir)])
-            
-            clone_result = subprocess.run(
+
+            # Clone the local repo into the temp dir.
+            # Never use --depth/--single-branch for local clones targeting a
+            # specific commit — the commit may not be on the default branch.
+            # For local paths, git clone is fast regardless.
+            logger.info(f"Cloning {self.repo_path} → {self._temp_dir} ...")
+            clone_cmd = ["git", "clone", str(self.repo_path), str(self._temp_dir)]
+            subprocess.run(
                 clone_cmd,
                 capture_output=True,
                 text=True,
                 timeout=300,
-                check=True
+                check=True,
             )
             logger.info("Repository cloned successfully")
-            
-            # Checkout specific commit
+
+            # Checkout the specific commit (detached HEAD)
             logger.info(f"Checking out commit {commit_hash}...")
-            checkout_result = subprocess.run(
-                ["git", "-C", str(self._temp_dir), "checkout", commit_hash],
+            subprocess.run(
+                ["git", "-C", str(self._temp_dir), "checkout", "--detach", commit_hash],
                 capture_output=True,
                 text=True,
                 timeout=60,
-                check=True
+                check=True,
             )
             logger.info(f"Successfully checked out commit {commit_hash}")
-            
+
             return self._temp_dir
             
         except subprocess.TimeoutExpired as e:
