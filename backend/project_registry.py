@@ -1,16 +1,3 @@
-"""
-ProjectRegistry — Registro central de Workspaces e Projetos vinculados.
-
-Modelo:
-  Workspace  →  agrupa N projetos de um mesmo produto
-  Project    →  um sub-diretório monitorado (backend / frontend / mobile / etc.)
-
-Um Workspace é a "PastaProduto" do usuário.  Todos os projetos dentro dele
-compartilham o mesmo grafo de impacto cross-projeto.
-
-Persistência: SQLite (insightgraph_state.db) — tabelas workspace / project.
-"""
-
 from __future__ import annotations
 
 import json
@@ -23,233 +10,235 @@ from dataclasses import asdict, dataclass, field
 from pathlib import Path
 from typing import Literal, Optional
 
-logger = logging.getLogger("insightgraph.registry")
+logger = logging.getLogger("insightgraph.project_registry")
 
+ProjectType = Literal["backend", "frontend", "mobile", "other"]
 ProjectStatus = Literal["idle", "watching", "scanning", "error"]
-ProjectType   = Literal["backend", "frontend", "mobile", "shared", "other"]
 
 
-# ─────────────────────────────────────────────
-# Modelos
-# ─────────────────────────────────────────────
+@dataclass(slots=True)
+class Workspace:
+    id: str
+    name: str
+    root_path: str
+    created_at: float = field(default_factory=time.time)
 
-@dataclass
+    def to_dict(self) -> dict:
+        return asdict(self)
+
+
+@dataclass(slots=True)
 class Project:
     id: str
     workspace_id: str
     name: str
-    path: str                          # caminho absoluto no disco
+    path: str
     type: ProjectType = "other"
     status: ProjectStatus = "idle"
-    watch_interval: int = 5            # segundos entre polls de arquivo
-    git_poll_interval: int = 30        # segundos entre checagens de commit
-    last_scanned_at: Optional[float] = None
-    last_commit: Optional[str] = None
-    error_message: Optional[str] = None
-    # Nós exportados publicamente (cross-project boundary)
+    created_at: float = field(default_factory=time.time)
+    updated_at: float = field(default_factory=time.time)
+    last_error: Optional[str] = None
     exported_symbols: list[str] = field(default_factory=list)
-    created_at: float = field(default_factory=time.time)
 
     def to_dict(self) -> dict:
         return asdict(self)
 
-    @classmethod
-    def from_row(cls, row: tuple) -> "Project":
-        (id_, ws_id, name, path, ptype, status, watch_iv, git_iv,
-         last_scan, last_commit, err_msg, exported, created_at) = row
-        return cls(
-            id=id_, workspace_id=ws_id, name=name, path=path,
-            type=ptype, status=status, watch_interval=watch_iv,
-            git_poll_interval=git_iv, last_scanned_at=last_scan,
-            last_commit=last_commit, error_message=err_msg,
-            exported_symbols=json.loads(exported or "[]"),
-            created_at=created_at,
-        )
-
-
-@dataclass
-class Workspace:
-    id: str
-    name: str
-    root_path: str                     # PastaProduto
-    description: str = ""
-    created_at: float = field(default_factory=time.time)
-
-    def to_dict(self) -> dict:
-        return asdict(self)
-
-    @classmethod
-    def from_row(cls, row: tuple) -> "Workspace":
-        id_, name, root_path, desc, created_at = row
-        return cls(id=id_, name=name, root_path=root_path,
-                   description=desc, created_at=created_at)
-
-
-# ─────────────────────────────────────────────
-# Registry
-# ─────────────────────────────────────────────
 
 class ProjectRegistry:
-    """
-    CRUD persistido de Workspaces e Projects.
-
-    Thread-safe via _lock.  Inicializa tabelas no primeiro uso.
-    """
-
-    def __init__(self, db_path: str = "insightgraph_state.db"):
-        self._db = Path(db_path)
+    def __init__(self, db_path: str = "insightgraph_state.db") -> None:
+        self._db_path = Path(db_path)
         self._lock = threading.Lock()
         self._init_db()
 
-    # ── Init ──────────────────────────────────
-
-    def _init_db(self):
-        with self._connect() as conn:
-            conn.executescript("""
-                CREATE TABLE IF NOT EXISTS workspaces (
-                    id          TEXT PRIMARY KEY,
-                    name        TEXT NOT NULL,
-                    root_path   TEXT NOT NULL,
-                    description TEXT DEFAULT '',
-                    created_at  REAL NOT NULL
-                );
-                CREATE TABLE IF NOT EXISTS projects (
-                    id               TEXT PRIMARY KEY,
-                    workspace_id     TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
-                    name             TEXT NOT NULL,
-                    path             TEXT NOT NULL,
-                    type             TEXT NOT NULL DEFAULT 'other',
-                    status           TEXT NOT NULL DEFAULT 'idle',
-                    watch_interval   INTEGER NOT NULL DEFAULT 5,
-                    git_poll_interval INTEGER NOT NULL DEFAULT 30,
-                    last_scanned_at  REAL,
-                    last_commit      TEXT,
-                    error_message    TEXT,
-                    exported_symbols TEXT DEFAULT '[]',
-                    created_at       REAL NOT NULL
-                );
-                CREATE INDEX IF NOT EXISTS idx_projects_workspace
-                    ON projects(workspace_id);
-            """)
-
     def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self._db, check_same_thread=False)
+        conn = sqlite3.connect(self._db_path, check_same_thread=False)
         conn.row_factory = sqlite3.Row
         conn.execute("PRAGMA foreign_keys = ON")
         return conn
 
-    # ── Workspaces ────────────────────────────
+    def _init_db(self) -> None:
+        self._db_path.parent.mkdir(parents=True, exist_ok=True)
+        with self._connect() as conn:
+            conn.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS workspaces (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    root_path TEXT NOT NULL,
+                    created_at REAL NOT NULL
+                );
+                CREATE TABLE IF NOT EXISTS projects (
+                    id TEXT PRIMARY KEY,
+                    workspace_id TEXT NOT NULL REFERENCES workspaces(id) ON DELETE CASCADE,
+                    name TEXT NOT NULL,
+                    path TEXT NOT NULL,
+                    type TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'idle',
+                    created_at REAL NOT NULL,
+                    updated_at REAL NOT NULL,
+                    last_error TEXT,
+                    exported_symbols TEXT NOT NULL DEFAULT '[]'
+                );
+                CREATE INDEX IF NOT EXISTS idx_projects_workspace_id ON projects(workspace_id);
+                """
+            )
 
-    def create_workspace(self, name: str, root_path: str, description: str = "") -> Workspace:
-        ws = Workspace(id=str(uuid.uuid4()), name=name,
-                       root_path=root_path, description=description)
+    def create_workspace(self, name: str, root_path: str) -> Workspace:
+        workspace = Workspace(id=str(uuid.uuid4()), name=name, root_path=root_path)
         with self._lock, self._connect() as conn:
             conn.execute(
-                "INSERT INTO workspaces VALUES (?,?,?,?,?)",
-                (ws.id, ws.name, ws.root_path, ws.description, ws.created_at),
+                "INSERT INTO workspaces (id, name, root_path, created_at) VALUES (?, ?, ?, ?)",
+                (workspace.id, workspace.name, workspace.root_path, workspace.created_at),
             )
-        logger.info("Workspace criado: %s (%s)", ws.name, ws.id)
-        return ws
-
-    def get_workspace(self, workspace_id: str) -> Optional[Workspace]:
-        with self._connect() as conn:
-            row = conn.execute(
-                "SELECT id,name,root_path,description,created_at FROM workspaces WHERE id=?",
-                (workspace_id,),
-            ).fetchone()
-        return Workspace.from_row(tuple(row)) if row else None
+        return workspace
 
     def list_workspaces(self) -> list[Workspace]:
         with self._connect() as conn:
             rows = conn.execute(
-                "SELECT id,name,root_path,description,created_at FROM workspaces ORDER BY created_at"
+                "SELECT id, name, root_path, created_at FROM workspaces ORDER BY created_at DESC"
             ).fetchall()
-        return [Workspace.from_row(tuple(r)) for r in rows]
+        return [
+            Workspace(
+                id=row["id"],
+                name=row["name"],
+                root_path=row["root_path"],
+                created_at=row["created_at"],
+            )
+            for row in rows
+        ]
+
+    def get_workspace(self, workspace_id: str) -> Optional[Workspace]:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT id, name, root_path, created_at FROM workspaces WHERE id = ?",
+                (workspace_id,),
+            ).fetchone()
+        if not row:
+            return None
+        return Workspace(
+            id=row["id"],
+            name=row["name"],
+            root_path=row["root_path"],
+            created_at=row["created_at"],
+        )
 
     def delete_workspace(self, workspace_id: str) -> bool:
         with self._lock, self._connect() as conn:
-            cur = conn.execute("DELETE FROM workspaces WHERE id=?", (workspace_id,))
-        return cur.rowcount > 0
-
-    # ── Projects ──────────────────────────────
+            deleted = conn.execute(
+                "DELETE FROM workspaces WHERE id = ?",
+                (workspace_id,),
+            ).rowcount
+        return deleted > 0
 
     def create_project(
         self,
         workspace_id: str,
         name: str,
         path: str,
-        type: ProjectType = "other",
-        watch_interval: int = 5,
-        git_poll_interval: int = 30,
+        project_type: ProjectType,
     ) -> Project:
-        p = Project(
-            id=str(uuid.uuid4()), workspace_id=workspace_id,
-            name=name, path=path, type=type,
-            watch_interval=watch_interval, git_poll_interval=git_poll_interval,
+        now = time.time()
+        project = Project(
+            id=str(uuid.uuid4()),
+            workspace_id=workspace_id,
+            name=name,
+            path=path,
+            type=project_type,
+            created_at=now,
+            updated_at=now,
         )
         with self._lock, self._connect() as conn:
             conn.execute(
-                """INSERT INTO projects
-                   (id,workspace_id,name,path,type,status,watch_interval,
-                    git_poll_interval,last_scanned_at,last_commit,
-                    error_message,exported_symbols,created_at)
-                   VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                (p.id, p.workspace_id, p.name, p.path, p.type, p.status,
-                 p.watch_interval, p.git_poll_interval, p.last_scanned_at,
-                 p.last_commit, p.error_message,
-                 json.dumps(p.exported_symbols), p.created_at),
+                """
+                INSERT INTO projects (
+                    id, workspace_id, name, path, type, status, created_at, updated_at, last_error, exported_symbols
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    project.id,
+                    project.workspace_id,
+                    project.name,
+                    project.path,
+                    project.type,
+                    project.status,
+                    project.created_at,
+                    project.updated_at,
+                    project.last_error,
+                    json.dumps(project.exported_symbols),
+                ),
             )
-        logger.info("Project criado: %s (%s) em workspace %s", p.name, p.id, workspace_id)
-        return p
+        return project
 
     def get_project(self, project_id: str) -> Optional[Project]:
         with self._connect() as conn:
-            row = conn.execute(
-                "SELECT * FROM projects WHERE id=?", (project_id,)
-            ).fetchone()
-        return Project.from_row(tuple(row)) if row else None
+            row = conn.execute("SELECT * FROM projects WHERE id = ?", (project_id,)).fetchone()
+        if not row:
+            return None
+        return self._project_from_row(row)
 
-    def list_projects(self, workspace_id: str) -> list[Project]:
+    def list_projects(self, workspace_id: Optional[str] = None) -> list[Project]:
         with self._connect() as conn:
-            rows = conn.execute(
-                "SELECT * FROM projects WHERE workspace_id=? ORDER BY created_at",
-                (workspace_id,),
-            ).fetchall()
-        return [Project.from_row(tuple(r)) for r in rows]
+            if workspace_id:
+                rows = conn.execute(
+                    "SELECT * FROM projects WHERE workspace_id = ? ORDER BY created_at",
+                    (workspace_id,),
+                ).fetchall()
+            else:
+                rows = conn.execute("SELECT * FROM projects ORDER BY created_at").fetchall()
+        return [self._project_from_row(row) for row in rows]
 
     def update_project_status(
-        self, project_id: str, status: ProjectStatus,
-        error_message: Optional[str] = None,
-    ):
+        self,
+        project_id: str,
+        status: ProjectStatus,
+        last_error: Optional[str] = None,
+    ) -> None:
         with self._lock, self._connect() as conn:
             conn.execute(
-                "UPDATE projects SET status=?, error_message=? WHERE id=?",
-                (status, error_message, project_id),
+                """
+                UPDATE projects
+                SET status = ?, last_error = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (status, last_error, time.time(), project_id),
             )
 
-    def update_project_commit(self, project_id: str, commit: str):
+    def update_exported_symbols(self, project_id: str, symbols: list[str]) -> None:
         with self._lock, self._connect() as conn:
             conn.execute(
-                "UPDATE projects SET last_commit=?, last_scanned_at=? WHERE id=?",
-                (commit, time.time(), project_id),
-            )
-
-    def update_exported_symbols(self, project_id: str, symbols: list[str]):
-        with self._lock, self._connect() as conn:
-            conn.execute(
-                "UPDATE projects SET exported_symbols=? WHERE id=?",
-                (json.dumps(symbols), project_id),
+                """
+                UPDATE projects
+                SET exported_symbols = ?, updated_at = ?
+                WHERE id = ?
+                """,
+                (json.dumps(symbols), time.time(), project_id),
             )
 
     def delete_project(self, project_id: str) -> bool:
         with self._lock, self._connect() as conn:
-            cur = conn.execute("DELETE FROM projects WHERE id=?", (project_id,))
-        return cur.rowcount > 0
+            deleted = conn.execute(
+                "DELETE FROM projects WHERE id = ?",
+                (project_id,),
+            ).rowcount
+        return deleted > 0
 
     def get_sibling_projects(self, project_id: str) -> list[Project]:
-        """Retorna todos os projetos do mesmo workspace (exceto ele mesmo)."""
-        p = self.get_project(project_id)
-        if not p:
+        origin = self.get_project(project_id)
+        if not origin:
             return []
-        siblings = self.list_projects(p.workspace_id)
-        return [s for s in siblings if s.id != project_id]
+        return [p for p in self.list_projects(origin.workspace_id) if p.id != project_id]
+
+    @staticmethod
+    def _project_from_row(row: sqlite3.Row) -> Project:
+        return Project(
+            id=row["id"],
+            workspace_id=row["workspace_id"],
+            name=row["name"],
+            path=row["path"],
+            type=row["type"],
+            status=row["status"],
+            created_at=row["created_at"],
+            updated_at=row["updated_at"],
+            last_error=row["last_error"],
+            exported_symbols=json.loads(row["exported_symbols"] or "[]"),
+        )

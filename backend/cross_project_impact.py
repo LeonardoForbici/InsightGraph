@@ -1,366 +1,186 @@
-"""
-CrossProjectImpactEngine — Propagação de impacto entre projetos vinculados.
-
-Quando um arquivo muda no Projeto A (backend), este motor:
-  1. Extrai os símbolos alterados (classes, métodos, endpoints, tipos)
-  2. Varre os projetos irmãos (frontend, mobile, shared...)
-  3. Detecta quais deles CONSOMEM esses símbolos via:
-     - Chamadas diretas (CALLS / CALLS_RESOLVED)
-     - Contratos HTTP (CALLS_HTTP / CONSUMES_API)
-     - Tipos compartilhados (HAS_FIELD / MAPS_TO_COLUMN)
-     - Importações diretas (IMPORTS)
-  4. Classifica o impacto: BREAKING | DEGRADED | INFORMATIONAL
-  5. Publica CrossProjectImpactEvent via Redis pub/sub
-
-Isso é o que transforma o InsightGraph em algo que nenhuma outra
-ferramenta (nem o CAST) faz em tempo real no Ctrl+S.
-"""
-
 from __future__ import annotations
 
-import asyncio
-import json
 import logging
 import time
 from dataclasses import asdict, dataclass, field
+from pathlib import Path
 from typing import Literal, Optional
 
-logger = logging.getLogger("insightgraph.cross_impact")
+from event_stream import SSEEvent
+
+logger = logging.getLogger("insightgraph.cross_project_impact")
 
 ImpactSeverity = Literal["BREAKING", "DEGRADED", "INFORMATIONAL"]
-
-# Relações que cruzam fronteiras de projeto
-CROSS_BOUNDARY_RELS = [
-    "CALLS", "CALLS_RESOLVED", "CALLS_HTTP", "CONSUMES_API",
-    "IMPORTS", "HAS_FIELD", "MAPS_TO_COLUMN", "DISPLAYED_BY",
-    "CALLS_NHOP",
-]
+CROSS_REL_TYPES = {"CALLS_HTTP", "CONSUMES_API", "IMPORTS", "MAPS_TO_COLUMN", "CALLS", "CALLS_RESOLVED"}
+BREAKING_REL_TYPES = {"CALLS_HTTP", "CONSUMES_API"}
+DEGRADED_REL_TYPES = {"IMPORTS", "MAPS_TO_COLUMN", "CALLS", "CALLS_RESOLVED"}
 
 
-# ─────────────────────────────────────────────
-# Modelos de dados
-# ─────────────────────────────────────────────
-
-@dataclass
-class AffectedProjectNode:
+@dataclass(slots=True)
+class AffectedNode:
+    workspace_id: str
     project_id: str
     project_name: str
-    namespace_key: str
+    node_key: str
     symbol_name: str
-    rel_type: str           # qual relação conecta os dois
+    relation_type: str
     severity: ImpactSeverity
-    call_chain: list[str]   # caminho do nó alterado até este nó
-    confidence: int         # 0–100
 
 
-@dataclass
+@dataclass(slots=True)
 class CrossProjectImpactResult:
     origin_project_id: str
-    origin_file: str
-    changed_symbols: list[str]
-    affected_in_siblings: list[AffectedProjectNode]
-    total_affected: int
-    breaking_count: int
+    workspace_id: Optional[str]
+    file_path: str
+    changed_nodes: list[str]
+    affected: list[AffectedNode]
     timestamp: float = field(default_factory=time.time)
 
-    def to_sse_payload(self) -> dict:
+    @property
+    def total_affected(self) -> int:
+        return len(self.affected)
+
+    @property
+    def breaking_count(self) -> int:
+        return sum(1 for node in self.affected if node.severity == "BREAKING")
+
+    def to_payload(self) -> dict:
         return {
+            "workspace_id": self.workspace_id,
             "origin_project_id": self.origin_project_id,
-            "origin_file": self.origin_file,
-            "changed_symbols": self.changed_symbols,
+            "file_path": self.file_path,
+            "changed_nodes": self.changed_nodes,
             "total_affected": self.total_affected,
             "breaking_count": self.breaking_count,
-            "affected": [asdict(n) for n in self.affected_in_siblings],
+            "affected": [asdict(item) for item in self.affected],
             "timestamp": self.timestamp,
         }
 
 
-# ─────────────────────────────────────────────
-# Engine
-# ─────────────────────────────────────────────
-
 class CrossProjectImpactEngine:
-    """
-    Analisa impacto de uma mudança em um projeto sobre todos os projetos
-    irmãos do mesmo workspace.
-
-    Não bloqueia: usa asyncio + leituras leves ao grafo em memória.
-    A análise completa ao Neo4j só ocorre quando o grafo em memória
-    não tem resolução suficiente.
-    """
-
-    def __init__(
-        self,
-        registry,           # ProjectRegistry
-        memory_nodes: list[dict],
-        memory_edges: list[dict],
-        neo4j_service=None, # opcional — fallback para consulta profunda
-        event_stream=None,  # EventStream para SSE
-        redis_client=None,  # RedisClient para pub/sub entre workers
-    ):
+    def __init__(self, registry, memory_nodes: list[dict], memory_edges: list[dict], event_stream=None):
         self._registry = registry
-        self._mem_nodes = memory_nodes
-        self._mem_edges = memory_edges
-        self._neo4j = neo4j_service
-        self._stream = event_stream
-        self._redis = redis_client
-
-        # Índice invertido: symbol_key → list[node_dict]
-        # Rebuilt quando memory_nodes muda (lazy, por projeto)
-        self._symbol_index: dict[str, list[dict]] = {}
-        self._index_dirty = True
-
-    # ── Índice ────────────────────────────────
-
-    def mark_index_dirty(self):
-        self._index_dirty = True
-
-    def _rebuild_index(self):
-        idx: dict[str, list[dict]] = {}
-        for n in self._mem_nodes:
-            key = n.get("namespace_key") or n.get("id", "")
-            if key:
-                idx.setdefault(key, []).append(n)
-            # Também indexa por nome simples para heurística
-            name = n.get("name", "")
-            if name and name != key:
-                idx.setdefault(name, []).append(n)
-        self._symbol_index = idx
-        self._index_dirty = False
-        logger.debug("Symbol index rebuilt: %d entries", len(idx))
-
-    # ── API pública ───────────────────────────
+        self._memory_nodes = memory_nodes
+        self._memory_edges = memory_edges
+        self._event_stream = event_stream
 
     async def analyze(
         self,
         origin_project_id: str,
         changed_file: str,
-        changed_nodes: list[str],  # namespace_keys dos nós alterados
+        changed_nodes: list[str],
     ) -> CrossProjectImpactResult:
-        """
-        Ponto de entrada principal.  Chamado pelo ProjectWorker após
-        cada scan incremental bem-sucedido.
-
-        Retorna CrossProjectImpactResult e publica eventos SSE/Redis.
-        """
-        t0 = time.monotonic()
-
-        if self._index_dirty:
-            self._rebuild_index()
-
+        origin_project = self._registry.get_project(origin_project_id)
+        workspace_id = origin_project.workspace_id if origin_project else None
         siblings = self._registry.get_sibling_projects(origin_project_id)
-        if not siblings:
+        sibling_map = {p.id: p for p in siblings}
+        sibling_ids = set(sibling_map.keys())
+
+        if not sibling_ids or not changed_nodes:
             return CrossProjectImpactResult(
                 origin_project_id=origin_project_id,
-                origin_file=changed_file,
-                changed_symbols=changed_nodes,
-                affected_in_siblings=[],
-                total_affected=0,
-                breaking_count=0,
+                workspace_id=workspace_id,
+                file_path=changed_file,
+                changed_nodes=changed_nodes,
+                affected=[],
             )
 
-        sibling_ids = {s.id for s in siblings}
-        sibling_map = {s.id: s for s in siblings}
+        node_index = {node.get("namespace_key"): node for node in self._memory_nodes if node.get("namespace_key")}
 
-        affected: list[AffectedProjectNode] = []
+        affected_items: list[AffectedNode] = []
+        seen: set[tuple[str, str]] = set()
 
-        for changed_key in changed_nodes:
-            hits = await self._find_consumers(changed_key, sibling_ids, sibling_map)
-            affected.extend(hits)
+        for edge in self._memory_edges:
+            rel_type = str(edge.get("type") or "")
+            if rel_type not in CROSS_REL_TYPES:
+                continue
 
-        # Deduplica por (project_id, namespace_key)
-        seen: set[tuple] = set()
-        deduped: list[AffectedProjectNode] = []
-        for a in affected:
-            k = (a.project_id, a.namespace_key)
-            if k not in seen:
-                seen.add(k)
-                deduped.append(a)
+            source_key = edge.get("source")
+            target_key = edge.get("target")
+            if source_key not in changed_nodes and target_key not in changed_nodes:
+                continue
 
-        breaking = sum(1 for a in deduped if a.severity == "BREAKING")
+            other_key = target_key if source_key in changed_nodes else source_key
+            other_node = node_index.get(other_key)
+            if not other_node:
+                continue
+
+            project_id = self._resolve_project_id(other_node, sibling_ids)
+            if not project_id:
+                continue
+
+            sibling = sibling_map.get(project_id)
+            if not sibling:
+                continue
+
+            dedupe_key = (project_id, other_key)
+            if dedupe_key in seen:
+                continue
+            seen.add(dedupe_key)
+
+            affected_items.append(
+                AffectedNode(
+                    workspace_id=sibling.workspace_id,
+                    project_id=project_id,
+                    project_name=sibling.name,
+                    node_key=other_key,
+                    symbol_name=str(other_node.get("name") or other_key),
+                    relation_type=rel_type,
+                    severity=self._severity_for_relation(rel_type),
+                )
+            )
 
         result = CrossProjectImpactResult(
             origin_project_id=origin_project_id,
-            origin_file=changed_file,
-            changed_symbols=changed_nodes,
-            affected_in_siblings=deduped,
-            total_affected=len(deduped),
-            breaking_count=breaking,
+            workspace_id=workspace_id,
+            file_path=changed_file,
+            changed_nodes=changed_nodes,
+            affected=affected_items,
         )
 
-        elapsed = (time.monotonic() - t0) * 1000
-        logger.info(
-            "Cross-project analysis: %d affected nodes in %d siblings (%.1fms)",
-            len(deduped), len(siblings), elapsed,
-        )
+        if result.total_affected > 0:
+            await self._publish(result)
 
-        await self._publish(result)
         return result
 
-    # ── Busca de consumidores ─────────────────
+    def _resolve_project_id(self, node: dict, sibling_ids: set[str]) -> Optional[str]:
+        explicit = node.get("project_id")
+        if isinstance(explicit, str) and explicit in sibling_ids:
+            return explicit
 
-    async def _find_consumers(
-        self,
-        changed_key: str,
-        sibling_ids: set[str],
-        sibling_map: dict,
-    ) -> list[AffectedProjectNode]:
-        """
-        Busca nós nos projetos irmãos que dependem de changed_key.
+        node_file = str(node.get("file") or "")
+        if not node_file:
+            return None
 
-        Estratégia em camadas (do mais rápido ao mais lento):
-          L1 — Arestas diretas no grafo em memória
-          L2 — Busca por nome heurística no índice
-          L3 — Consulta ao Neo4j (apenas se L1+L2 retornarem 0 resultados)
-        """
-        results: list[AffectedProjectNode] = []
-
-        # L1: arestas diretas
-        for edge in self._mem_edges:
-            if edge.get("source") != changed_key:
+        node_file_path = Path(node_file).resolve()
+        for sibling in self._registry.list_projects():
+            if sibling.id not in sibling_ids:
                 continue
-            rel = edge.get("type", "")
-            if rel not in CROSS_BOUNDARY_RELS:
+            sibling_path = Path(sibling.path).resolve()
+            try:
+                node_file_path.relative_to(sibling_path)
+                return sibling.id
+            except ValueError:
                 continue
-            target_key = edge.get("target", "")
-            target_nodes = self._symbol_index.get(target_key, [])
-            for tn in target_nodes:
-                proj_id = tn.get("project_id", "")
-                if proj_id not in sibling_ids:
-                    continue
-                sib = sibling_map[proj_id]
-                sev = self._classify_severity(rel, tn)
-                results.append(AffectedProjectNode(
-                    project_id=proj_id,
-                    project_name=sib.name,
-                    namespace_key=target_key,
-                    symbol_name=tn.get("name", target_key),
-                    rel_type=rel,
-                    severity=sev,
-                    call_chain=[changed_key, target_key],
-                    confidence=90,
-                ))
 
-        # L2: heurística por nome (APIs REST, tipos exportados)
-        if not results:
-            symbol_name = changed_key.split(".")[-1]  # pega só o nome curto
-            candidates = self._symbol_index.get(symbol_name, [])
-            for cn in candidates:
-                proj_id = cn.get("project_id", "")
-                if proj_id not in sibling_ids:
-                    continue
-                sib = sibling_map[proj_id]
-                results.append(AffectedProjectNode(
-                    project_id=proj_id,
-                    project_name=sib.name,
-                    namespace_key=cn.get("namespace_key", symbol_name),
-                    symbol_name=symbol_name,
-                    rel_type="HEURISTIC_NAME_MATCH",
-                    severity="INFORMATIONAL",
-                    call_chain=[changed_key, cn.get("namespace_key", symbol_name)],
-                    confidence=55,
-                ))
-
-        # L3: Neo4j (assíncrono, só se necessário)
-        if not results and self._neo4j:
-            results = await self._neo4j_query(changed_key, sibling_ids, sibling_map)
-
-        return results
-
-    async def _neo4j_query(
-        self,
-        changed_key: str,
-        sibling_ids: set[str],
-        sibling_map: dict,
-    ) -> list[AffectedProjectNode]:
-        """Consulta profunda ao Neo4j para impacto cross-projeto."""
-        try:
-            loop = asyncio.get_event_loop()
-            query = """
-                MATCH (origin {namespace_key: $key})
-                MATCH (origin)-[r]-(target)
-                WHERE type(r) IN $rels AND target.project_id IN $projects
-                RETURN target.namespace_key AS ns_key,
-                       target.name AS name,
-                       target.project_id AS proj_id,
-                       type(r) AS rel_type
-                LIMIT 50
-            """
-            rows = await loop.run_in_executor(
-                None,
-                lambda: self._neo4j.run_query(
-                    query,
-                    key=changed_key,
-                    rels=CROSS_BOUNDARY_RELS,
-                    projects=list(sibling_ids),
-                ),
-            )
-            out = []
-            for row in (rows or []):
-                proj_id = row.get("proj_id", "")
-                if proj_id not in sibling_ids:
-                    continue
-                sib = sibling_map[proj_id]
-                rel = row.get("rel_type", "CALLS")
-                tn = {"project_id": proj_id}
-                sev = self._classify_severity(rel, tn)
-                out.append(AffectedProjectNode(
-                    project_id=proj_id,
-                    project_name=sib.name,
-                    namespace_key=row.get("ns_key", ""),
-                    symbol_name=row.get("name", ""),
-                    rel_type=rel,
-                    severity=sev,
-                    call_chain=[changed_key, row.get("ns_key", "")],
-                    confidence=80,
-                ))
-            return out
-        except Exception as exc:
-            logger.warning("Neo4j cross-project query failed: %s", exc)
-            return []
-
-    # ── Classificação de severidade ───────────
+        return None
 
     @staticmethod
-    def _classify_severity(rel_type: str, target_node: dict) -> ImpactSeverity:
-        """
-        BREAKING  → contrato público alterado (API, tipo exportado)
-        DEGRADED  → chamada interna impactada
-        INFORMATIONAL → heurística ou baixa confiança
-        """
-        breaking_rels = {"CALLS_HTTP", "CONSUMES_API", "MAPS_TO_COLUMN", "DISPLAYED_BY"}
-        degraded_rels  = {"CALLS", "CALLS_RESOLVED", "CALLS_NHOP", "IMPORTS"}
-
-        if rel_type in breaking_rels:
+    def _severity_for_relation(relation_type: str) -> ImpactSeverity:
+        if relation_type in BREAKING_REL_TYPES:
             return "BREAKING"
-        if rel_type in degraded_rels:
+        if relation_type in DEGRADED_REL_TYPES:
             return "DEGRADED"
         return "INFORMATIONAL"
 
-    # ── Publicação ────────────────────────────
-
-    async def _publish(self, result: CrossProjectImpactResult):
-        if result.total_affected == 0:
+    async def _publish(self, result: CrossProjectImpactResult) -> None:
+        if not self._event_stream:
             return
 
-        payload = result.to_sse_payload()
-
-        # SSE direto para clientes conectados
-        if self._stream:
-            try:
-                from event_stream import SSEEvent
-                await self._stream.publish(SSEEvent(
-                    type="impact_detected",
-                    payload={"cross_project": True, **payload},
-                    timestamp=time.time(),
-                ))
-            except Exception as exc:
-                logger.warning("SSE publish failed: %s", exc)
-
-        # Redis pub/sub para outros workers/instâncias
-        if self._redis:
-            try:
-                channel = f"workspace:cross_impact:{result.origin_project_id}"
-                await self._redis.publish(channel, json.dumps(payload))
-            except Exception as exc:
-                logger.warning("Redis publish failed: %s", exc)
+        payload = result.to_payload()
+        try:
+            await self._event_stream.publish(
+                SSEEvent(type="impact_detected", payload=payload, timestamp=time.time())
+            )
+        except Exception as exc:
+            logger.warning("Failed to publish cross-project impact event: %s", exc)

@@ -15,6 +15,8 @@ from typing import Literal, Optional
 
 import httpx
 
+from ollama_runtime import OllamaRuntime, OllamaServiceError
+
 logger = logging.getLogger("insightgraph")
 
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
@@ -45,9 +47,15 @@ class SemanticAnalyzer:
     Requirements: 8.1–8.6
     """
 
-    def __init__(self, ollama_url: str = OLLAMA_URL, model: str = OLLAMA_COMPLEX_MODEL):
+    def __init__(
+        self,
+        ollama_url: str = OLLAMA_URL,
+        model: str = OLLAMA_COMPLEX_MODEL,
+        ollama_runtime: OllamaRuntime | None = None,
+    ):
         self._ollama_url = ollama_url
         self._model = model
+        self._runtime = ollama_runtime
 
     # ──────────────────────────────────────────────
     # Public API
@@ -172,6 +180,16 @@ Return ONLY a valid JSON object with exactly these fields (no markdown, no expla
     async def _call_ollama(self, prompt: str, model: str | None = None) -> str:
         """Send prompt to Ollama and return raw response text."""
         use_model = model or self._model
+        if self._runtime is not None:
+            data = await self._runtime.generate(
+                model=use_model,
+                prompt=prompt,
+                timeout=60.0,
+                retries=1,
+                options={"temperature": 0.1, "num_predict": 1500},
+                keep_alive="10m",
+            )
+            return str(data.get("response", ""))
         async with httpx.AsyncClient(timeout=60.0) as client:
             response = await client.post(
                 f"{self._ollama_url}/api/generate",

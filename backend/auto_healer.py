@@ -11,16 +11,24 @@ from typing import Any, Optional
 
 import httpx
 
+from ollama_runtime import OllamaRuntime, OllamaServiceError
 from state_store import LocalStateStore
 
 logger = logging.getLogger("insightgraph.auto_healer")
 
 
 class AutoHealer:
-    def __init__(self, state_store: LocalStateStore, ollama_url: str, model: str):
+    def __init__(
+        self,
+        state_store: LocalStateStore,
+        ollama_url: str,
+        model: str,
+        ollama_runtime: OllamaRuntime | None = None,
+    ):
         self.state_store = state_store
         self.ollama_url = ollama_url.rstrip("/")
         self.model = model
+        self.ollama_runtime = ollama_runtime
 
     def detect_bug_patterns(
         self,
@@ -132,14 +140,26 @@ class AutoHealer:
         }
 
     async def _generate_with_ollama(self, prompt: str) -> str:
-        url = f"{self.ollama_url}/api/generate"
-        payload = {"model": self.model, "prompt": prompt, "stream": False}
         try:
+            if self.ollama_runtime is not None:
+                data = await self.ollama_runtime.generate(
+                    model=self.model,
+                    prompt=prompt,
+                    timeout=18.0,
+                    retries=1,
+                    keep_alive="5m",
+                )
+                return str(data.get("response") or "").strip() or "No response."
+            url = f"{self.ollama_url}/api/generate"
+            payload = {"model": self.model, "prompt": prompt, "stream": False}
             async with httpx.AsyncClient(timeout=18.0) as client:
                 resp = await client.post(url, json=payload)
                 resp.raise_for_status()
                 data = resp.json()
                 return str(data.get("response") or "").strip() or "No response."
+        except OllamaServiceError as exc:
+            logger.warning("AutoHealer fallback due to Ollama runtime error: %s", exc)
+            return "Auto-healer fallback: validate null checks, input validation, and error handling; then add regression tests."
         except Exception as exc:
             logger.warning("AutoHealer fallback due to Ollama error: %s", exc)
             return "Auto-healer fallback: validate null checks, input validation, and error handling; then add regression tests."

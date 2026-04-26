@@ -8,6 +8,7 @@ import SecurityDashboard from './components/SecurityDashboard';
 import Timeline4D from './components/Timeline4D';
 import CollaborationUI from './components/CollaborationUI';
 import AutoHealerPanel from './components/AutoHealerPanel';
+import AskPanel from './components/AskPanel';
 import HandGestureController, { type GestureCommand } from './components/HandGestureController';
 import { LiveAlertFeed } from './components/LiveAlertFeed';
 import { CommitTimeline } from './components/CommitTimeline';
@@ -15,6 +16,9 @@ import { WeeklyDigestPanel } from './components/WeeklyDigestPanel';
 import SettingsScreen from './components/SettingsScreen';
 import WatchModePanel from './components/WatchModePanel';
 import ImpactAnalysisPanel from './components/ImpactAnalysisPanel';
+import ProjectManagement from './components/ProjectManagement';
+import ImpactNotification, { type ImpactNotificationEntry } from './components/ImpactNotification';
+import { useWatchMode } from './hooks/useWatchMode';
 import {
   fetchBlastRadius,
   fetchGraph,
@@ -46,6 +50,30 @@ const ensureArray = <T,>(value: T[] | Record<string, T> | null | undefined): T[]
   if (Array.isArray(value)) return value;
   if (!value) return [];
   return Object.values(value) as T[];
+};
+
+interface LiveChangeState {
+  source: 'watch' | 'sse' | 'fallback';
+  file?: string;
+  changedNodes: string[];
+  impactedNodes: string[];
+  newNodes: string[];
+  removedNodes: string[];
+  riskScore: number;
+  summary?: string;
+  timestamp: number;
+}
+
+const uniqueKeys = (values: string[]): string[] => {
+  const seen = new Set<string>();
+  const result: string[] = [];
+  values.forEach((value) => {
+    const key = value.trim();
+    if (!key || seen.has(key)) return;
+    seen.add(key);
+    result.push(key);
+  });
+  return result;
 };
 
 export default function App() {
@@ -97,6 +125,15 @@ export default function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [watchModeOpen, setWatchModeOpen] = useState(false);
   const [impactAnalysisOpen, setImpactAnalysisOpen] = useState(false);
+  const [projectManagementOpen, setProjectManagementOpen] = useState(false);
+  const [askOpen, setAskOpen] = useState(false);
+  const [askInitialMessage, setAskInitialMessage] = useState<string | undefined>();
+  const [liveChangeState, setLiveChangeState] = useState<LiveChangeState | null>(null);
+  const [impactToasts, setImpactToasts] = useState<ImpactNotificationEntry[]>([]);
+  const watchMode = useWatchMode();
+  const graphNodesRef = useRef<GraphNode[]>([]);
+  const refreshInFlightRef = useRef(false);
+  const refreshPendingRef = useRef(false);
 
   const closeAllPanels = useCallback(() => {
     setSecurityOpen(false);
@@ -109,19 +146,97 @@ export default function App() {
     setSettingsOpen(false);
     setWatchModeOpen(false);
     setImpactAnalysisOpen(false);
+    setProjectManagementOpen(false);
+    setAskOpen(false);
   }, []);
 
-  const loadGraph = useCallback(async () => {
+  useEffect(() => {
+    graphNodesRef.current = graphNodes;
+  }, [graphNodes]);
+
+  const registerLiveChange = useCallback((payload: {
+    source: 'watch' | 'sse' | 'fallback';
+    file?: string;
+    changedNodes?: string[];
+    impactedNodes?: string[];
+    riskScore?: number;
+    summary?: string;
+  }, nextNodes: GraphNode[]) => {
+    const prevNodeKeys = new Set(graphNodesRef.current.map((node) => node.namespace_key));
+    const nextNodeKeys = new Set(nextNodes.map((node) => node.namespace_key));
+
+    const newNodes = Array.from(nextNodeKeys).filter((key) => !prevNodeKeys.has(key));
+    const removedNodes = Array.from(prevNodeKeys).filter((key) => !nextNodeKeys.has(key));
+
+    const changedNodes = uniqueKeys(payload.changedNodes || []);
+    const impactedNodes = uniqueKeys(payload.impactedNodes || []);
+
+    const runtime: LiveChangeState = {
+      source: payload.source,
+      file: payload.file,
+      changedNodes,
+      impactedNodes,
+      newNodes,
+      removedNodes,
+      riskScore: payload.riskScore || 0,
+      summary: payload.summary,
+      timestamp: Date.now(),
+    };
+
+    setLiveChangeState(runtime);
+
+    const highlight = uniqueKeys([
+      ...runtime.changedNodes,
+      ...runtime.impactedNodes,
+      ...runtime.newNodes,
+    ]);
+    if (highlight.length > 0) {
+      setAiHighlightedNodes(highlight.slice(0, 120));
+    }
+
+    if (runtime.impactedNodes.length > 0 || runtime.changedNodes.length > 0) {
+      const focusNode = runtime.changedNodes[0] || runtime.impactedNodes[0];
+      if (focusNode) {
+        const severity: ImpactNotificationEntry['severity'] =
+          runtime.riskScore >= 70 ? 'high' : runtime.riskScore >= 35 ? 'medium' : 'low';
+        setImpactToasts((prev) => [
+          {
+            id: `${runtime.timestamp}-${focusNode}`,
+            nodeKey: focusNode,
+            fileName: runtime.file || focusNode,
+            affectedCount: Math.max(runtime.impactedNodes.length, runtime.changedNodes.length),
+            severity,
+            timestamp: runtime.timestamp,
+            autoHide: true,
+          },
+          ...prev,
+        ].slice(0, 6));
+      }
+    }
+  }, []);
+
+  const loadGraph = useCallback(async (livePayload?: {
+    source: 'watch' | 'sse' | 'fallback';
+    file?: string;
+    changedNodes?: string[];
+    impactedNodes?: string[];
+    riskScore?: number;
+    summary?: string;
+  }) => {
     try {
       const projectFilter = selectedProjects.length === 1 ? selectedProjects[0] : undefined;
       const data = await fetchGraph(projectFilter, selectedLayer || undefined);
-      setGraphNodes(ensureArray<GraphNode>(data.nodes));
+      const nextNodes = ensureArray<GraphNode>(data.nodes);
+      setGraphNodes(nextNodes);
       setGraphEdges(ensureArray(data.edges));
       setProjects(await fetchProjects());
+      if (livePayload) {
+        registerLiveChange(livePayload, nextNodes);
+      }
     } catch (err) {
       console.error('Failed to load graph', err);
     }
-  }, [selectedLayer, selectedProjects]);
+  }, [registerLiveChange, selectedLayer, selectedProjects]);
 
   const loadTags = useCallback(async () => {
     try {
@@ -146,6 +261,30 @@ export default function App() {
     }
   }, []);
 
+  const refreshGraphPredictably = useCallback(async (livePayload?: {
+    source: 'watch' | 'sse' | 'fallback';
+    file?: string;
+    changedNodes?: string[];
+    impactedNodes?: string[];
+    riskScore?: number;
+    summary?: string;
+  }) => {
+    if (refreshInFlightRef.current) {
+      refreshPendingRef.current = true;
+      return;
+    }
+    refreshInFlightRef.current = true;
+    try {
+      await loadGraph(livePayload);
+    } finally {
+      refreshInFlightRef.current = false;
+      if (refreshPendingRef.current) {
+        refreshPendingRef.current = false;
+        await refreshGraphPredictably(livePayload);
+      }
+    }
+  }, [loadGraph]);
+
   useEffect(() => {
     loadGraph();
     loadTags();
@@ -154,6 +293,88 @@ export default function App() {
       if (pollRef.current) clearInterval(pollRef.current);
     };
   }, [loadGraph, loadTags, loadAnnotations]);
+
+  useEffect(() => {
+    const source = new EventSource('/api/events');
+
+    const onGraphUpdated = (event: MessageEvent) => {
+      try {
+        const payload = JSON.parse(event.data || '{}');
+        const changedNodes = Array.isArray(payload?.changed_nodes) ? payload.changed_nodes : [];
+        const directImpacted = Array.isArray(payload?.affected_nodes) ? payload.affected_nodes : [];
+        const crossImpacted = Array.isArray(payload?.cross_project?.affected)
+          ? payload.cross_project.affected
+            .map((item: any) => item?.node_key)
+            .filter((item: unknown): item is string => typeof item === 'string' && item.length > 0)
+          : [];
+        void refreshGraphPredictably({
+          source: 'sse',
+          file: typeof payload?.file === 'string' ? payload.file : undefined,
+          changedNodes,
+          impactedNodes: [...directImpacted, ...crossImpacted],
+          riskScore: typeof payload?.risk_score === 'number' ? payload.risk_score : 0,
+          summary: typeof payload?.summary === 'string' ? payload.summary : undefined,
+        });
+      } catch {
+        void refreshGraphPredictably({ source: 'sse' });
+      }
+    };
+    const onScanComplete = () => {
+      void refreshGraphPredictably({ source: 'sse' });
+    };
+    const onImpactDetected = (event: MessageEvent) => {
+      try {
+        const payload = JSON.parse(event.data);
+        const affected = Array.isArray(payload?.affected) ? payload.affected : [];
+        const impactedNodes = affected
+          .map((item: any) => item?.node_key)
+          .filter((value: unknown): value is string => typeof value === 'string' && value.length > 0);
+        if (impactedNodes.length > 0) {
+          void refreshGraphPredictably({
+            source: 'sse',
+            changedNodes: Array.isArray(payload?.changed_nodes) ? payload.changed_nodes : [],
+            impactedNodes,
+            riskScore: typeof payload?.breaking_count === 'number' ? Math.min(100, payload.breaking_count * 25) : 0,
+          });
+        }
+      } catch {
+        // ignore malformed payload
+      }
+    };
+
+    source.addEventListener('graph_updated', onGraphUpdated);
+    source.addEventListener('scan_complete', onScanComplete);
+    source.addEventListener('impact_detected', onImpactDetected as EventListener);
+
+    return () => {
+      source.removeEventListener('graph_updated', onGraphUpdated);
+      source.removeEventListener('scan_complete', onScanComplete);
+      source.removeEventListener('impact_detected', onImpactDetected as EventListener);
+      source.close();
+    };
+  }, [refreshGraphPredictably]);
+
+  useEffect(() => {
+    if (!watchMode.lastImpact) return;
+    const impact = watchMode.lastImpact;
+    void refreshGraphPredictably({
+      source: 'watch',
+      file: impact.file,
+      changedNodes: impact.changed_nodes || [],
+      impactedNodes: impact.affected_nodes || [],
+      riskScore: impact.risk_score,
+      summary: impact.summary,
+    });
+  }, [refreshGraphPredictably, watchMode.lastImpact]);
+
+  useEffect(() => {
+    if (watchMode.watching) return;
+    const fallbackInterval = setInterval(() => {
+      if (scanStatus === 'scanning') return;
+      void refreshGraphPredictably({ source: 'fallback' });
+    }, 20000);
+    return () => clearInterval(fallbackInterval);
+  }, [refreshGraphPredictably, scanStatus, watchMode.watching]);
 
   const handleScan = useCallback(async (payload: StartScanRequest) => {
     if ((payload.mode ?? 'local') === 'local' && workspaces.length === 0) return;
@@ -181,13 +402,13 @@ export default function App() {
         if (status.status !== 'scanning') {
           setScanStatus(status.status);
           if (pollRef.current) clearInterval(pollRef.current);
-          loadGraph();
+          void refreshGraphPredictably({ source: 'sse' });
         }
       } catch {
         setScanStatus('error');
       }
     }, 1400);
-  }, [workspaces, loadGraph]);
+  }, [refreshGraphPredictably, workspaces]);
 
   const handleCancelScan = useCallback(async () => {
     try {
@@ -219,12 +440,39 @@ export default function App() {
     }
   }, []);
 
+  const handleOpenAsk = useCallback(() => {
+    if (selectedNode) {
+      setAskInitialMessage(`Se eu alterar ${selectedNode.name}, o que pode quebrar nos projetos dependentes?`);
+    } else {
+      setAskInitialMessage(undefined);
+    }
+    setAskOpen(true);
+  }, [selectedNode]);
+
+  const liveChangedSet = useMemo(() => new Set(liveChangeState?.changedNodes || []), [liveChangeState?.changedNodes]);
+  const liveNewSet = useMemo(() => new Set(liveChangeState?.newNodes || []), [liveChangeState?.newNodes]);
+  const liveImpactedSet = useMemo(() => new Set(liveChangeState?.impactedNodes || []), [liveChangeState?.impactedNodes]);
+
+  const runtimeGraphNodes = useMemo(() => {
+    if (!liveChangeState) return graphNodes;
+    return graphNodes.map((node) => {
+      let liveChange: GraphNode['live_change_state'] | undefined;
+      if (liveNewSet.has(node.namespace_key)) liveChange = 'new';
+      else if (liveChangedSet.has(node.namespace_key)) liveChange = 'changed';
+      else if (liveImpactedSet.has(node.namespace_key)) liveChange = 'impacted';
+      return {
+        ...node,
+        live_change_state: liveChange,
+      };
+    });
+  }, [graphNodes, liveChangeState, liveChangedSet, liveImpactedSet, liveNewSet]);
+
   const filteredGraphNodes = useMemo(() => {
     const [hotMin, hotMax] = hotspotRange;
     const [compMin, compMax] = complexityRange;
     const fileTerm = fileFilter.trim().toLowerCase();
     const q = searchTerm.trim().toLowerCase();
-    return graphNodes.filter((node) => {
+    return runtimeGraphNodes.filter((node) => {
       const hotspot = node.hotspot_score ?? 0;
       const complexity = node.complexity ?? 0;
       const labels = node.labels ?? [];
@@ -241,7 +489,7 @@ export default function App() {
       if (impactOnly && !(typeof node.impact_distance === 'number' && node.impact_distance > 0)) return false;
       return true;
     });
-  }, [annotationsIndex, complexityRange, fileFilter, graphNodes, hotspotRange, impactOnly, searchTerm, selectedNodeTypes, selectedTagFilter]);
+  }, [annotationsIndex, complexityRange, fileFilter, hotspotRange, impactOnly, runtimeGraphNodes, searchTerm, selectedNodeTypes, selectedTagFilter]);
 
   const filteredGraphEdges = useMemo(() => {
     const visible = new Set(filteredGraphNodes.map((n) => n.namespace_key));
@@ -327,10 +575,14 @@ export default function App() {
         onOpenCommitTimeline={() => { closeAllPanels(); setCommitTimelineOpen(true); }}
         weeklyDigestOpen={weeklyDigestOpen}
         onOpenWeeklyDigest={() => { closeAllPanels(); setWeeklyDigestOpen(true); }}
+        projectManagementOpen={projectManagementOpen}
+        onOpenProjectManagement={() => { closeAllPanels(); setProjectManagementOpen(true); }}
       />
 
       <div className="app-main">
-        {homeViewOpen ? (
+        {projectManagementOpen ? (
+          <ProjectManagement />
+        ) : homeViewOpen ? (
           <WorkspaceHub
             workspaces={workspaces}
             onAddWorkspace={(path) => setWorkspaces((prev) => prev.includes(path) ? prev : [...prev, path])}
@@ -353,6 +605,7 @@ export default function App() {
             onOpenCommitTimeline={() => { closeAllPanels(); setCommitTimelineOpen(true); }}
             onOpenWeeklyDigest={() => { closeAllPanels(); setWeeklyDigestOpen(true); }}
             onOpenSettings={() => { closeAllPanels(); setSettingsOpen(true); }}
+            onOpenProjectManagement={() => { closeAllPanels(); setProjectManagementOpen(true); }}
           />
         ) : (
           <div className="graph-layout">
@@ -362,6 +615,9 @@ export default function App() {
               highlightedUpstream={highlightedUpstream}
               highlightedDownstream={highlightedDownstream}
               aiHighlightedNodes={aiHighlightedNodes}
+              changedNodes={liveChangedSet}
+              newlyAddedNodes={liveNewSet}
+              runtimeImpactedNodes={liveImpactedSet}
               selectedNodeKey={selectedNodeKey}
               onNodeClick={handleNodeClick}
               onClearAiHighlights={() => setAiHighlightedNodes([])}
@@ -405,7 +661,26 @@ export default function App() {
       {commitTimelineOpen && <CommitTimeline onClose={() => setCommitTimelineOpen(false)} />}
       {weeklyDigestOpen && <WeeklyDigestPanel onClose={() => setWeeklyDigestOpen(false)} />}
       {settingsOpen && <SettingsScreen onClose={() => setSettingsOpen(false)} />}
-      {watchModeOpen && <WatchModePanel />}
+      {watchModeOpen && (
+        <WatchModePanel
+          connected={watchMode.connected}
+          watching={watchMode.watching}
+          watchedPath={watchMode.watchedPath}
+          lastImpact={watchMode.lastImpact}
+          impactHistory={watchMode.impactHistory}
+          onStartWatch={watchMode.startWatch}
+          onStopWatch={watchMode.stopWatch}
+          onClearHistory={watchMode.clearHistory}
+          onViewImpact={(impact) => {
+            const focusNode = impact.changed_nodes[0] || impact.affected_nodes[0];
+            if (focusNode) {
+              setAiHighlightedNodes(uniqueKeys([...impact.changed_nodes, ...impact.affected_nodes]));
+              const node = graphNodes.find((item) => item.namespace_key === focusNode);
+              if (node) void handleNodeClick(focusNode, node);
+            }
+          }}
+        />
+      )}
       {impactAnalysisOpen && selectedNode && (
         <ImpactAnalysisPanel
           nodeKey={selectedNode.namespace_key}
@@ -414,6 +689,139 @@ export default function App() {
           onHighlightNodes={setAiHighlightedNodes}
         />
       )}
+
+      <button
+        type="button"
+        onClick={handleOpenAsk}
+        style={{
+          position: 'fixed',
+          left: 18,
+          bottom: 18,
+          zIndex: 1200,
+          border: '1px solid #334155',
+          background: 'linear-gradient(135deg, #0f172a 0%, #1e293b 100%)',
+          color: '#e2e8f0',
+          borderRadius: 999,
+          padding: '10px 14px',
+          fontWeight: 700,
+          cursor: 'pointer',
+          boxShadow: '0 10px 24px rgba(2, 6, 23, 0.45)',
+        }}
+      >
+        AI Chat
+      </button>
+
+      {askOpen && (
+        <div style={{ position: 'fixed', right: 18, bottom: 74, zIndex: 1200, width: 420, maxWidth: 'calc(100vw - 24px)' }}>
+          <AskPanel
+            onClose={() => {
+              setAskOpen(false);
+              setAskInitialMessage(undefined);
+            }}
+            selectedNodeKey={selectedNodeKey}
+            selectedNodeName={selectedNode?.name ?? null}
+            selectedProject={
+              selectedProjects.length === 1
+                ? selectedProjects[0]
+                : selectedNode?.project || null
+            }
+            graphContext={{
+              totalNodes: graphNodes.length,
+              totalEdges: graphEdges.length,
+              visibleNodes: filteredGraphNodes.length,
+              visibleEdges: filteredGraphEdges.length,
+              selectedLayer: selectedLayer || undefined,
+              liveChangedNodes: liveChangeState?.changedNodes.length,
+              liveImpactedNodes: liveChangeState?.impactedNodes.length,
+              liveNewNodes: liveChangeState?.newNodes.length,
+              liveRemovedNodes: liveChangeState?.removedNodes.length,
+              liveRiskScore: liveChangeState?.riskScore,
+              liveSource: liveChangeState?.source,
+              liveFile: liveChangeState?.file,
+            }}
+            onHighlightNodes={setAiHighlightedNodes}
+            onReferenceClick={(nodeKey) => {
+              const node = graphNodes.find((item) => item.namespace_key === nodeKey);
+              if (node) {
+                handleNodeClick(nodeKey, node);
+              }
+            }}
+            initialMessage={askInitialMessage}
+          />
+        </div>
+      )}
+
+      {liveChangeState && (
+        <div style={{
+          position: 'fixed',
+          left: 18,
+          top: 18,
+          zIndex: 1100,
+          minWidth: 360,
+          maxWidth: 'calc(100vw - 36px)',
+          border: '1px solid rgba(148, 163, 184, 0.35)',
+          background: 'rgba(6, 8, 26, 0.9)',
+          borderRadius: 10,
+          padding: '10px 12px',
+          color: '#e2e8f0',
+          boxShadow: '0 12px 26px rgba(2,6,23,0.45)',
+          backdropFilter: 'blur(8px)',
+        }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 10 }}>
+            <strong style={{ fontSize: 12 }}>
+              Ciclo Vivo · {liveChangeState.source === 'watch' ? 'Watch' : liveChangeState.source === 'sse' ? 'Evento' : 'Fallback'}
+            </strong>
+            <span style={{ fontSize: 11, color: '#94a3b8' }}>
+              {new Date(liveChangeState.timestamp).toLocaleTimeString('pt-BR')}
+            </span>
+          </div>
+          <div style={{ marginTop: 6, fontSize: 12, color: '#cbd5e1' }}>
+            {liveChangeState.file || 'Atualizacao de grafo'} · alterados {liveChangeState.changedNodes.length}
+            {' '}· impactados {liveChangeState.impactedNodes.length}
+            {' '}· novos {liveChangeState.newNodes.length}
+            {' '}· removidos {liveChangeState.removedNodes.length}
+            {' '}· risco {Math.round(liveChangeState.riskScore)}%
+          </div>
+          <div style={{ marginTop: 8, display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button
+              type="button"
+              className="ask-suggestion-btn"
+              onClick={() => {
+                setAskInitialMessage(
+                  `Explique o que mudou em ${liveChangeState.file || 'meu sistema'}, o impacto em ${
+                    liveChangeState.impactedNodes.length
+                  } nos e o risco ${Math.round(liveChangeState.riskScore)}%.`
+                );
+                setAskOpen(true);
+              }}
+            >
+              Perguntar para IA
+            </button>
+            <button
+              type="button"
+              className="ask-suggestion-btn"
+              onClick={() => setAiHighlightedNodes(uniqueKeys([
+                ...liveChangeState.changedNodes,
+                ...liveChangeState.impactedNodes,
+                ...liveChangeState.newNodes,
+              ]))}
+            >
+              Destacar alteracoes
+            </button>
+          </div>
+        </div>
+      )}
+
+      <ImpactNotification
+        impacts={impactToasts}
+        onToastClick={(nodeKey) => {
+          const node = graphNodes.find((item) => item.namespace_key === nodeKey);
+          if (node) {
+            void handleNodeClick(nodeKey, node);
+          }
+        }}
+        onDismiss={(id) => setImpactToasts((prev) => prev.filter((item) => item.id !== id))}
+      />
 
       <div style={{ position: 'fixed', right: 18, bottom: 18, zIndex: 1200 }}>
         <HandGestureController

@@ -12,6 +12,8 @@ from typing import Optional
 
 import httpx
 
+from ollama_runtime import OllamaRuntime, OllamaServiceError
+
 logger = logging.getLogger("insightgraph.refactor")
 
 
@@ -51,12 +53,14 @@ class RefactorEngine:
         state_store,
         memory_nodes: list,
         memory_edges: list,
+        ollama_runtime: OllamaRuntime | None = None,
     ):
         self.ollama_url = ollama_url.rstrip("/")
         self.complex_model = complex_model
         self.state_store = state_store
         self.memory_nodes = memory_nodes
         self.memory_edges = memory_edges
+        self.ollama_runtime = ollama_runtime
 
     # ──────────────────────────────────────────
     # Public API
@@ -282,6 +286,15 @@ class RefactorEngine:
         return await self._ollama_generate(context)
 
     async def _ollama_generate(self, prompt: str) -> str:
+        if self.ollama_runtime is not None:
+            data = await self.ollama_runtime.generate(
+                model=self.complex_model,
+                prompt=prompt,
+                timeout=120.0,
+                retries=1,
+                keep_alive="10m",
+            )
+            return str(data.get("response", "")).strip()
         payload = {
             "model": self.complex_model,
             "prompt": prompt,

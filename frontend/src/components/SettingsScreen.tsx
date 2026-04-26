@@ -5,7 +5,10 @@ interface SettingsData {
   neo4jUser: string;
   ollamaUrl: string;
   ollamaFastModel: string;
+  ollamaChatModel: string;
   ollamaComplexModel: string;
+  ollamaEmbedModel: string;
+  ollamaSmallModel: string;
   sseEnabled: boolean;
   maxReconnectAttempts: number;
   initialRetryDelay: number;
@@ -29,7 +32,10 @@ const DEFAULT_SETTINGS: SettingsData = {
   neo4jUser: 'neo4j',
   ollamaUrl: 'http://localhost:11434',
   ollamaFastModel: 'qwen2.5-coder:1.5b',
+  ollamaChatModel: 'qwen3.5:4b',
   ollamaComplexModel: 'qwen2.5:7b',
+  ollamaEmbedModel: 'nomic-embed-text',
+  ollamaSmallModel: 'qwen2.5-coder:7b',
   sseEnabled: true,
   maxReconnectAttempts: 5,
   initialRetryDelay: 1000,
@@ -92,7 +98,10 @@ const SettingsScreen: React.FC<{ onClose: () => void }> = ({ onClose }) => {
             neo4jUser: data.neo4j_user || s.neo4jUser,
             ollamaUrl: data.ollama_url || s.ollamaUrl,
             ollamaFastModel: data.ollama_fast_model || s.ollamaFastModel,
+            ollamaChatModel: data.ollama_chat_model || s.ollamaChatModel,
             ollamaComplexModel: data.ollama_complex_model || s.ollamaComplexModel,
+            ollamaEmbedModel: data.ollama_embed_model || s.ollamaEmbedModel,
+            ollamaSmallModel: data.ollama_small_model || s.ollamaSmallModel,
           });
         } else {
           setSettings(s);
@@ -158,7 +167,10 @@ const SettingsScreen: React.FC<{ onClose: () => void }> = ({ onClose }) => {
           neo4j_user: settings.neo4jUser,
           ollama_url: settings.ollamaUrl,
           ollama_fast_model: settings.ollamaFastModel,
+          ollama_chat_model: settings.ollamaChatModel,
           ollama_complex_model: settings.ollamaComplexModel,
+          ollama_embed_model: settings.ollamaEmbedModel,
+          ollama_small_model: settings.ollamaSmallModel,
           sse_enabled: settings.sseEnabled,
           max_reconnect_attempts: settings.maxReconnectAttempts,
           initial_retry_delay: settings.initialRetryDelay,
@@ -312,7 +324,7 @@ const SettingsScreen: React.FC<{ onClose: () => void }> = ({ onClose }) => {
             </button>
             {error && <p style={{ fontSize: 11, color: '#ef4444', marginTop: 8, textAlign: 'center' }}>{error}</p>}
           </div>
-        </div>
+              </div>
 
         {/* Main content */}
         <div style={{ flex: 1, overflowY: 'auto', padding: '28px 36px' }}>
@@ -455,12 +467,36 @@ const SettingsScreen: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                     Usado para análises inline. Recomendado: <code>qwen2.5-coder:1.5b</code>
                   </p>
                 </div>
+                <div style={fieldStyle}>
+                  <label style={labelStyle}>Modelo Chat</label>
+                  <input style={inputStyle} type="text" value={settings.ollamaChatModel}
+                    onChange={e => set('ollamaChatModel', e.target.value)} placeholder="qwen3.5:4b" />
+                  <p style={{ fontSize: 11.5, color: 'rgba(139,147,176,0.45)', marginTop: 5 }}>
+                    Usado para AskPanel, AI Query e explicacoes de impacto. Recomendado: <code>qwen3.5:4b</code>
+                  </p>
+                </div>
                 <div style={{ marginBottom: 0 }}>
                   <label style={labelStyle}>Modelo Complexo</label>
                   <input style={inputStyle} type="text" value={settings.ollamaComplexModel}
                     onChange={e => set('ollamaComplexModel', e.target.value)} placeholder="qwen2.5:7b" />
                   <p style={{ fontSize: 11.5, color: 'rgba(139,147,176,0.45)', marginTop: 5 }}>
                     Usado para Weekly Digest e AI Query. Recomendado: <code>qwen2.5:7b</code>
+                  </p>
+                </div>
+                <div style={fieldStyle}>
+                  <label style={labelStyle}>Modelo Embedding</label>
+                  <input style={inputStyle} type="text" value={settings.ollamaEmbedModel}
+                    onChange={e => set('ollamaEmbedModel', e.target.value)} placeholder="nomic-embed-text" />
+                  <p style={{ fontSize: 11.5, color: 'rgba(139,147,176,0.45)', marginTop: 5 }}>
+                    Usado para indexacao semantica e contexto RAG. Recomendado: <code>nomic-embed-text</code>
+                  </p>
+                </div>
+                <div style={{ marginBottom: 0 }}>
+                  <label style={labelStyle}>Modelo Small (fallback)</label>
+                  <input style={inputStyle} type="text" value={settings.ollamaSmallModel}
+                    onChange={e => set('ollamaSmallModel', e.target.value)} placeholder="qwen2.5-coder:7b" />
+                  <p style={{ fontSize: 11.5, color: 'rgba(139,147,176,0.45)', marginTop: 5 }}>
+                    Usado como fallback local quando o modelo principal falha. Recomendado: <code>qwen2.5-coder:7b</code>
                   </p>
                 </div>
               </div>
@@ -491,7 +527,9 @@ const SettingsScreen: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                   <div style={{ fontWeight: 600, color: 'rgba(139,147,176,0.8)', marginBottom: 8 }}>Instalar modelos recomendados:</div>
                   <code style={{ display: 'block', background: 'rgba(0,0,0,0.3)', padding: '8px 12px', borderRadius: 6, fontSize: 12 }}>
                     ollama pull qwen2.5-coder:1.5b<br />
-                    ollama pull qwen2.5:7b<br />
+                    ollama pull qwen3.5:4b<br />
+                    ollama pull qwen3-coder-next:q4_K_M<br />
+                    ollama pull qwen2.5-coder:7b<br />
                     ollama pull nomic-embed-text
                   </code>
                 </div>
@@ -595,7 +633,7 @@ const SettingsScreen: React.FC<{ onClose: () => void }> = ({ onClose }) => {
                   </div>
                 ))}
               </div>
-            </div>
+              </div>
           )}
 
           {/* ─── INTERFACE ─── */}
@@ -640,9 +678,13 @@ const SettingsScreen: React.FC<{ onClose: () => void }> = ({ onClose }) => {
           )}
 
         </div>
-      </div>
+              </div>
     </div>
   );
 };
 
 export default SettingsScreen;
+
+
+
+

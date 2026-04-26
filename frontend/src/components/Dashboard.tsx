@@ -43,7 +43,16 @@ const getGradeBucket = (grade: string | null | undefined) => {
 
 export default function Dashboard({ onClose, onRefactorRequest, onOpenInventory, onFocusNode, onOpenImpactAnalysis }: DashboardProps) {
     // Watch Mode
-    const { lastImpact } = useWatchMode();
+    const {
+        connected,
+        watching,
+        watchedPath,
+        lastImpact,
+        impactHistory,
+        startWatch,
+        stopWatch,
+        clearHistory,
+    } = useWatchMode();
     
     const handleViewImpact = (impact: ImpactResult) => {
         // Focar nos nós afetados no grafo
@@ -307,7 +316,17 @@ export default function Dashboard({ onClose, onRefactorRequest, onOpenInventory,
                         
                         {/* Watch Mode Panel */}
                         <div className="dashboard-section" style={{ paddingBottom: 8 }}>
-                            <WatchModePanel onViewImpact={handleViewImpact} />
+                            <WatchModePanel
+                                connected={connected}
+                                watching={watching}
+                                watchedPath={watchedPath}
+                                lastImpact={lastImpact}
+                                impactHistory={impactHistory}
+                                onStartWatch={startWatch}
+                                onStopWatch={stopWatch}
+                                onClearHistory={clearHistory}
+                                onViewImpact={handleViewImpact}
+                            />
                         </div>
                         
                         <div className="dashboard-section hotspot-panel">

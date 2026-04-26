@@ -1,10 +1,10 @@
-"""
+﻿"""
 InsightGraph - Software Intelligence Backend
 FastAPI application with tree-sitter parsing, dual Ollama AI integration, and Neo4j persistence.
 
 Models:
-  - qwen3-coder-next:q4_K_M  → Code scanner / SQL parser (motor de código)
-  - qwen3:8b                  → Semantic AI for Q&A (interface inteligente)
+  - qwen3-coder-next:q4_K_M  â†’ Code scanner / SQL parser (motor de cÃ³digo)
+  - qwen3:8b                  â†’ Semantic AI for Q&A (interface inteligente)
 """
 
 import os
@@ -25,7 +25,7 @@ import uuid
 import shutil
 import tempfile
 import hashlib
-from dataclasses import asdict
+from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Callable, Iterable, List, Literal, Optional, Set
 from contextlib import asynccontextmanager
@@ -53,22 +53,22 @@ from pydantic import BaseModel, Field
 from py2neo import Graph, Node, Relationship
 from jinja2 import Environment, FileSystemLoader
 
-# ──────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # tree-sitter imports
-# ──────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 import tree_sitter_java as tsjava
 import tree_sitter_typescript as tstypescript
 from tree_sitter import Language, Parser
 
-# ──────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # tkinter imports for folder picker
-# ──────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 import tkinter as tk
 from tkinter import filedialog
 
-# ──────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # CodeQL imports
-# ──────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 from codeql_orchestrator import CodeQLOrchestrator
 from bidirectional_analyzer import BidirectionalAnalyzer
 from contract_break_detector import ContractBreakDetector
@@ -127,6 +127,12 @@ from local_scanner import (
     count_supported_files,
     should_report_progress,
 )
+from project_registry import ProjectRegistry
+from cross_project_impact import CrossProjectImpactEngine
+from workspace_supervisor import WorkspaceSupervisor
+from projects_router import router as projects_router, init_router as init_projects_router
+from engine_4d_analysis import DeepArchitecture4DEngine
+from ollama_runtime import OllamaModelConfig, OllamaRuntime, OllamaServiceError
 
 # Module-level analysis runtime (initialized in lifespan)
 intelligence_engine: Optional[IntelligenceEngine] = None
@@ -134,9 +140,9 @@ intelligence_engine: Optional[IntelligenceEngine] = None
 configure_logging()
 logger = logging.getLogger("insightgraph")
 
-# ──────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Windows-compatible directory cleanup helper
-# ──────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 def _remove_readonly_windows(func, path, excinfo):
     """Error handler for Windows readonly files in shutil.rmtree."""
     import os
@@ -172,21 +178,33 @@ except (ImportError, OSError) as e:
     REPORT_GENERATOR_AVAILABLE = False
     ReportGenerator = None
 
-# ──────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Configuration
-# ──────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 NEO4J_URI = os.getenv("NEO4J_URI", "bolt://localhost:7687")
 NEO4J_USER = os.getenv("NEO4J_USER", "neo4j")
 NEO4J_PASSWORD = os.getenv("NEO4J_PASSWORD", "password")
 OLLAMA_URL = os.getenv("OLLAMA_URL", "http://localhost:11434")
-# Tier 1: Fast Scan (Ultra veloz, não trava o PC no scan)
+# Tier 1: Fast Scan (Ultra veloz, nÃ£o trava o PC no scan)
 OLLAMA_FAST_MODEL = os.getenv("OLLAMA_FAST_MODEL", "qwen2.5-coder:1.5b")
-# Tier 2: Chat & Q&A (Conversa melhor e entende o negócio)
+# Tier 2: Chat & Q&A (Conversa melhor e entende o negÃ³cio)
 OLLAMA_CHAT_MODEL = os.getenv("OLLAMA_CHAT_MODEL", "qwen3.5:4b")
-# Tier 3: Complex Analysis (Inteligência máxima, mas lento)
+# Tier 3: Complex Analysis (InteligÃªncia mÃ¡xima, mas lento)
 OLLAMA_COMPLEX_MODEL = os.getenv("OLLAMA_COMPLEX_MODEL", "qwen3-coder-next:q4_K_M")
 OLLAMA_EMBED_MODEL = os.getenv("OLLAMA_EMBED_MODEL", "nomic-embed-text")
 OLLAMA_SMALL_MODEL = os.getenv("OLLAMA_SMALL_MODEL", "qwen2.5-coder:7b")
+OLLAMA_MODEL_CONFIG = OllamaModelConfig(
+    fast=OLLAMA_FAST_MODEL,
+    chat=OLLAMA_CHAT_MODEL,
+    complex=OLLAMA_COMPLEX_MODEL,
+    embed=OLLAMA_EMBED_MODEL,
+    small=OLLAMA_SMALL_MODEL,
+)
+ollama_runtime = OllamaRuntime(
+    base_url=OLLAMA_URL,
+    models=OLLAMA_MODEL_CONFIG,
+    logger=logger,
+)
 PROJECT_NAME = os.getenv("REPORT_PROJECT_NAME", "InsightGraph")
 PROJECT_LOGO_TEXT = os.getenv("REPORT_LOGO_TEXT", "InsightGraph")
 RAG_INDEX_FILE = Path(os.getenv("RAG_INDEX_FILE", "rag_index.json"))
@@ -203,7 +221,7 @@ CONFIG_SCHEMA_FILE = Path(
 )
 OLLAMA_FORCE_GPU = os.getenv("OLLAMA_FORCE_GPU", "0").lower() in ("1", "true", "yes", "on")
 OLLAMA_NUM_GPU = int(os.getenv("OLLAMA_NUM_GPU", "999") or "999")
-# Task 12.4 — Multi-tenant support: optional tenant ID for data isolation
+# Task 12.4 â€” Multi-tenant support: optional tenant ID for data isolation
 TENANT_ID = os.getenv("TENANT_ID", None)
 
 state_store = LocalStateStore(str(STATE_DB_FILE))
@@ -221,7 +239,7 @@ chat_manager: Optional[ChatManager] = None
 auto_healer: Optional[AutoHealer] = None
 config_parser: Optional[ConfigParser] = None
 
-# Fase 2 — Event Engine (initialized after event_stream is created)
+# Fase 2 â€” Event Engine (initialized after event_stream is created)
 GITHUB_WEBHOOK_SECRET = os.getenv("GITHUB_WEBHOOK_SECRET", None)
 GITHUB_TOKEN          = os.getenv("GITHUB_TOKEN", None)
 GITHUB_REPOSITORY     = os.getenv("GITHUB_REPOSITORY", None)
@@ -235,6 +253,10 @@ event_engine: Optional[EventEngine] = None
 alert_engine: Optional[AlertEngine] = None
 weekly_digest_generator: Optional[WeeklyDigestGenerator] = None
 git_poller: Optional[GitPoller] = None
+multi_project_registry: Optional[ProjectRegistry] = None
+multi_project_cross_engine: Optional[CrossProjectImpactEngine] = None
+multi_project_supervisor: Optional[WorkspaceSupervisor] = None
+multi_project_4d_engine: Optional[DeepArchitecture4DEngine] = None
 
 TEMPLATES_DIR = Path(__file__).resolve().parent / "templates" / "reports"
 REPORT_ENV = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)))
@@ -253,15 +275,16 @@ if REPORT_GENERATOR_AVAILABLE:
             ollama_chat_model=OLLAMA_CHAT_MODEL,
             templates_dir=TEMPLATES_DIR,
             reports_output_dir=REPORTS_OUTPUT_DIR,
+            ollama_runtime=ollama_runtime,
         )
         logger.info("ReportGenerator initialized successfully")
     except Exception as e:
         logger.warning("Failed to initialize ReportGenerator: %s", e)
         report_generator = None
 
-# ──────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # FastAPI App
-# ──────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 class WebSocketAuthMiddleware:
     """ASGI middleware that enforces JWT validation on /ws connections."""
 
@@ -393,7 +416,7 @@ async def lifespan(application):
         websocket_manager.heartbeat_interval,
     )
 
-    # Fase 2 — Initialize EventEngine
+    # Fase 2 â€” Initialize EventEngine
     global event_engine, alert_engine, weekly_digest_generator
     event_engine = EventEngine(
         api_url=f"http://localhost:{os.getenv('PORT', '8000')}",
@@ -405,7 +428,7 @@ async def lifespan(application):
     event_engine.start()
     logger.info("EventEngine started")
 
-    # Fase 3 — Initialize AlertEngine
+    # Fase 3 â€” Initialize AlertEngine
     alert_engine = AlertEngine(
         state_store=state_store,
         event_stream=event_stream,
@@ -413,11 +436,12 @@ async def lifespan(application):
     )
     logger.info("AlertEngine initialized (Slack=%s)", "enabled" if SLACK_WEBHOOK_URL else "disabled")
 
-    # Fase 4 — Initialize WeeklyDigestGenerator
+    # Fase 4 â€” Initialize WeeklyDigestGenerator
     weekly_digest_generator = WeeklyDigestGenerator(
         state_store=state_store,
         ollama_url=OLLAMA_URL,
         ollama_model=OLLAMA_CHAT_MODEL,
+        ollama_runtime=ollama_runtime,
     )
     logger.info("WeeklyDigestGenerator initialized")
 
@@ -431,6 +455,7 @@ async def lifespan(application):
         state_store=state_store,
         ollama_url=OLLAMA_URL,
         model=OLLAMA_CHAT_MODEL,
+        ollama_runtime=ollama_runtime,
     )
     if CONFIG_SCHEMA_FILE.exists():
         config_parser = ConfigParser(CONFIG_SCHEMA_FILE)
@@ -438,7 +463,7 @@ async def lifespan(application):
         logger.warning("Config schema file not found at %s", CONFIG_SCHEMA_FILE)
         config_parser = None
 
-    # Automação — Initialize GitPoller
+    # AutomaÃ§Ã£o â€” Initialize GitPoller
     global git_poller
     git_poller = GitPoller(
         project_path=POLLER_PROJECT_PATH,
@@ -449,7 +474,70 @@ async def lifespan(application):
     poller_task = asyncio.create_task(git_poller.run())
     logger.info("GitPoller started (interval=%ds, path=%s)", POLLER_INTERVAL_SECS, git_poller._project_path)
 
+    # Multi-project workspace engine
+    global multi_project_registry, multi_project_cross_engine, multi_project_supervisor, multi_project_4d_engine
+    try:
+        multi_project_registry = ProjectRegistry(db_path=str(STATE_DB_FILE))
+
+        if incremental_scanner is None:
+            parser_map = {
+                "java": java_parser,
+                "ts": ts_parser,
+                "tsx": tsx_parser,
+            }
+            parse_fn_map = {
+                "java": parse_java,
+                "ts": parse_typescript,
+                "tsx": parse_typescript,
+            }
+            incremental_scanner_local = IncrementalScanner(
+                neo4j_service=neo4j_service,
+                rag_store=rag_store,
+                memory_nodes=memory_nodes,
+                memory_edges=memory_edges,
+                parsers=parser_map,
+                parse_functions=parse_fn_map,
+            )
+            globals()["incremental_scanner"] = incremental_scanner_local
+
+        multi_project_cross_engine = CrossProjectImpactEngine(
+            registry=multi_project_registry,
+            memory_nodes=memory_nodes,
+            memory_edges=memory_edges,
+            event_stream=event_stream,
+        )
+        multi_project_supervisor = WorkspaceSupervisor(
+            registry=multi_project_registry,
+            incremental_scanner=globals().get("incremental_scanner"),
+            cross_impact_engine=multi_project_cross_engine,
+            memory_nodes=memory_nodes,
+            event_stream=event_stream,
+        )
+        multi_project_4d_engine = DeepArchitecture4DEngine(
+            registry=multi_project_registry,
+            memory_nodes=memory_nodes,
+            memory_edges=memory_edges,
+            neo4j_service=neo4j_service,
+        )
+        init_projects_router(
+            registry=multi_project_registry,
+            supervisor=multi_project_supervisor,
+            event_stream=event_stream,
+            analysis_4d_engine=multi_project_4d_engine,
+        )
+        await multi_project_supervisor.boot()
+        logger.info("Multi-project supervisor booted")
+    except Exception as mp_err:
+        logger.warning("Multi-project boot failed: %s", mp_err)
+
     yield
+
+    if multi_project_supervisor:
+        try:
+            await multi_project_supervisor.shutdown()
+            logger.info("Multi-project supervisor stopped")
+        except Exception as mp_shutdown_err:
+            logger.warning("Multi-project shutdown error: %s", mp_shutdown_err)
 
     # Stop GitPoller
     if git_poller:
@@ -522,6 +610,10 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Register multi-project CRUD + SSE endpoints.
+# These routes are included early so they take precedence over legacy handlers.
+app.include_router(projects_router, prefix="/api")
+
 app.add_middleware(WebSocketAuthMiddleware)
 app.add_middleware(CorrelationIdMiddleware)
 app.add_middleware(MetricsMiddleware)
@@ -587,9 +679,9 @@ async def refresh_auth_token(payload: AuthRefreshRequest):
         expires_in=JWT_EXPIRATION_SECONDS,
     )
 
-# ──────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Pydantic Models
-# ──────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 class GitHubScanConfig(BaseModel):
     repository: str
     branch: str = "main"
@@ -617,6 +709,9 @@ class ScanStatus(BaseModel):
 class AskRequest(BaseModel):
     question: str
     context_node: Optional[str] = None
+    project: Optional[str] = None
+    graph_context: Optional[str] = None
+    conversation: list[dict] = Field(default_factory=list)
 
 class InvestigateRequest(BaseModel):
     question: str
@@ -653,11 +748,57 @@ class AskResponse(BaseModel):
     fallback_generated: bool = False
     fallback_source: Optional[str] = None
 
+
+def _normalize_relevant_node_keys(candidates: list, graph: "GraphIndex") -> list[str]:
+    """Normalize mixed AI references into stable namespace_key values."""
+    if not candidates:
+        return []
+
+    seen: set[str] = set()
+    result: list[str] = []
+    name_index: dict[str, str] = {}
+    for key, node in graph.node_by_key.items():
+        name = str(node.get("name") or "").strip().lower()
+        if name and name not in name_index:
+            name_index[name] = key
+
+    bracket_pattern = re.compile(r"\[([^\[\]]+)\]")
+
+    def _push(candidate_key: str) -> None:
+        if candidate_key in graph.node_by_key and candidate_key not in seen:
+            seen.add(candidate_key)
+            result.append(candidate_key)
+
+    for item in candidates:
+        if not isinstance(item, str):
+            continue
+        raw = item.strip()
+        if not raw:
+            continue
+
+        if raw in graph.node_by_key:
+            _push(raw)
+            continue
+
+        matches = bracket_pattern.findall(raw)
+        if matches:
+            for match in matches:
+                candidate = match.strip()
+                if candidate in graph.node_by_key:
+                    _push(candidate)
+            continue
+
+        lowered = raw.lower()
+        if lowered in name_index:
+            _push(name_index[lowered])
+
+    return result
+
 class QualityThresholds(BaseModel):
-    max_god_classes: int = Field(..., ge=0, description="Máximo permitido de God Classes")
-    min_call_resolution: float = Field(..., ge=0.0, le=1.0, description="Taxa mínima de Call Resolution (0-1)")
+    max_god_classes: int = Field(..., ge=0, description="MÃ¡ximo permitido de God Classes")
+    min_call_resolution: float = Field(..., ge=0.0, le=1.0, description="Taxa mÃ­nima de Call Resolution (0-1)")
     max_hotspot_score: float = Field(..., ge=0.0, le=100.0, description="Maior hotspot aceito")
-    min_iso5055: float = Field(..., ge=0.0, le=100.0, description="Percentual mínimo ISO 5055")
+    min_iso5055: float = Field(..., ge=0.0, le=100.0, description="Percentual mÃ­nimo ISO 5055")
 
 class BrandingConfig(BaseModel):
     name: str
@@ -906,14 +1047,14 @@ rag_index = app_state.rag_index
 rag_index_metadata = app_state.rag_index_metadata
 todo_records = app_state.todos
 
-# Global EventStream for SSE — WatchService pushes events; /api/events consumers read them
+# Global EventStream for SSE â€” WatchService pushes events; /api/events consumers read them
 event_stream = EventStream()
 # Legacy sse_queue for backward compatibility (can be removed once all code uses event_stream)
 sse_queue: asyncio.Queue = asyncio.Queue()
 
-# ──────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Neo4j Service
-# ──────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 class Neo4jService:
     def __init__(self):
         self.graph: Optional[Graph] = None
@@ -1173,16 +1314,16 @@ class Neo4jService:
                     params["tenant"] = tenant
                 result = self.graph.run(query, **params).data()
                 if not result:
-                    return "Nó não encontrado no grafo."
+                    return "NÃ³ nÃ£o encontrado no grafo."
 
                 r = result[0]
-                lines = [f"Nó: {r['name']} (Layer: {r['layer']}, Labels: {r['labels']}, Complexidade: {r['complexity']}, Linhas: {r['loc']})"]
+                lines = [f"NÃ³: {r['name']} (Layer: {r['layer']}, Labels: {r['labels']}, Complexidade: {r['complexity']}, Linhas: {r['loc']})"]
                 for u in r["ups"]:
                     if u["name"]:
-                        lines.append(f"  ← {u['name']} [{u['type']}]")
+                        lines.append(f"  â† {u['name']} [{u['type']}]")
                 for d in r["downs"]:
                     if d["name"]:
-                        lines.append(f"  → {d['name']} [{d['type']}]")
+                        lines.append(f"  â†’ {d['name']} [{d['type']}]")
                 return "\n".join(lines)
             else:
                 # Get a general summary of the graph
@@ -1210,7 +1351,7 @@ class Neo4jService:
                 """
                 rels = self.graph.run(rels_query, **params).data()
 
-                lines = ["=== Nós do Sistema ==="]
+                lines = ["=== NÃ³s do Sistema ==="]
                 for r in result:
                     lines.append(f"  [{r['type']}] {r['name']} (Layer: {r['layer']}, Project: {r['project']})")
 
@@ -1266,7 +1407,7 @@ def _discover_codeql_path() -> str:
             logger.info("CodeQL CLI discovered at: %s", loc)
             return loc
     
-    # Fallback — return bare name and let subprocess raise a clear error later
+    # Fallback â€” return bare name and let subprocess raise a clear error later
     logger.warning("CodeQL CLI not found in PATH or common locations. "
                    "Set CODEQL_PATH env var or install from "
                    "https://github.com/github/codeql-cli-binaries")
@@ -1339,23 +1480,23 @@ def get_memory_graph_context(node_key: str = None, limit: int = 50) -> str:
             # Get context around a specific node
             node = next((n for n in memory_nodes if n["namespace_key"] == node_key), None)
             if not node:
-                return "Nó não encontrado no grafo em memória."
+                return "NÃ³ nÃ£o encontrado no grafo em memÃ³ria."
 
-            lines = [f"Nó: {node.get('name')} (Layer: {node.get('layer')}, Labels: {node.get('labels')}, Complexidade: {node.get('complexity', 1)}, Linhas: {node.get('loc', 0)})"]
+            lines = [f"NÃ³: {node.get('name')} (Layer: {node.get('layer')}, Labels: {node.get('labels')}, Complexidade: {node.get('complexity', 1)}, Linhas: {node.get('loc', 0)})"]
             
             for edge in memory_edges:
                 if edge["target"] == node_key:
                     src_node = next((n for n in memory_nodes if n["namespace_key"] == edge["source"]), None)
                     if src_node:
-                        lines.append(f"  ← {src_node.get('name')} [{edge['type']}]")
+                        lines.append(f"  â† {src_node.get('name')} [{edge['type']}]")
                 if edge["source"] == node_key:
                     tgt_node = next((n for n in memory_nodes if n["namespace_key"] == edge["target"]), None)
                     if tgt_node:
-                        lines.append(f"  → {tgt_node.get('name')} [{edge['type']}]")
+                        lines.append(f"  â†’ {tgt_node.get('name')} [{edge['type']}]")
             return "\n".join(lines)
         else:
             # Get a general summary of the graph
-            lines = ["=== Nós do Sistema (Memória) ==="]
+            lines = ["=== NÃ³s do Sistema (MemÃ³ria) ==="]
             for n in memory_nodes[:limit]:
                 type_lbl = [l for l in n.get("labels", []) if l != "Entity"]
                 type_name = type_lbl[0] if type_lbl else "Desconhecido"
@@ -1370,9 +1511,9 @@ def get_memory_graph_context(node_key: str = None, limit: int = 50) -> str:
             return "\n".join(lines)
     except Exception as e:
         logger.error("Error building memory graph context: %s", e)
-        return "Erro ao buscar contexto do grafo em memória."
+        return "Erro ao buscar contexto do grafo em memÃ³ria."
 # Tree-Sitter Parsers
-# ──────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 JAVA_LANGUAGE = Language(tsjava.language())
 TS_LANGUAGE = Language(tstypescript.language_typescript())
 TSX_LANGUAGE = Language(tstypescript.language_tsx())
@@ -1399,9 +1540,24 @@ def _get_project_name(file_path: str, project_path: str) -> str:
     try:
         rel = os.path.relpath(file_path, project_path)
         parts = Path(rel).parts
-        if len(parts) > 1:
-            return parts[0]
-        return Path(project_path).name
+        base_name = Path(project_path).name
+        if len(parts) <= 1:
+            return base_name
+
+        first_segment = parts[0]
+        candidate_dir = Path(project_path) / first_segment
+        common_source_dirs = {"src", "app", "lib", "tests", "test", "spec", "assets", "resources"}
+        if first_segment.lower() in common_source_dirs:
+            return base_name
+
+        if _path_has_project_markers(candidate_dir):
+            return first_segment
+
+        # Conventional monorepo names still count as project segments.
+        if first_segment.lower() in {"backend", "frontend", "mobile", "api", "web", "client", "server"}:
+            return first_segment
+
+        return base_name
     except Exception:
         return Path(project_path).name
 
@@ -1598,9 +1754,9 @@ def calculate_metrics(node) -> dict:
     return {"loc": loc, "complexity": complexity}
 
 
-# ──────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Software Intelligence Detection Functions
-# ──────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def _detect_cloud_blocker(content: str, imports: list[str]) -> bool:
     """Detect cloud blockers (local disk I/O operations)."""
@@ -2583,9 +2739,9 @@ def parse_typescript(file_path: str, content: str, project_path: str) -> dict:
     return entities
 
 
-# ──────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Ollama SQL Parser (Motor: Coder-Next)
-# ──────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 def _ollama_options(base: dict | None = None) -> dict:
     """Compose Ollama options, optionally forcing GPU usage."""
     opts = dict(base or {})
@@ -2801,81 +2957,76 @@ SQL Code:
     entities = {"nodes": [], "relationships": []}
 
     try:
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            response = await client.post(
-                f"{OLLAMA_URL}/api/generate",
-                json={
-                    "model": OLLAMA_FAST_MODEL,
-                    "prompt": prompt,
-                    "stream": False,
-                    "options": _ollama_options({"temperature": 0.1, "num_predict": 2000}),
-                },
-            )
-            response.raise_for_status()
-            result = response.json()
-            raw_text = result.get("response", "")
+        result = await ollama_runtime.generate(
+            model=OLLAMA_FAST_MODEL,
+            prompt=prompt,
+            timeout=120.0,
+            retries=1,
+            options=_ollama_options({"temperature": 0.1, "num_predict": 2000}),
+        )
+        raw_text = str(result.get("response", ""))
 
-            # Try to extract JSON from the response
-            json_start = raw_text.find("{")
-            json_end = raw_text.rfind("}") + 1
-            if json_start >= 0 and json_end > json_start:
-                parsed = json.loads(raw_text[json_start:json_end])
-            else:
-                logger.warning("No JSON found in Ollama response for %s", file_path)
-                return entities
+        # Try to extract JSON from the response
+        json_start = raw_text.find("{")
+        json_end = raw_text.rfind("}") + 1
+        if json_start >= 0 and json_end > json_start:
+            parsed = json.loads(raw_text[json_start:json_end])
+        else:
+            logger.warning("No JSON found in Ollama response for %s", file_path)
+            return entities
 
-            # Create table nodes
-            tables = parsed.get("tables", [])
-            for table_name in tables:
-                ns_key = f"{project_name}:{rel_path}:{table_name}"
-                entities["nodes"].append({
-                    "label": "SQL_Table",
-                    "namespace_key": ns_key,
-                    "name": table_name,
-                    "file": rel_path,
-                    "project": project_name,
-                    "layer": "Database",
+        # Create table nodes
+        tables = parsed.get("tables", [])
+        for table_name in tables:
+            ns_key = f"{project_name}:{rel_path}:{table_name}"
+            entities["nodes"].append({
+                "label": "SQL_Table",
+                "namespace_key": ns_key,
+                "name": table_name,
+                "file": rel_path,
+                "project": project_name,
+                "layer": "Database",
+            })
+
+        # Create procedure nodes and relationships
+        procedures = parsed.get("procedures", [])
+        for proc in procedures:
+            proc_name = proc.get("procedure_name", "unknown")
+            proc_ns_key = f"{project_name}:{rel_path}:{proc_name}"
+            entities["nodes"].append({
+                "label": "SQL_Procedure",
+                "namespace_key": proc_ns_key,
+                "name": proc_name,
+                "file": rel_path,
+                "project": project_name,
+                "layer": "Database",
+            })
+            for table in proc.get("tables_read", []):
+                table_ns = f"{project_name}:{rel_path}:{table}"
+                entities["relationships"].append({
+                    "from": proc_ns_key,
+                    "to": table_ns,
+                    "type": "READS_FROM",
                 })
 
-            # Create procedure nodes and relationships
-            procedures = parsed.get("procedures", [])
-            for proc in procedures:
-                proc_name = proc.get("procedure_name", "unknown")
-                proc_ns_key = f"{project_name}:{rel_path}:{proc_name}"
-                entities["nodes"].append({
-                    "label": "SQL_Procedure",
-                    "namespace_key": proc_ns_key,
-                    "name": proc_name,
-                    "file": rel_path,
-                    "project": project_name,
-                    "layer": "Database",
+            for table in proc.get("tables_written", []):
+                table_ns = f"{project_name}:{rel_path}:{table}"
+                entities["relationships"].append({
+                    "from": proc_ns_key,
+                    "to": table_ns,
+                    "type": "WRITES_TO",
                 })
-                for table in proc.get("tables_read", []):
-                    table_ns = f"{project_name}:{rel_path}:{table}"
-                    entities["relationships"].append({
-                        "from": proc_ns_key,
-                        "to": table_ns,
-                        "type": "READS_FROM",
-                    })
 
-                for table in proc.get("tables_written", []):
-                    table_ns = f"{project_name}:{rel_path}:{table}"
-                    entities["relationships"].append({
-                        "from": proc_ns_key,
-                        "to": table_ns,
-                        "type": "WRITES_TO",
-                    })
+            for called_proc in proc.get("calls", []):
+                called_ns = f"{project_name}:{rel_path}:{called_proc}"
+                entities["relationships"].append({
+                    "from": proc_ns_key,
+                    "to": called_ns,
+                    "type": "CALLS",
+                })
 
-                for called_proc in proc.get("calls", []):
-                    called_ns = f"{project_name}:{rel_path}:{called_proc}"
-                    entities["relationships"].append({
-                        "from": proc_ns_key,
-                        "to": called_ns,
-                        "type": "CALLS",
-                    })
-
-    except httpx.ConnectError:
-        logger.error("Cannot connect to Ollama at %s. Is it running?", OLLAMA_URL)
+    except OllamaServiceError as e:
+        logger.error("Ollama SQL parsing unavailable: %s", e)
     except json.JSONDecodeError as e:
         logger.error("Failed to parse Ollama JSON response for %s: %s", file_path, e)
     except Exception as e:
@@ -2895,29 +3046,28 @@ async def parse_sql_with_fallback(file_path: str, content: str, project_path: st
     return result
 
 
-# ──────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Ollama Q&A (Interface Inteligente: Qwen)
-# ──────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 async def ask_ai(question: str, context: str) -> dict:
     """Send a question with graph context to Qwen for intelligent answers.
     Limits concurrent AI calls via a shared semaphore."""
     async with ai_semaphore:
+        system_prompt = """Voce e o InsightGraph AI, um Arquiteto de Software Senior e assistente prestativo.
+DIRETRIZES DE RESPOSTA (OBRIGATORIO):
+- Estruture TODAS as respostas em 3 blocos bem definidos (na ordem abaixo), usando cabecalhos claros.
 
-        system_prompt = """Você é o InsightGraph AI, um Arquiteto de Software Sênior e assistente prestativo.
-DIRETRIZES DE RESPOSTA (OBRIGATÓRIO):
-- Estruture TODAS as respostas em 3 blocos bem definidos (na ordem abaixo), usando cabeçalhos claros.
+1) Visao Executiva (Simples):
+   - Explicacao voltada para diretores e stakeholders nao-tecnicos.
+   - Use analogias do mundo real.
 
-1) 📊 Visão Executiva (Simples):
-   - Explicação voltada para diretores e stakeholders não-técnicos.
-   - Use analogias do mundo real (ex: "apagar este componente é como tirar o motor do carro").
+2) Visao Tecnica (Avancada):
+   - Impacto profundo em codigo, metodos, tabelas e injecoes de dependencia.
 
-2) ⚙️ Visão Técnica (Avançada):
-   - Impacto profundo em código, métodos, tabelas e injeções de dependência.
+3) Recomendacao de Acao:
+   - Plano de mitigacao seguro e proximos passos praticos.
 
-3) ✅ Recomendação de Ação:
-   - Plano de mitigação seguro e próximos passos práticos.
-
-SEMPRE que possível, identifique 'namespace_keys' relevantes no contexto.
+SEMPRE que possivel, identifique namespace_keys relevantes no contexto.
 
 RESPONDA SEMPRE NO FORMATO JSON:
 {
@@ -2925,128 +3075,87 @@ RESPONDA SEMPRE NO FORMATO JSON:
   "nos_relevantes": ["chave1", "chave2"]
 }"""
 
-    prompt = f"""Contexto do grafo de dependências:
+        prompt = f"""Contexto do grafo de dependencias:
 {context}
 
-Pergunta do usuário:
+Pergunta do usuario:
 {question}"""
 
-    async def _call_ollama(model_name: str, timeout: float) -> str:
-        async with httpx.AsyncClient(timeout=timeout) as client:
-            chat_payload = {
-                "model": model_name,
-                "messages": [
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": prompt}
-                ],
-                "stream": False,
-                "options": _ollama_options({
-                    "temperature": 0.2,
-                    "num_predict": 400,
-                    "top_k": 20,
-                    "top_p": 0.9
-                }),
-                "keep_alive": "5m"
-            }
-            resp = await client.post(f"{OLLAMA_URL}/api/chat", json=chat_payload)
-
-            # Older Ollama builds may not expose /api/chat; fallback to /api/generate.
-            if resp.status_code == 404:
-                logger.warning("Ollama /api/chat not found. Falling back to /api/generate.")
-                generate_payload = {
-                    "model": model_name,
-                    "prompt": f"{system_prompt}\n\n{prompt}",
-                    "stream": False,
-                    "options": _ollama_options({
-                        "temperature": 0.2,
-                        "num_predict": 400,
-                        "top_k": 20,
-                        "top_p": 0.9
-                    }),
-                    "keep_alive": "5m"
-                }
-                resp = await client.post(f"{OLLAMA_URL}/api/generate", json=generate_payload)
-                resp.raise_for_status()
-                result = resp.json()
-                return str(
-                    result.get("response")
-                    or result.get("output")
-                    or json.dumps(result)
-                )
-
-            resp.raise_for_status()
-            result = resp.json()
-            message = result.get("message", {})
-            content = message.get("content") if isinstance(message, dict) else None
-            fallback = (
-                content
-                or result.get("response")
-                or result.get("output")
-                or json.dumps(result)
-            )
-            return str(fallback)
-
         model_sequence = [
-            (OLLAMA_CHAT_MODEL, 10.0),
-            (OLLAMA_FAST_MODEL, 60.0),
-            (OLLAMA_SMALL_MODEL, 90.0),
+            (OLLAMA_CHAT_MODEL, 15.0),
+            (OLLAMA_FAST_MODEL, 45.0),
+            (OLLAMA_SMALL_MODEL, 75.0),
         ]
         last_exception: Exception | None = None
+
         for model_name, timeout in model_sequence:
             try:
-                logger.info("Attempting AI response with model: %s (timeout %.0fs)", model_name, timeout)
-                content = await _call_ollama(model_name, timeout)
-                return {"raw_text": content, "model": model_name}
-            except (httpx.ReadTimeout, httpx.ConnectError, httpx.HTTPStatusError, ValueError) as e:
-                logger.warning("Model %s failed (%s). Trying next fallback.", model_name, e)
+                logger.info("Attempting AI response with model=%s timeout=%.0fs", model_name, timeout)
+                result = await ollama_runtime.chat(
+                    model=model_name,
+                    messages=[
+                        {"role": "system", "content": system_prompt},
+                        {"role": "user", "content": prompt},
+                    ],
+                    timeout=timeout,
+                    retries=1,
+                    options=_ollama_options({
+                        "temperature": 0.2,
+                        "num_predict": 500,
+                        "top_k": 20,
+                        "top_p": 0.9,
+                    }),
+                    keep_alive="5m",
+                    fallback_generate_prompt=f"{system_prompt}\n\n{prompt}",
+                )
+                message = result.get("message", {})
+                content = (
+                    message.get("content") if isinstance(message, dict) else None
+                ) or result.get("response") or result.get("output") or json.dumps(result)
+                return {"raw_text": str(content), "model": model_name}
+            except OllamaServiceError as e:
                 last_exception = e
+                logger.warning("Model %s failed: %s", model_name, e)
                 continue
-            except Exception as e:  # pragma: no cover - ensure we fallback cleanly
-                logger.error("Model %s unexpected failure: %s", model_name, e)
+            except Exception as e:  # pragma: no cover
                 last_exception = e
+                logger.error("Unexpected failure in ask_ai for model %s: %s", model_name, e)
                 continue
+
         logger.error("All AI models failed: %s", last_exception)
-        import json
         return {
-            "raw_text": json.dumps({
-                "resposta_texto": (
-                    "Erro ao consultar a IA: nenhum modelo respondeu. "
-                    "Verifique o Ollama e tente novamente."
-                ),
-                "nos_relevantes": []
-            }),
-            "model": "all-failed"
+            "raw_text": json.dumps(
+                {
+                    "resposta_texto": (
+                        "Erro ao consultar a IA local: nenhum modelo respondeu. "
+                        "Verifique se o Ollama esta ativo e com modelos carregados."
+                    ),
+                    "nos_relevantes": [],
+                }
+            ),
+            "model": "all-failed",
         }
 
 
 async def ask_complex_ai(prompt_text: str) -> str:
     """Send a complex request to the high-end architectural model with robust fallbacks."""
     async with ai_semaphore:
-
         async def _call_ollama_generate(model: str, timeout: float) -> str:
-            # Usamos /api/generate pois é mais universal e ignora a ausência de chat_templates
-            async with httpx.AsyncClient(timeout=timeout) as client:
-                resp = await client.post(
-                    f"{OLLAMA_URL}/api/generate",
-                    json={
-                        "model": model,
-                        "prompt": prompt_text,
-                        "stream": False,
-                        "options": _ollama_options({
-                            "temperature": 0.3,
-                            "num_predict": 1024
-                        }),
-                        "keep_alive": "5m"
-                    },
-                )
-                resp.raise_for_status()
-                result = resp.json()
-                content = result.get("response", "").strip()
-
-                if not content:
-                    raise ValueError(f"O modelo {model} retornou um texto vazio.")
-
-                return content
+            result = await ollama_runtime.generate(
+                model=model,
+                prompt=prompt_text,
+                timeout=timeout,
+                retries=1,
+                options=_ollama_options({
+                    "temperature": 0.3,
+                    "num_predict": 1024,
+                }),
+                keep_alive="5m",
+            )
+            content = str(result.get("response", "")).strip()
+            if not content:
+                raise ValueError(f"O modelo {model} retornou um texto vazio.")
+            return content
 
         try:
             logger.info("Deep architectural review requested via %s", OLLAMA_COMPLEX_MODEL)
@@ -3062,16 +3171,146 @@ async def ask_complex_ai(prompt_text: str) -> str:
                         return await _call_ollama_generate(OLLAMA_FAST_MODEL, 60.0)
                     except Exception as e3:
                         logger.error("All fallback models failed: %s", e3)
-                        return "⚠️ Todos os modelos de IA falharam em gerar o relatório. Verifique se os modelos estão instalados no Ollama (`ollama list`) e se o computador tem memória RAM/VRAM disponível."
+                        return "âš ï¸ Todos os modelos de IA falharam em gerar o relatÃ³rio. Verifique se os modelos estÃ£o instalados no Ollama (`ollama list`) e se o computador tem memÃ³ria RAM/VRAM disponÃ­vel."
         except Exception:
             raise
 
-# ──────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Project Scanner
-# ──────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 SKIP_DIRS = set(SKIP_DIRS_DEFAULT)
 
 SUPPORTED_EXTENSIONS = set(SUPPORTED_EXTENSIONS_DEFAULT)
+
+PROJECT_ROOT_MARKERS = (
+    "pom.xml",
+    "build.gradle",
+    "build.gradle.kts",
+    "settings.gradle",
+    "settings.gradle.kts",
+    "package.json",
+    "pubspec.yaml",
+    "requirements.txt",
+    "pyproject.toml",
+    "Cargo.toml",
+)
+
+
+@dataclass
+class ScanTarget:
+    name: str
+    path: str
+    project_type: str
+    source_root: str
+
+
+def _path_has_project_markers(path: Path) -> bool:
+    try:
+        if not path.exists() or not path.is_dir():
+            return False
+        for marker in PROJECT_ROOT_MARKERS:
+            if (path / marker).exists():
+                return True
+        return False
+    except Exception:
+        return False
+
+
+def _infer_project_type(path: Path) -> str:
+    name = path.name.lower()
+    path_lower = str(path).lower()
+
+    if any(token in name for token in ("mobile", "android", "ios", "flutter", "react-native")):
+        return "mobile"
+    if any(token in name for token in ("front", "web", "ui", "client")):
+        return "frontend"
+    if any(token in name for token in ("back", "api", "server", "service")):
+        return "backend"
+
+    if (path / "pubspec.yaml").exists() or (path / "android").exists() or (path / "ios").exists():
+        return "mobile"
+    if (path / "pom.xml").exists() or (path / "build.gradle").exists() or (path / "build.gradle.kts").exists():
+        return "backend"
+    if (path / "package.json").exists():
+        pkg_path = path / "package.json"
+        try:
+            pkg = json.loads(pkg_path.read_text(encoding="utf-8", errors="ignore"))
+            deps = {
+                **(pkg.get("dependencies") or {}),
+                **(pkg.get("devDependencies") or {}),
+            }
+            dep_names = {str(k).lower() for k in deps.keys()}
+            if any(dep in dep_names for dep in ("react-native", "expo")):
+                return "mobile"
+            if any(dep in dep_names for dep in ("react", "vue", "angular", "svelte", "next", "nuxt")):
+                return "frontend"
+            if any(dep in dep_names for dep in ("express", "fastify", "nestjs", "koa")):
+                return "backend"
+        except Exception:
+            pass
+        if "frontend" in path_lower or "client" in path_lower:
+            return "frontend"
+        if "backend" in path_lower or "server" in path_lower:
+            return "backend"
+    return "other"
+
+
+def _discover_scan_targets(paths: list[str]) -> list[ScanTarget]:
+    """
+    Resolve input paths into concrete project scan targets.
+
+    Supports both:
+    - explicit project paths (backend/frontend/mobile passed individually)
+    - a monorepo/workspace root containing multiple projects.
+    """
+    targets: list[ScanTarget] = []
+    seen_paths: set[str] = set()
+
+    for raw_path in paths:
+        if not raw_path:
+            continue
+        root = Path(raw_path).resolve()
+        if not root.exists() or not root.is_dir():
+            continue
+
+        candidate_dirs: list[Path] = []
+        try:
+            children = list(root.iterdir())
+        except Exception:
+            children = []
+
+        child_projects = [
+            child
+            for child in children
+            if child.is_dir() and _path_has_project_markers(child)
+        ]
+
+        root_is_project = _path_has_project_markers(root)
+        if child_projects:
+            # Prefer concrete subprojects for reliable project-path mapping.
+            candidate_dirs.extend(child_projects)
+        elif root_is_project:
+            candidate_dirs.append(root)
+
+        if not candidate_dirs:
+            candidate_dirs.append(root)
+
+        for candidate in candidate_dirs:
+            candidate_key = str(candidate).lower()
+            if candidate_key in seen_paths:
+                continue
+            seen_paths.add(candidate_key)
+
+            targets.append(
+                ScanTarget(
+                    name=candidate.name,
+                    path=str(candidate),
+                    project_type=_infer_project_type(candidate),
+                    source_root=str(root),
+                )
+            )
+
+    return targets
 
 
 def _count_files(project_path: str) -> int:
@@ -3137,96 +3376,63 @@ def _route_matches(pattern: str, candidate: str) -> bool:
     return True
 
 
-def _detect_cross_project_dependencies(entities: dict, current_project: str) -> None:
-    """Detect and create edges for cross-project dependencies.
-    
-    Task 11.2: Detect imports and HTTP calls between different projects.
-    Creates DEPENDS_ON_PROJECT edges when dependencies are found.
-    """
+def _detect_cross_project_dependencies(entities: dict, current_project: str | None = None) -> None:
+    """Detect and add cross-project dependency edges on top of existing relationships."""
     nodes = entities.get("nodes", [])
     rels = entities.get("relationships", [])
-    
-    # Build index of all nodes by project
-    nodes_by_project: dict[str, list[dict]] = {}
-    for node in nodes:
-        project = node.get("project", "")
-        if project:
-            nodes_by_project.setdefault(project, []).append(node)
-    
-    # If only one project, no cross-project dependencies possible
-    if len(nodes_by_project) <= 1:
-        return
-    
-    existing = set(
+
+    node_by_key = {
+        str(node.get("namespace_key")): node
+        for node in nodes
+        if node.get("namespace_key")
+    }
+
+    def _project_for_key(node_key: str) -> str:
+        node = node_by_key.get(node_key)
+        if node and node.get("project"):
+            return str(node.get("project"))
+        parts = node_key.split(":", 1)
+        return parts[0] if parts else ""
+
+    existing = {
         (r.get("from"), r.get("to"), r.get("type"))
         for r in rels
         if r.get("from") and r.get("to") and r.get("type")
-    )
-    
-    # Detect cross-project dependencies
-    for node in nodes:
-        src_project = node.get("project", "")
-        src_key = node.get("namespace_key")
-        if not src_key or not src_project:
+    }
+
+    # Cross-project relations derived from relationship graph itself.
+    relation_types = {"CALLS", "CALLS_RESOLVED", "CONSUMES_API", "CALLS_HTTP", "IMPORTS"}
+    for rel in list(rels):
+        rel_type = str(rel.get("type") or "")
+        if rel_type not in relation_types:
             continue
-        
-        # Check for HTTP calls to other projects (via called_routes)
-        called_routes = node.get("called_routes") or []
-        if called_routes:
-            # Find API endpoints in other projects
-            for other_project, other_nodes in nodes_by_project.items():
-                if other_project == src_project:
-                    continue
-                
-                for other_node in other_nodes:
-                    if other_node.get("label") == "API_Endpoint":
-                        route = other_node.get("route_path")
-                        if route and any(_route_matches(route, called) for called in called_routes):
-                            dst_key = other_node.get("namespace_key")
-                            if dst_key:
-                                key = (src_key, dst_key, "CROSS_PROJECT_HTTP")
-                                if key not in existing:
-                                    rels.append({
-                                        "from": src_key,
-                                        "to": dst_key,
-                                        "type": "CROSS_PROJECT_HTTP",
-                                        "source_project": src_project,
-                                        "target_project": other_project,
-                                    })
-                                    existing.add(key)
-        
-        # Check for imports that reference other projects
-        # This is detected by looking at CALLS relationships that cross project boundaries
-        for rel in list(rels):
-            if rel.get("type") != "CALLS":
-                continue
-            
-            src = rel.get("from") or rel.get("source")
-            dst = rel.get("to") or rel.get("target")
-            
-            if not src or not dst:
-                continue
-            
-            # Extract project names from namespace keys
-            src_parts = src.split(":")
-            dst_parts = dst.split(":")
-            
-            if len(src_parts) >= 1 and len(dst_parts) >= 1:
-                src_proj = src_parts[0]
-                dst_proj = dst_parts[0]
-                
-                # If projects differ, this is a cross-project call
-                if src_proj != dst_proj:
-                    key = (src, dst, "CROSS_PROJECT_CALL")
-                    if key not in existing:
-                        rels.append({
-                            "from": src,
-                            "to": dst,
-                            "type": "CROSS_PROJECT_CALL",
-                            "source_project": src_proj,
-                            "target_project": dst_proj,
-                        })
-                        existing.add(key)
+
+        src = rel.get("from") or rel.get("source")
+        dst = rel.get("to") or rel.get("target")
+        if not src or not dst:
+            continue
+
+        src_proj = _project_for_key(str(src))
+        dst_proj = _project_for_key(str(dst))
+        if not src_proj or not dst_proj or src_proj == dst_proj:
+            continue
+
+        derived_type = "CROSS_PROJECT_HTTP" if rel_type in {"CALLS_HTTP", "CONSUMES_API"} else "CROSS_PROJECT_CALL"
+        edge_key = (src, dst, derived_type)
+        if edge_key in existing:
+            continue
+
+        rels.append(
+            {
+                "from": src,
+                "to": dst,
+                "type": derived_type,
+                "source_project": src_proj,
+                "target_project": dst_proj,
+                "origin_relation": rel_type,
+            }
+        )
+        existing.add(edge_key)
 
 
 def _link_cross_project_apis(entities: dict) -> None:
@@ -3761,6 +3967,7 @@ def _apply_git_hotspots(entities: dict, project_path: str) -> None:
 async def scan_project(
     project_path: str,
     progress_callback: Optional[Callable[[OrchestratorScanProgress], None]] = None,
+    apply_global_linking: bool = True,
 ) -> dict:
     """Walk a project directory and parse all supported files."""
     global scan_state, scanned_projects
@@ -3875,18 +4082,66 @@ async def scan_project(
         if not has_test:
             node["missing_tests"] = True
 
-    # Cross-project API linking (frontend/mobile -> backend endpoints)
-    _link_cross_project_apis(all_entities)
-    # Task 11.2 — Detect cross-project imports and HTTP calls
-    _detect_cross_project_dependencies(all_entities, project_name)
-    # Resolve method/function calls to concrete targets and derive N-hop links
-    _resolve_internal_calls(all_entities, max_hops=4)
-    # Compute CK-style class metrics
-    _apply_ck_metrics(all_entities)
+    if apply_global_linking:
+        # Cross-project API linking (frontend/mobile -> backend endpoints)
+        _link_cross_project_apis(all_entities)
+        # Task 11.2 â€” Detect cross-project imports and HTTP calls
+        _detect_cross_project_dependencies(all_entities, project_name)
+        # Resolve method/function calls to concrete targets and derive N-hop links
+        _resolve_internal_calls(all_entities, max_hops=4)
+        # Compute CK-style class metrics
+        _apply_ck_metrics(all_entities)
     # Apply Git churn + hotspot score
     _apply_git_hotspots(all_entities, project_path)
 
     return all_entities
+
+
+def _apply_project_metadata(entities: dict, targets: list[ScanTarget]) -> None:
+    """Attach normalized project metadata to nodes/edges."""
+    if not entities:
+        return
+
+    type_by_project = {target.name: target.project_type for target in targets}
+    node_project_index = {
+        node.get("namespace_key"): str(node.get("project") or "")
+        for node in entities.get("nodes", [])
+        if node.get("namespace_key")
+    }
+
+    for node in entities.get("nodes", []):
+        project = str(node.get("project") or "")
+        if not project:
+            continue
+        project_type = type_by_project.get(project, "other")
+        node["project_type"] = project_type
+
+    for rel in entities.get("relationships", []):
+        src = rel.get("from") or rel.get("source")
+        dst = rel.get("to") or rel.get("target")
+        if not src or not dst:
+            continue
+        src_project = node_project_index.get(src) or src.split(":", 1)[0]
+        dst_project = node_project_index.get(dst) or dst.split(":", 1)[0]
+        if src_project:
+            rel["source_project"] = src_project
+        if dst_project:
+            rel["target_project"] = dst_project
+
+
+def _finalize_integrated_entities(entities: dict, targets: list[ScanTarget]) -> dict:
+    """
+    Final pass for integrated multi-project graphs.
+
+    Applies cross-project linking on the combined graph and enriches metadata
+    without recreating parsing logic.
+    """
+    _apply_project_metadata(entities, targets)
+    _link_cross_project_apis(entities)
+    _detect_cross_project_dependencies(entities)
+    _resolve_internal_calls(entities, max_hops=4)
+    _apply_ck_metrics(entities)
+    return entities
 
 
 async def ingest_to_neo4j(entities: dict) -> None:
@@ -3908,7 +4163,7 @@ async def ingest_to_neo4j(entities: dict) -> None:
         label = node.pop("label")
         ns_key = node["namespace_key"]
         
-        # Task 12.4 — Add tenant field if TENANT_ID is configured
+        # Task 12.4 â€” Add tenant field if TENANT_ID is configured
         if TENANT_ID and "tenant" not in node:
             node["tenant"] = TENANT_ID
 
@@ -3995,19 +4250,38 @@ async def run_scan(
         memory_nodes.clear()
         memory_edges.clear()
         todo_records.clear()
+        scanned_projects.clear()
 
         try:
+            targets = _discover_scan_targets(paths)
+            if not targets:
+                raise ValueError("Nenhum projeto vÃ¡lido foi detectado nos caminhos informados.")
+
+            logger.info(
+                "Resolved scan targets: %s",
+                [
+                    {"name": t.name, "type": t.project_type, "path": t.path}
+                    for t in targets
+                ],
+            )
+
             # Count total files first for progress tracking
             total = 0
-            for project_path in paths:
-                total += _count_files(project_path)
+            for target in targets:
+                total += _count_files(target.path)
             scan_state.total_files = total
             state_store.set_state("scan_status", scan_state.model_dump())
 
-            for project_path in paths:
-                logger.info("Scanning project: %s", project_path)
-                entities = await scan_project(project_path, progress_callback=progress_callback)
-                await ingest_to_neo4j(entities)
+            integrated_entities = {"nodes": [], "relationships": []}
+            for target in targets:
+                logger.info("Scanning project: %s (%s)", target.path, target.project_type)
+                entities = await scan_project(
+                    target.path,
+                    progress_callback=progress_callback,
+                    apply_global_linking=False,
+                )
+                integrated_entities["nodes"].extend(entities.get("nodes", []))
+                integrated_entities["relationships"].extend(entities.get("relationships", []))
                 if progress_callback:
                     try:
                         progress_callback(
@@ -4023,6 +4297,9 @@ async def run_scan(
                         )
                     except Exception as cb_err:
                         logger.debug("progress_callback failed: %s", cb_err)
+
+            integrated_entities = _finalize_integrated_entities(integrated_entities, targets)
+            await ingest_to_neo4j(integrated_entities)
 
             scan_state.status = "completed"
             scan_state.progress_percent = 100.0
@@ -4086,7 +4363,7 @@ async def run_scan(
             except Exception as embed_err:
                 logger.warning("Failed to persist RAG embeddings: %s", embed_err)
 
-            # Fase 1 — non-blocking temporal snapshot with git metadata + node state
+            # Fase 1 â€” non-blocking temporal snapshot with git metadata + node state
             try:
                 graph_stats = {
                     "total_nodes": scan_state.total_nodes,
@@ -4107,7 +4384,7 @@ async def run_scan(
                 snapshot_task = asyncio.create_task(
                     temporal_analyzer.capture_snapshot(graph_stats, git_info=git_info, node_snapshot=node_snap)
                 )
-                # Fase 3 — fire alerts after snapshot is ready
+                # Fase 3 â€” fire alerts after snapshot is ready
                 async def _run_alerts_after_snapshot(snap_task, stats):
                     try:
                         current_snap = await snap_task
@@ -4135,7 +4412,7 @@ async def run_scan(
             logger.error("Scan failed: %s", e)
 
 
-# ──────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Wire enhanced orchestrator to the existing scan pipeline (Requirement 11.1/11.2)
 async def _orchestrator_local_scan(
     paths: list[str],
@@ -4151,7 +4428,7 @@ async def _orchestrator_local_scan(
 scanner_orchestrator.set_local_scan_fn(_orchestrator_local_scan)
 
 # API Endpoints
-# ──────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
 @app.post("/api/scan", response_model=ScanStatus, status_code=202)
@@ -4223,9 +4500,9 @@ async def cancel_scan():
     return {"cancelled": cancelled, "status": scan_state.status}
 
 
-# ──────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Temporal Analysis Endpoints (Requirement 5)
-# ──────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @app.get("/api/analysis/history")
 async def get_analysis_history(page: int = 1, limit: int = 20):
@@ -4254,7 +4531,7 @@ async def get_graph_diff(
     to_commit: str = Query(..., description="Target commit hash"),
 ):
     """
-    Fase 1 — Temporal Graph.
+    Fase 1 â€” Temporal Graph.
 
     Compare the architecture between two commits. Returns:
     - metrics_diff: delta in god_classes, circular_deps, coupling, etc.
@@ -4271,7 +4548,7 @@ async def get_graph_diff(
 @app.get("/api/graph/snapshots")
 async def list_graph_snapshots(page: int = 1, limit: int = 30):
     """
-    Fase 1 — List all architecture snapshots enriched with git metadata.
+    Fase 1 â€” List all architecture snapshots enriched with git metadata.
     Each snapshot includes commit_hash, branch, author, and metric summary.
     """
     return temporal_analyzer.get_history(page, limit)
@@ -4363,7 +4640,7 @@ async def get_graph_activity_heatmap(
 
 @app.get("/api/poller/status")
 async def get_poller_status():
-    """Automação — Return current status of the git poller."""
+    """AutomaÃ§Ã£o â€” Return current status of the git poller."""
     if not git_poller:
         return {"active": False, "message": "GitPoller not initialized"}
     return git_poller.get_status()
@@ -4372,7 +4649,7 @@ async def get_poller_status():
 @app.get("/api/graph/snapshots/{commit_hash}")
 async def get_graph_snapshot_by_commit(commit_hash: str):
     """
-    Fase 1 — Return the snapshot captured for a specific commit.
+    Fase 1 â€” Return the snapshot captured for a specific commit.
     Includes node-level state if available.
     """
     snap = temporal_analyzer.get_by_commit(commit_hash)
@@ -4384,7 +4661,7 @@ async def get_graph_snapshot_by_commit(commit_hash: str):
 
 @app.post("/api/graph/snapshots/deploy")
 async def capture_deploy_snapshot(payload: dict):
-    """Fase 2 — Capture an architectural snapshot tagged as a deployment milestone."""
+    """Fase 2 â€” Capture an architectural snapshot tagged as a deployment milestone."""
     git_info = {
         "commit_hash": payload.get("commit_hash"),
         "branch": payload.get("environment"),
@@ -4403,16 +4680,16 @@ async def capture_deploy_snapshot(payload: dict):
     return {"ok": True, "snapshot_id": snap.get("id")}
 
 
-# ──────────────────────────────────────────────
-# Fase 2 — GitHub Webhook Endpoint
-# ──────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# Fase 2 â€” GitHub Webhook Endpoint
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @app.post("/api/webhooks/github")
 async def github_webhook(request: Request):
     """
-    Fase 2 — Receive GitHub webhook events (push, pull_request, deployment).
+    Fase 2 â€” Receive GitHub webhook events (push, pull_request, deployment).
 
-    Setup in GitHub: Settings → Webhooks → Payload URL = https://your-host/api/webhooks/github
+    Setup in GitHub: Settings â†’ Webhooks â†’ Payload URL = https://your-host/api/webhooks/github
     Content type: application/json
     Secret: set GITHUB_WEBHOOK_SECRET env var
 
@@ -4445,7 +4722,7 @@ async def github_webhook(request: Request):
 @app.post("/api/webhooks/local")
 async def local_webhook(payload: dict):
     """
-    Fase 2 — Endpoint for the local post-commit hook.
+    Fase 2 â€” Endpoint for the local post-commit hook.
     Receives: { commit_hash, project_path }
     """
     if not event_engine:
@@ -4461,9 +4738,9 @@ async def local_webhook(payload: dict):
     return {"ok": True, "commit_hash": commit_hash}
 
 
-# ──────────────────────────────────────────────
-# Fase 3 — Alert System Endpoints
-# ──────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# Fase 3 â€” Alert System Endpoints
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def _map_failed_files_to_nodes(failed_files: list[str]) -> list[str]:
     if not failed_files:
@@ -4741,7 +5018,7 @@ async def list_cicd_builds(limit: int = 50):
 
 @app.get("/api/alerts/history")
 async def get_alert_history(page: int = 1, limit: int = 50):
-    """Fase 3 — Return paginated history of fired alerts."""
+    """Fase 3 â€” Return paginated history of fired alerts."""
     if not alert_engine:
         return {"items": [], "total": 0, "page": page, "limit": limit}
     return alert_engine.get_alert_history(page=page, limit=limit)
@@ -4749,7 +5026,7 @@ async def get_alert_history(page: int = 1, limit: int = 50):
 
 @app.get("/api/alerts/rules")
 async def list_alert_rules():
-    """Fase 3 — List all alert rules (builtin + custom)."""
+    """Fase 3 â€” List all alert rules (builtin + custom)."""
     if not alert_engine:
         return []
     return alert_engine.get_active_rules()
@@ -4758,7 +5035,7 @@ async def list_alert_rules():
 @app.post("/api/alerts/rules")
 async def create_alert_rule(rule: dict):
     """
-    Fase 3 — Create or update a custom alert rule.
+    Fase 3 â€” Create or update a custom alert rule.
 
     Example body:
     {
@@ -4778,7 +5055,7 @@ async def create_alert_rule(rule: dict):
 
 @app.delete("/api/alerts/rules/{rule_id}")
 async def delete_alert_rule(rule_id: str):
-    """Fase 3 — Delete a custom alert rule. Builtin rules can only be disabled."""
+    """Fase 3 â€” Delete a custom alert rule. Builtin rules can only be disabled."""
     if not alert_engine:
         raise HTTPException(status_code=503, detail="AlertEngine not initialized")
     deleted = alert_engine.delete_rule(rule_id)
@@ -4789,7 +5066,7 @@ async def delete_alert_rule(rule_id: str):
 
 @app.post("/api/alerts/evaluate")
 async def evaluate_alerts_now():
-    """Fase 3 — Manually trigger alert evaluation against the last two snapshots."""
+    """Fase 3 â€” Manually trigger alert evaluation against the last two snapshots."""
     if not alert_engine:
         raise HTTPException(status_code=503, detail="AlertEngine not initialized")
     history = temporal_analyzer.get_history(page=1, limit=2)
@@ -4800,9 +5077,9 @@ async def evaluate_alerts_now():
     return {"fired": [{"id": a.id, "rule_name": a.rule_name, "severity": a.severity, "message": a.message} for a in fired]}
 
 
-# ──────────────────────────────────────────────
-# Fase 4 — PR Analysis + Weekly Digest Endpoints
-# ──────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# Fase 4 â€” PR Analysis + Weekly Digest Endpoints
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class PRAnalyzeRequest(BaseModel):
     pr_number: int
@@ -4815,7 +5092,7 @@ class PRAnalyzeRequest(BaseModel):
 @app.post("/api/pr/analyze")
 async def analyze_pr(request: PRAnalyzeRequest, background_tasks: BackgroundTasks):
     """
-    Fase 4 — Analyze a PR and post an LLM-enriched comment to GitHub.
+    Fase 4 â€” Analyze a PR and post an LLM-enriched comment to GitHub.
     Can be triggered by the EventEngine (webhook) or manually.
     """
     from pr_bot import PRBot, _run_with_error_handling
@@ -4837,14 +5114,14 @@ async def analyze_pr(request: PRAnalyzeRequest, background_tasks: BackgroundTask
     async def _run_pr_analysis():
         await _run_with_error_handling(bot, request.pr_number, request.changed_files)
 
-    # Run in background — don't block the webhook response
+    # Run in background â€” don't block the webhook response
     background_tasks.add_task(_run_pr_analysis)
     return {"ok": True, "pr_number": request.pr_number, "status": "analysis_started"}
 
 
 @app.get("/api/digest/weekly")
 async def get_weekly_digests(limit: int = 12):
-    """Fase 4 — Return stored weekly architecture digests."""
+    """Fase 4 â€” Return stored weekly architecture digests."""
     if not weekly_digest_generator:
         return []
     return weekly_digest_generator.get_history(limit=limit)
@@ -4853,7 +5130,7 @@ async def get_weekly_digests(limit: int = 12):
 @app.post("/api/digest/generate")
 async def generate_weekly_digest(weeks_back: int = 1, background_tasks: BackgroundTasks = None):
     """
-    Fase 4 — Generate a weekly architecture digest on demand.
+    Fase 4 â€” Generate a weekly architecture digest on demand.
     The LLM synthesis runs in the background; poll /api/digest/weekly for results.
     """
     if not weekly_digest_generator:
@@ -4862,7 +5139,7 @@ async def generate_weekly_digest(weeks_back: int = 1, background_tasks: Backgrou
     async def _generate():
         try:
             digest = await weekly_digest_generator.generate(weeks_back=weeks_back)
-            logger.info("Weekly digest generated: %s → %s", digest["week_start"], digest["week_end"])
+            logger.info("Weekly digest generated: %s â†’ %s", digest["week_start"], digest["week_end"])
         except Exception as exc:
             logger.error("Weekly digest generation failed: %s", exc)
 
@@ -5463,11 +5740,11 @@ async def explain_transaction_view(node_key: str, max_depth: int = 10):
         f"Origem: {data['origin']['name']} ({data['origin']['layer']})",
         "Camadas percorridas:",
         layer_summary,
-        f"Paths terminais destacados: {terminal_summary or 'Nenhum terminal visível.'}",
-        f"Total de nós visitados: {data['nodes_visited']}",
+        f"Paths terminais destacados: {terminal_summary or 'Nenhum terminal visÃ­vel.'}",
+        f"Total de nÃ³s visitados: {data['nodes_visited']}",
     ]
 
-    question = "Explique em 3-4 frases simples o que esta transação faz, quais camadas ela atravessa e o que persiste."
+    question = "Explique em 3-4 frases simples o que esta transaÃ§Ã£o faz, quais camadas ela atravessa e o que persiste."
     ai_result = await ask_ai(question, "\n".join(context_lines))
     explanation = _extract_ai_response_text(ai_result.get("raw_text", ""))
 
@@ -5598,7 +5875,11 @@ def _build_analysis_runtime() -> dict[str, object]:
     memory_index = _memory_nodes_index()
     normalized_edges = _normalized_memory_edges()
     deep_parser = DeepParser()
-    semantic_analyzer = SemanticAnalyzer(ollama_url=OLLAMA_URL, model=OLLAMA_COMPLEX_MODEL)
+    semantic_analyzer = SemanticAnalyzer(
+        ollama_url=OLLAMA_URL,
+        model=OLLAMA_COMPLEX_MODEL,
+        ollama_runtime=ollama_runtime,
+    )
     impact_engine = PredictiveImpactEngine(
         neo4j_service,
         memory_nodes,
@@ -5777,9 +6058,9 @@ def _node_text_blob(node: dict) -> str:
     return " ".join(parts).lower()
 
 
-TRANSACTION_KEYWORDS = {"transação", "transaction", "pagamento", "checkout", "transacao", "transacoes"}
-IMPACT_KEYWORDS = {"impacto", "impactar", "impactados", "afeta", "blast", "blast radius", "modificação"}
-SECURITY_KEYWORDS = {"segurança", "seguranca", "vulnerabilidade", "vulnerabilidades", "codeql", "cve", "ataque"}
+TRANSACTION_KEYWORDS = {"transaÃ§Ã£o", "transaction", "pagamento", "checkout", "transacao", "transacoes"}
+IMPACT_KEYWORDS = {"impacto", "impactar", "impactados", "afeta", "blast", "blast radius", "modificaÃ§Ã£o"}
+SECURITY_KEYWORDS = {"seguranÃ§a", "seguranca", "vulnerabilidade", "vulnerabilidades", "codeql", "cve", "ataque"}
 
 
 def _persist_node_embeddings(nodes: Iterable[dict]) -> None:
@@ -5914,7 +6195,7 @@ def _render_report_chart(entries: list[dict]) -> str:
       <path d="{nodes_path}" fill="none" stroke="#60a5fa" stroke-width="3" />
       <path d="{edges_path}" fill="none" stroke="#a78bfa" stroke-width="2" stroke-dasharray="6 4" />
       <path d="{risk_path}" fill="none" stroke="#ef4444" stroke-width="2.2" stroke-dasharray="4 3" />
-      <text x="{padding}" y="{padding - 8}" fill="#0f172a" font-size="12">Evolução (últimos scans)</text>
+      <text x="{padding}" y="{padding - 8}" fill="#0f172a" font-size="12">EvoluÃ§Ã£o (Ãºltimos scans)</text>
     </svg>
     """
     return svg
@@ -6273,18 +6554,13 @@ def _embed_text(text: str) -> Optional[list[float]]:
     if not text.strip():
         return None
     try:
-        payload = {"model": OLLAMA_EMBED_MODEL, "prompt": text}
-        with httpx.Client(timeout=8.0) as client:
-            res = client.post(f"{OLLAMA_URL}/api/embeddings", json=payload)
-            if res.status_code != 200:
-                return None
-            data = res.json()
-            emb = data.get("embedding")
-            if isinstance(emb, list) and emb:
-                return [float(x) for x in emb]
+        return ollama_runtime.embeddings_sync(
+            model=OLLAMA_EMBED_MODEL,
+            text=text,
+            timeout=8.0,
+        )
     except Exception:
         return None
-    return None
 
 
 def _rag_search_nodes(
@@ -6413,15 +6689,15 @@ def _render_semantic_preview(node: dict, max_lines: int = 3) -> str:
         f"Layer: {layer_part}" if layer_part else None,
         f"Project: {project_part}" if project_part else None,
     ]
-    metadata = " · ".join(part for part in metadata_parts if part)
-    return metadata or "Sem snippet disponível"
+    metadata = " Â· ".join(part for part in metadata_parts if part)
+    return metadata or "Sem snippet disponÃ­vel"
 
 
 def _generate_manual_summary(question: str, graph: GraphIndex, limit: int = 12) -> str:
     def tokenize(text: str) -> set[str]:
         return {
             token.strip().lower()
-            for token in re.findall(r"[A-Za-zÀ-ÿ0-9_]+", text)
+            for token in re.findall(r"[A-Za-zÃ€-Ã¿0-9_]+", text)
             if len(token.strip()) > 2
         }
 
@@ -6455,7 +6731,7 @@ def _generate_manual_summary(question: str, graph: GraphIndex, limit: int = 12) 
 
     def node_summary(nodes: list[dict]) -> str:
         return " / ".join(
-            f"{n.get('name') or n.get('namespace_key')} (↑{len(graph.incoming_edges(n.get('namespace_key')))} · ↓{len(graph.outgoing_edges(n.get('namespace_key')))})"
+            f"{n.get('name') or n.get('namespace_key')} (â†‘{len(graph.incoming_edges(n.get('namespace_key')))} Â· â†“{len(graph.outgoing_edges(n.get('namespace_key')))})"
             for n in nodes
         ) or "nenhum"
 
@@ -6467,29 +6743,29 @@ def _generate_manual_summary(question: str, graph: GraphIndex, limit: int = 12) 
 
     if primary:
         lines.append(
-            "🔴 Dependência crítica — TenantBaseEntity\n"
-            f"A classe TenantBaseEntity (métodos como {primary.get('name') or primary.get('namespace_key')}) sustenta o isolamento multi-tenant. "
-            f"setEmpresaId possui {len(graph.incoming_edges(primary.get('namespace_key')))} dependências upstream "
+            "ðŸ”´ DependÃªncia crÃ­tica â€” TenantBaseEntity\n"
+            f"A classe TenantBaseEntity (mÃ©todos como {primary.get('name') or primary.get('namespace_key')}) sustenta o isolamento multi-tenant. "
+            f"setEmpresaId possui {len(graph.incoming_edges(primary.get('namespace_key')))} dependÃªncias upstream "
             f"e {len(graph.outgoing_edges(primary.get('namespace_key')))} downstream; ela garante que cada entidade identifique a empresa certa."
         )
 
     if services:
         lines.append(
-            f"🔴 Serviços com contexto transacional\nServiços como {node_summary(services)} dependem de empresaId para manter o contexto transacional e os cálculos de ponto/funcionários/exportações."
+            f"ðŸ”´ ServiÃ§os com contexto transacional\nServiÃ§os como {node_summary(services)} dependem de empresaId para manter o contexto transacional e os cÃ¡lculos de ponto/funcionÃ¡rios/exportaÃ§Ãµes."
         )
 
     if impersonations:
         lines.append(
-            f"🔴 Autenticação e impersonation\n{node_summary(impersonations)} controlam fluxos de impersonation e tokens administrativos."
+            f"ðŸ”´ AutenticaÃ§Ã£o e impersonation\n{node_summary(impersonations)} controlam fluxos de impersonation e tokens administrativos."
         )
 
     if frontend:
         lines.append(
-            f"⚠️ Frontend também seria afetado\nComponentes como {node_summary(frontend)} utilizam contexto multi-tenant para renderizar o grafo."
+            f"âš ï¸ Frontend tambÃ©m seria afetado\nComponentes como {node_summary(frontend)} utilizam contexto multi-tenant para renderizar o grafo."
         )
 
     lines.append(
-        "✅ Recomendação\nMapeie e valide todas as referências a empresaId (incluindo os upstream de setEmpresaId) sempre que tocar na entidade Empresa. "
+        "âœ… RecomendaÃ§Ã£o\nMapeie e valide todas as referÃªncias a empresaId (incluindo os upstream de setEmpresaId) sempre que tocar na entidade Empresa. "
         "Sem esse mapeamento completo, o sistema perde o contexto multi-tenant."
     )
     return "\n\n".join(lines)
@@ -7496,7 +7772,7 @@ async def list_todos(
 async def get_git_blame(file_path: str | None = Query(None), node_key: str | None = Query(None)):
     resolved_path, project_name = _resolve_git_path(file_path, node_key)
     if not resolved_path:
-        raise HTTPException(status_code=404, detail="Arquivo Git não encontrado")
+        raise HTTPException(status_code=404, detail="Arquivo Git nÃ£o encontrado")
     last_commit_date = _get_git_last_commit_date(resolved_path)
     author_count = _get_git_author_count(resolved_path)
     return GitBlameInfo(
@@ -8282,9 +8558,9 @@ async def get_antipatterns(tenant: str = Query(None, description="Optional tenan
     return antipatterns
 
 
-# ──────────────────────────────────────────────
-# Memory Store — Architectural Decisions (Req 6)
-# ──────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# Memory Store â€” Architectural Decisions (Req 6)
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @app.post("/api/memory/decision")
 async def create_memory_decision(request: ArchitecturalDecisionRequest):
@@ -8332,9 +8608,9 @@ async def delete_memory_decision(decision_id: str):
     return {"deleted": True, "id": decision_id}
 
 
-# ──────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Tenant Management (Task 12.5)
-# ──────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class TenantCreateRequest(BaseModel):
     name: str = Field(..., min_length=1, max_length=100, description="Unique tenant identifier (e.g., 'acme-corp')")
@@ -8526,9 +8802,9 @@ async def get_graph_stats(x_tenant_id: str = Header(None, alias="X-Tenant-ID")):
     )
 
 
-# ──────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Intelligence Summary (Phase 3)
-# ──────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 # Cache for intelligence summary (60 seconds TTL)
 _intelligence_cache = {"data": None, "timestamp": 0}
@@ -8708,50 +8984,53 @@ async def ai_query(request: AIQueryRequest, client_request: Request):
     _ai_query_rate_limit[client_ip].append(current_time)
     
     try:
-        from ai_query_engine import AIQueryEngine
-        
-        # Initialize AI query engine
-        ai_engine = AIQueryEngine(
-            neo4j_service=neo4j_service,
-            rag_store=rag_store,
-            ollama_url=OLLAMA_URL,
-            ollama_model=OLLAMA_CHAT_MODEL
+        ask_response = await ask_question(
+            AskRequest(
+                question=request.question,
+                context_node=request.context_node,
+            )
         )
-        
-        # Process query
-        result = await ai_engine.query(
-            question=request.question,
-            context_node=request.context_node
-        )
-        
-        # Convert to dict for JSON serialization
+        references: list[dict] = []
+        confidence = 0.0
+        if ask_response.relevant_nodes:
+            confidence = min(1.0, 0.4 + (len(ask_response.relevant_nodes) * 0.08))
+            for node_key in ask_response.relevant_nodes[:8]:
+                node = next((n for n in memory_nodes if n.get("namespace_key") == node_key), None)
+                if not node:
+                    continue
+                references.append(
+                    {
+                        "file": node.get("file") or "",
+                        "line": int(node.get("line") or 0),
+                        "snippet": str(node.get("name") or node_key),
+                        "node_key": node_key,
+                    }
+                )
         return {
-            "answer": result.answer,
-            "relevant_nodes": result.relevant_nodes,
-            "references": [
-                {
-                    "file": ref.file,
-                    "line": ref.line,
-                    "snippet": ref.snippet,
-                    "node_key": ref.node_key
-                }
-                for ref in result.references
-            ],
-            "confidence": result.confidence,
-            "model": result.model
+            "answer": ask_response.answer,
+            "relevant_nodes": ask_response.relevant_nodes,
+            "references": references,
+            "confidence": round(confidence, 3),
+            "model": ask_response.model,
+            "fallback_summary": ask_response.fallback_summary,
+            "fallback_generated": ask_response.fallback_generated,
+            "fallback_source": ask_response.fallback_source,
         }
-        
+    except HTTPException:
+        raise
     except Exception as e:
-        logger.error(f"AI query failed: {e}")
+        logger.error("AI query failed: %s", e)
         raise HTTPException(
-            status_code=500,
-            detail=f"AI query failed: {str(e)}"
+            status_code=503,
+            detail=(
+                "Falha ao consultar a IA local. Verifique se o Ollama esta ativo e se os modelos configurados estao disponiveis."
+            ),
         )
 
 
-# ──────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Executive Reports (Task 13)
-# ──────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 class ReportGenerateRequest(BaseModel):
     project: str | None = Field(None, description="Optional project filter")
@@ -8772,7 +9051,7 @@ async def generate_report(
     x_tenant_id: str = Header(None, alias="X-Tenant-ID")
 ):
     """
-    Task 13.7 — Generate executive PDF report.
+    Task 13.7 â€” Generate executive PDF report.
     
     Returns PDF as downloadable attachment.
     """
@@ -8809,7 +9088,7 @@ async def generate_report(
 @app.get("/api/report/history", response_model=list[ReportResponse])
 async def get_report_history(project: str = Query(None, description="Optional project filter")):
     """
-    Task 13.8 — List generated reports with metadata.
+    Task 13.8 â€” List generated reports with metadata.
     """
     try:
         reports = state_store.list_reports(project=project)
@@ -8854,19 +9133,19 @@ async def ask_question(request: AskRequest):
     if scan_state.status == "scanning":
         raise HTTPException(
             status_code=409,
-            detail="Um scan está em andamento. Aguarde o scan terminar antes de fazer perguntas à IA. "
+            detail="Um scan estÃ¡ em andamento. Aguarde o scan terminar antes de fazer perguntas Ã  IA. "
                    "Isso evita que dois modelos de IA rodem ao mesmo tempo e sobrecarreguem o PC."
         )
     # Detect simple greetings to bypass heavy context fetching and AI generation
     input_clean = request.question.lower().strip()
     greetings = {
-        "oi": "Olá! Sou o InsightGraph AI. Como posso ajudar você a analisar a arquitetura do seu projeto hoje?",
-        "ola": "Olá! Estou pronto para ajudar com seus diagramas e análise de impacto. O que deseja saber?",
-        "olá": "Olá! Estou pronto para ajudar com seus diagramas e análise de impacto. O que deseja saber?",
-        "bom dia": "Bom dia! Como posso ajudar na sua análise técnica hoje?",
-        "boa tarde": "Boa tarde! Alguma dúvida específica sobre os componentes do sistema?",
-        "boa noite": "Boa noite! Em que posso ajudar na exploração do código agora?",
-        "hey": "Olá! Como vai o desenvolvimento? Precisa de uma análise de impacto ou entender algum fluxo?",
+        "oi": "OlÃ¡! Sou o InsightGraph AI. Como posso ajudar vocÃª a analisar a arquitetura do seu projeto hoje?",
+        "ola": "OlÃ¡! Estou pronto para ajudar com seus diagramas e anÃ¡lise de impacto. O que deseja saber?",
+        "olÃ¡": "OlÃ¡! Estou pronto para ajudar com seus diagramas e anÃ¡lise de impacto. O que deseja saber?",
+        "bom dia": "Bom dia! Como posso ajudar na sua anÃ¡lise tÃ©cnica hoje?",
+        "boa tarde": "Boa tarde! Alguma dÃºvida especÃ­fica sobre os componentes do sistema?",
+        "boa noite": "Boa noite! Em que posso ajudar na exploraÃ§Ã£o do cÃ³digo agora?",
+        "hey": "OlÃ¡! Como vai o desenvolvimento? Precisa de uma anÃ¡lise de impacto ou entender algum fluxo?",
         "hello": "Hello! I am InsightGraph AI. How can I help you explore your project architecture?"
     }
     
@@ -8906,6 +9185,10 @@ async def ask_question(request: AskRequest):
         rag_nodes = [entry for entry in raw_rag if isinstance(entry, dict)]
         rag_context = _format_rag_context(rag_nodes)
         context_parts = [base_context]
+        if request.project:
+            context_parts.append(f"=== Active Project Context ===\n{request.project}")
+        if request.graph_context:
+            context_parts.append(f"=== Graph Runtime Context ===\n{request.graph_context}")
         if rag_context.strip():
             context_parts.append("=== RAG Context (Top Relevant Nodes) ===")
             context_parts.append(rag_context)
@@ -8926,7 +9209,7 @@ async def ask_question(request: AskRequest):
                     if d["node_key"].lower() in question_lower
                 ] or all_decisions
                 if relevant_decisions:
-                    decision_lines = ["Decisões arquiteturais registradas:"]
+                    decision_lines = ["DecisÃµes arquiteturais registradas:"]
                     for d in relevant_decisions[:10]:
                         line = f"  - [{d['decision_type']}] {d['node_key']}"
                         if d.get("description"):
@@ -8939,7 +9222,27 @@ async def ask_question(request: AskRequest):
         except Exception as _dec_err:
             logger.warning("Failed to inject architectural decisions: %s", _dec_err)
 
-        ai_res = await ask_ai(request.question, context)
+        conversation_lines: list[str] = []
+        for turn in request.conversation[-6:]:
+            if not isinstance(turn, dict):
+                continue
+            role = str(turn.get("role") or "").strip().lower()
+            content = str(turn.get("content") or "").strip()
+            if not content:
+                continue
+            if role in {"user", "ai", "assistant"}:
+                label = "UsuÃ¡rio" if role == "user" else "Assistente"
+                conversation_lines.append(f"{label}: {content}")
+
+        question_for_ai = request.question
+        if conversation_lines:
+            question_for_ai = (
+                "Considere o histÃ³rico da conversa abaixo para manter continuidade.\n"
+                + "\n".join(conversation_lines)
+                + f"\nPergunta atual do usuÃ¡rio: {request.question}"
+            )
+
+        ai_res = await ask_ai(question_for_ai, context)
         ai_res = ai_res or {}
         answer_raw = str(ai_res.get("raw_text") or "")
         actual_model = ai_res.get("model", "unknown")
@@ -8951,14 +9254,18 @@ async def ask_question(request: AskRequest):
         json_end = answer_raw.rfind("}") + 1
         
         answer_text = ""
-        relevant_nodes = []
+        parsed_relevant_candidates: list[str] = []
         
         if json_start >= 0 and json_end > json_start:
             try:
                 content = answer_raw[json_start:json_end]
                 parsed_ans = json.loads(content)
                 answer_text = parsed_ans.get("resposta_texto", "")
-                relevant_nodes = parsed_ans.get("nos_relevantes", [])
+                candidate_payload = parsed_ans.get("nos_relevantes", []) or []
+                if isinstance(candidate_payload, list):
+                    parsed_relevant_candidates = candidate_payload
+                elif isinstance(candidate_payload, str):
+                    parsed_relevant_candidates = [candidate_payload]
             except json.JSONDecodeError:
                 logger.warning("Failed to parse JSON from AI response")
                 
@@ -8968,29 +9275,24 @@ async def ask_question(request: AskRequest):
             if answer_text:
                 answer_text = answer_text.replace("\r\n", "\n").strip()
             elif not answer_text:
-                answer_text = "A IA não retornou nenhuma resposta. Tente fazer a pergunta de outra forma ou verifique se o modelo está carregado."
+                answer_text = "A IA nÃ£o retornou nenhuma resposta. Tente fazer a pergunta de outra forma ou verifique se o modelo estÃ¡ carregado."
 
-        relevant_nodes = []
+        relevant_nodes: list[str] = _normalize_relevant_node_keys(parsed_relevant_candidates, graph)
         for entry in rag_nodes[:6]:
             key = entry.get("namespace_key")
-            label = entry.get("name") or entry.get("label") or key
-            if key and label:
-                relevant_nodes.append(f"{label} [{key}]")
+            if isinstance(key, str) and key in graph.node_by_key and key not in relevant_nodes:
+                relevant_nodes.append(key)
         for key in [k for k in context_nodes if isinstance(k, str)][:6]:
-            node = graph.node_by_key.get(key)
-            name = node.get("name") if node else None
-            label = name or key
-            entry_label = f"{label} [{key}]"
-            if entry_label not in relevant_nodes:
-                relevant_nodes.append(entry_label)
+            if key in graph.node_by_key and key not in relevant_nodes:
+                relevant_nodes.append(key)
 
         fallback_summary_text = ""
         fallback_generated = False
         fallback_source = None
         fallback_indicators = [
-            "A IA não retornou",
-            "IA não retornou",
-            "não retornou nenhuma resposta",
+            "A IA nÃ£o retornou",
+            "IA nÃ£o retornou",
+            "nÃ£o retornou nenhuma resposta",
         ]
         if any(indicator in answer_text for indicator in fallback_indicators):
             fallback_summary_text = _generate_manual_summary(request.question, graph)
@@ -9000,7 +9302,10 @@ async def ask_question(request: AskRequest):
                 fallback_source = "graph"
 
         if relevant_nodes and answer_text.strip():
-            citation = ", ".join(relevant_nodes[:6])
+            citation = ", ".join(
+                str(graph.node_by_key.get(key, {}).get("name") or key)
+                for key in relevant_nodes[:6]
+            )
             answer_text = f"{answer_text.strip()}\n\nEsta resposta usa contexto de: {citation}"
 
         return AskResponse(
@@ -9013,7 +9318,13 @@ async def ask_question(request: AskRequest):
             fallback_source=fallback_source,
         )
     except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error("ask_question failed: %s", e, exc_info=True)
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                "Falha ao gerar resposta da IA local. Confira se o Ollama esta ativo e tente novamente em alguns segundos."
+            ),
+        )
 
 
 @app.post("/api/simulate")
@@ -9115,7 +9426,7 @@ async def simulate_changes(req: SimulateRequest):
                 found_critical.append(nodes[dk].get("name"))
     
     if found_critical:
-        impact_insights.append(f"🔴 FALHA CRÍTICA: O ponto de entrada do sistema ({', '.join(found_critical)}) foi removido. O ambiente deixará de funcionar.")
+        impact_insights.append(f"ðŸ”´ FALHA CRÃTICA: O ponto de entrada do sistema ({', '.join(found_critical)}) foi removido. O ambiente deixarÃ¡ de funcionar.")
 
     # 2. Layer-wise Impact Analysis
     layer_impacts = {}
@@ -9126,18 +9437,18 @@ async def simulate_changes(req: SimulateRequest):
     
     # Sort layers for consistent reporting
     for layer, count in sorted(layer_impacts.items()):
-        impact_insights.append(f"⚠️ Camada '{layer}': {count} componentes impactados.")
+        impact_insights.append(f"âš ï¸ Camada '{layer}': {count} componentes impactados.")
 
     # 3. Connection Loss
     deleted_edges_count = sum(1 for e in edges if e.get("status") == "deleted")
     if deleted_edges_count > 0:
-        impact_insights.append(f"🔗 Quebra de Fluxo: {deleted_edges_count} conexões foram rompidas.")
+        impact_insights.append(f"ðŸ”— Quebra de Fluxo: {deleted_edges_count} conexÃµes foram rompidas.")
 
     # 4. Resilience Note
     if not found_critical and len(impacted_set) < 5:
-        impact_insights.append("✅ Baixo Impacto: A alteração parece ser isolada e não compromete o núcleo do sistema.")
+        impact_insights.append("âœ… Baixo Impacto: A alteraÃ§Ã£o parece ser isolada e nÃ£o compromete o nÃºcleo do sistema.")
     elif len(impacted_set) > 20:
-        impact_insights.append(f"💣 Alto Risco: Esta mudança afeta um grande volume de dependências ({len(impacted_set)} nós).")
+        impact_insights.append(f"ðŸ’£ Alto Risco: Esta mudanÃ§a afeta um grande volume de dependÃªncias ({len(impacted_set)} nÃ³s).")
 
     # 5. Contract Break Insights (CALLS dependencies)
     for dk in deleted_set:
@@ -9162,9 +9473,9 @@ async def simulate_changes(req: SimulateRequest):
         if broken_count > 0:
             label = node.get("label")
             if label == "SQL_Procedure":
-                template = "⚠️ Quebra de Contrato: A remoção da procedure/função {name} quebrou diretamente {count} outras funções/procedures que dependiam dela."
+                template = "âš ï¸ Quebra de Contrato: A remoÃ§Ã£o da procedure/funÃ§Ã£o {name} quebrou diretamente {count} outras funÃ§Ãµes/procedures que dependiam dela."
             else:
-                template = "⚠️ Quebra de Contrato: A remoção do método {name} quebrou diretamente {count} outras funções que dependiam dele."
+                template = "âš ï¸ Quebra de Contrato: A remoÃ§Ã£o do mÃ©todo {name} quebrou diretamente {count} outras funÃ§Ãµes que dependiam dele."
 
             impact_insights.append(
                 template.format(name=node.get('name', dk), count=broken_count)
@@ -9189,27 +9500,27 @@ async def review_simulation(sim_report: SimulationReviewRequest):
     if scan_state.status == "scanning" or ai_semaphore.locked():
          raise HTTPException(
             status_code=409,
-            detail="A IA está ocupada ou o sistema está escaneando. Tente novamente em instantes."
+            detail="A IA estÃ¡ ocupada ou o sistema estÃ¡ escaneando. Tente novamente em instantes."
         )
 
     risk = sim_report.risk_score
     insights = "\n".join([f"- {i}" for i in sim_report.impact_insights])
     
-    prompt = f"""Você é um Arquiteto de Software Sênior (Principal Architect).
-Analise o seguinte cenário de simulação de mudanças no sistema:
+    prompt = f"""VocÃª Ã© um Arquiteto de Software SÃªnior (Principal Architect).
+Analise o seguinte cenÃ¡rio de simulaÃ§Ã£o de mudanÃ§as no sistema:
 
 SCORE DE RISCO CALCULADO: {risk}/100
-INSIGHTS AUTOMÁTICOS:
+INSIGHTS AUTOMÃTICOS:
 {insights}
 
 TAREFA:
-Forneça uma consultoria arquitetural profunda sobre esta mudança. 
-Seu relatório deve estar em Markdown e conter:
-1. ANÁLISE DE IMPACTO ESTRUTURAL: Explique as consequências técnicas.
-2. DÉBITO TÉCNICO E MANUTENIBILIDADE: Como isso afeta o futuro do código.
-3. RECOMENDAÇÃO: Se a mudança é segura, perigosa ou se existe uma abordagem melhor.
+ForneÃ§a uma consultoria arquitetural profunda sobre esta mudanÃ§a. 
+Seu relatÃ³rio deve estar em Markdown e conter:
+1. ANÃLISE DE IMPACTO ESTRUTURAL: Explique as consequÃªncias tÃ©cnicas.
+2. DÃ‰BITO TÃ‰CNICO E MANUTENIBILIDADE: Como isso afeta o futuro do cÃ³digo.
+3. RECOMENDAÃ‡ÃƒO: Se a mudanÃ§a Ã© segura, perigosa ou se existe uma abordagem melhor.
 
-SEJA PROFISSIONAL, OBJETIVO E TÉCNICO. RESPONDA EM PORTUGUÊS.
+SEJA PROFISSIONAL, OBJETIVO E TÃ‰CNICO. RESPONDA EM PORTUGUÃŠS.
 """
     report = await ask_complex_ai(prompt)
     return {"report": report}
@@ -9295,7 +9606,7 @@ async def delete_workspace(project_name: str):
     ]
     deleted_edges = original_edges - len(memory_edges)
     
-    # Task 11.4 — Delete embeddings from RAG Store
+    # Task 11.4 â€” Delete embeddings from RAG Store
     try:
         deleted_embeddings = rag_store.delete_by_project(project_name)
         logger.info(f"Deleted {deleted_embeddings} embeddings for project {project_name}")
@@ -9328,7 +9639,7 @@ async def get_history_diff(max_changes: int = Query(40, ge=5, le=200)):
     history = _load_history_entries()
     if len(history) < 2:
         return {
-            "message": "Histórico insuficiente para calcular diferenças.",
+            "message": "HistÃ³rico insuficiente para calcular diferenÃ§as.",
             "available_snapshots": len(history),
             "added": [],
             "removed": [],
@@ -9708,26 +10019,26 @@ def _iso_rule_checks() -> list[dict]:
                 q.append((nxt, d + 1))
 
     rules = [
-        ("R01", "Sem nós órfãos", 5, _safe_ratio(total_nodes - orphan_nodes, max(1, total_nodes)) >= 0.95, f"orphan={orphan_nodes}/{total_nodes}"),
+        ("R01", "Sem nÃ³s Ã³rfÃ£os", 5, _safe_ratio(total_nodes - orphan_nodes, max(1, total_nodes)) >= 0.95, f"orphan={orphan_nodes}/{total_nodes}"),
         ("R02", "Cobertura de projeto", 4, _safe_ratio(total_nodes - len(no_project), max(1, total_nodes)) >= 0.98, f"missing_project={len(no_project)}"),
         ("R03", "Cobertura de arquivo", 4, _safe_ratio(total_nodes - len(no_file), max(1, total_nodes)) >= 0.95, f"missing_file={len(no_file)}"),
-        ("R04", "Resolução de chamadas", 6, _safe_ratio(len(resolved_calls), max(1, len(unresolved_calls))) >= 0.75, f"resolved={len(resolved_calls)}/{len(unresolved_calls)}"),
-        ("R05", "Relações de dados API->DB", 5, len(reads_writes) >= max(1, len(endpoints) // 2), f"rw_edges={len(reads_writes)} endpoints={len(endpoints)}"),
+        ("R04", "ResoluÃ§Ã£o de chamadas", 6, _safe_ratio(len(resolved_calls), max(1, len(unresolved_calls))) >= 0.75, f"resolved={len(resolved_calls)}/{len(unresolved_calls)}"),
+        ("R05", "RelaÃ§Ãµes de dados API->DB", 5, len(reads_writes) >= max(1, len(endpoints) // 2), f"rw_edges={len(reads_writes)} endpoints={len(endpoints)}"),
         ("R06", "Complexidade extrema controlada", 5, _safe_ratio(len(high_complex), max(1, len(methods))) <= 0.15, f"high_complex={len(high_complex)}"),
         ("R07", "God classes controladas", 5, _safe_ratio(len(god_classes), max(1, len(class_like))) <= 0.12, f"god={len(god_classes)}"),
         ("R08", "Sem segredos hardcoded", 5, len(hardcoded_secrets) == 0, f"secrets={len(hardcoded_secrets)}"),
-        ("R09", "Sensíveis rastreados", 4, len(sensitive) == 0 or len(reads_writes) > 0, f"sensitive={len(sensitive)}"),
+        ("R09", "SensÃ­veis rastreados", 4, len(sensitive) == 0 or len(reads_writes) > 0, f"sensitive={len(sensitive)}"),
         ("R10", "Cloud blockers reduzidos", 4, len(cloud_blockers) <= max(1, total_nodes // 200), f"blockers={len(cloud_blockers)}"),
-        ("R11", "Profundidade de dependência", 4, max_depth <= 6, f"max_depth={max_depth}"),
+        ("R11", "Profundidade de dependÃªncia", 4, max_depth <= 6, f"max_depth={max_depth}"),
         ("R12", "Ciclos triviais", 3, cycles_count == 0, f"self_cycles={cycles_count}"),
-        ("R13", "Densidade de arestas mínima", 3, _safe_ratio(total_edges, max(1, total_nodes)) >= 0.8, f"edges={total_edges} nodes={total_nodes}"),
-        ("R14", "Densidade de arestas máxima", 3, _safe_ratio(total_edges, max(1, total_nodes)) <= 25, f"edges={total_edges} nodes={total_nodes}"),
+        ("R13", "Densidade de arestas mÃ­nima", 3, _safe_ratio(total_edges, max(1, total_nodes)) >= 0.8, f"edges={total_edges} nodes={total_nodes}"),
+        ("R14", "Densidade de arestas mÃ¡xima", 3, _safe_ratio(total_edges, max(1, total_nodes)) <= 25, f"edges={total_edges} nodes={total_nodes}"),
         ("R15", "Endpoints mapeados", 4, len(endpoints) > 0, f"endpoints={len(endpoints)}"),
         ("R16", "Camadas DB mapeadas", 4, len(db_nodes) > 0, f"db_nodes={len(db_nodes)}"),
-        ("R17", "CBO médio aceitável", 4, (_safe_ratio(sum(float(n.get("cbo") or 0) for n in class_like), max(1, len(class_like))) <= 14), "avg_cbo"),
-        ("R18", "RFC médio aceitável", 4, (_safe_ratio(sum(float(n.get("rfc") or 0) for n in class_like), max(1, len(class_like))) <= 60), "avg_rfc"),
-        ("R19", "LCOM médio aceitável", 4, (_safe_ratio(sum(float(n.get("lcom") or 0) for n in class_like), max(1, len(class_like))) <= 0.8), "avg_lcom"),
-        ("R20", "Cobertura mínima de métodos", 4, len(methods) >= max(10, len(class_like)), f"methods={len(methods)} classes={len(class_like)}"),
+        ("R17", "CBO mÃ©dio aceitÃ¡vel", 4, (_safe_ratio(sum(float(n.get("cbo") or 0) for n in class_like), max(1, len(class_like))) <= 14), "avg_cbo"),
+        ("R18", "RFC mÃ©dio aceitÃ¡vel", 4, (_safe_ratio(sum(float(n.get("rfc") or 0) for n in class_like), max(1, len(class_like))) <= 60), "avg_rfc"),
+        ("R19", "LCOM mÃ©dio aceitÃ¡vel", 4, (_safe_ratio(sum(float(n.get("lcom") or 0) for n in class_like), max(1, len(class_like))) <= 0.8), "avg_lcom"),
+        ("R20", "Cobertura mÃ­nima de mÃ©todos", 4, len(methods) >= max(10, len(class_like)), f"methods={len(methods)} classes={len(class_like)}"),
     ]
     return [
         {
@@ -10466,22 +10777,22 @@ def _prepare_report_context(report_type: str):
 
     if report_type == "composition":
         counts = [
-            {"Métrica": "Nós", "Valor": len(nodes)},
-            {"Métrica": "Arestas", "Valor": len(edges)},
-            {"Métrica": "Endpoints API", "Valor": sum(1 for n in nodes if n.get("layer") and "API" in n.get("layer"))},
-            {"Métrica": "Classes Java", "Valor": sum(1 for n in nodes if n.get("layer") == "Java_Class")},
+            {"MÃ©trica": "NÃ³s", "Valor": len(nodes)},
+            {"MÃ©trica": "Arestas", "Valor": len(edges)},
+            {"MÃ©trica": "Endpoints API", "Valor": sum(1 for n in nodes if n.get("layer") and "API" in n.get("layer"))},
+            {"MÃ©trica": "Classes Java", "Valor": sum(1 for n in nodes if n.get("layer") == "Java_Class")},
         ]
         layer_counts = Counter(str(n.get("layer") or "Unknown") for n in nodes)
         project_counts = Counter(str(n.get("project") or "local") for n in nodes)
-        layer_rows = [{"Camada": layer, "Nós": count} for layer, count in layer_counts.most_common()]
-        project_rows = [{"Projeto": project, "Nós": count} for project, count in project_counts.most_common()]
+        layer_rows = [{"Camada": layer, "NÃ³s": count} for layer, count in layer_counts.most_common()]
+        project_rows = [{"Projeto": project, "NÃ³s": count} for project, count in project_counts.most_common()]
         sections = [
-            _make_table_section("Resumo Geral", ["Métrica", "Valor"], counts, description="Contagem geral do grafo atual"),
-            _make_table_section("Distribuição por Camada", ["Camada", "Nós"], layer_rows),
-            _make_table_section("Projetos com mais nós", ["Projeto", "Nós"], project_rows[:10]),
+            _make_table_section("Resumo Geral", ["MÃ©trica", "Valor"], counts, description="Contagem geral do grafo atual"),
+            _make_table_section("DistribuiÃ§Ã£o por Camada", ["Camada", "NÃ³s"], layer_rows),
+            _make_table_section("Projetos com mais nÃ³s", ["Projeto", "NÃ³s"], project_rows[:10]),
         ]
-        title = "Relatório de Composição"
-        subtitle = "Visão compacta do grafo, dividido por camadas e projetos"
+        title = "RelatÃ³rio de ComposiÃ§Ã£o"
+        subtitle = "VisÃ£o compacta do grafo, dividido por camadas e projetos"
 
     elif report_type == "hotspots":
         hotspot_nodes = sorted(
@@ -10500,14 +10811,14 @@ def _prepare_report_context(report_type: str):
             )
         sections = [
             _make_table_section(
-                "Hotspots Prioritários",
+                "Hotspots PrioritÃ¡rios",
                 ["Nome", "Projeto", "Score", "Complexidade"],
                 rows,
-                description="Nós com maior risco de regressão (score de hotspot + complexidade).",
+                description="NÃ³s com maior risco de regressÃ£o (score de hotspot + complexidade).",
             )
         ]
-        title = "Relatório de Hotspots"
-        subtitle = "Top 12 áreas críticas com base em churn e complexidade"
+        title = "RelatÃ³rio de Hotspots"
+        subtitle = "Top 12 Ã¡reas crÃ­ticas com base em churn e complexidade"
 
     elif report_type == "ck-metrics":
         ck_nodes = sorted(
@@ -10531,42 +10842,42 @@ def _prepare_report_context(report_type: str):
                 "Classes de Maior Risco",
                 ["Classe", "Projeto", "Risk Score", "WMC", "CBO", "LCOM"],
                 rows,
-                description="Ranking baseado no score de risco das métricas CK.",
+                description="Ranking baseado no score de risco das mÃ©tricas CK.",
             )
         ]
-        title = "Relatório de Métricas CK"
-        subtitle = "Avaliação das classes por risco acumulado"
+        title = "RelatÃ³rio de MÃ©tricas CK"
+        subtitle = "AvaliaÃ§Ã£o das classes por risco acumulado"
 
     elif report_type == "security":
         dependency_rows = []
         for dep in _collect_dependency_packages()[:10]:
             dependency_rows.append(
                 {
-                    "Dependência": dep["name"],
+                    "DependÃªncia": dep["name"],
                     "Ecosistema": dep["ecosystem"],
-                    "Versão": dep["version"] or "latest",
+                    "VersÃ£o": dep["version"] or "latest",
                     "Origem": dep["source"],
                 }
             )
         sections = [
             _make_table_section(
                 "ISO 5055 Resumo",
-                ["Métrica", "Valor"],
+                ["MÃ©trica", "Valor"],
                 [
-                    {"Métrica": "Grade geral", "Valor": _iso_grade_from_score(score_percent)},
-                    {"Métrica": "Score (%)", "Valor": f"{score_percent:.2f}%"},
-                    {"Métrica": "Regras passadas", "Valor": f"{sum(1 for r in iso_rules if r['passed'])}/{len(iso_rules)}"},
+                    {"MÃ©trica": "Grade geral", "Valor": _iso_grade_from_score(score_percent)},
+                    {"MÃ©trica": "Score (%)", "Valor": f"{score_percent:.2f}%"},
+                    {"MÃ©trica": "Regras passadas", "Valor": f"{sum(1 for r in iso_rules if r['passed'])}/{len(iso_rules)}"},
                 ],
             ),
             _make_table_section(
-                "Dependências Externas",
-                ["Dependência", "Ecosistema", "Versão", "Origem"],
+                "DependÃªncias Externas",
+                ["DependÃªncia", "Ecosistema", "VersÃ£o", "Origem"],
                 dependency_rows,
-                description="Lista inicial de dependências rastreadas (use /api/oss/exposure para dados de CVE).",
+                description="Lista inicial de dependÃªncias rastreadas (use /api/oss/exposure para dados de CVE).",
             ),
         ]
-        title = "Relatório de Segurança"
-        subtitle = "Resumo de ISO 5055 e dependências externas"
+        title = "RelatÃ³rio de SeguranÃ§a"
+        subtitle = "Resumo de ISO 5055 e dependÃªncias externas"
 
     elif report_type == "iso5055":
         rule_rows = []
@@ -10582,11 +10893,11 @@ def _prepare_report_context(report_type: str):
         sections = [
             _make_table_section(
                 "Grade ISO 5055",
-                ["Métrica", "Valor"],
+                ["MÃ©trica", "Valor"],
                 [
-                    {"Métrica": "Grade", "Valor": _iso_grade_from_score(score_percent)},
-                    {"Métrica": "Score (%)", "Valor": f"{score_percent:.2f}%"},
-                    {"Métrica": "Regras avaliadas", "Valor": len(iso_rules)},
+                    {"MÃ©trica": "Grade", "Valor": _iso_grade_from_score(score_percent)},
+                    {"MÃ©trica": "Score (%)", "Valor": f"{score_percent:.2f}%"},
+                    {"MÃ©trica": "Regras avaliadas", "Valor": len(iso_rules)},
                 ],
             ),
             _make_table_section(
@@ -10596,8 +10907,8 @@ def _prepare_report_context(report_type: str):
                 description="Detalhamento das regras ISO 5055 avaliadas por este scan.",
             ),
         ]
-        title = "Relatório ISO 5055"
-        subtitle = "Grade executiva baseada nos 20 controles críticos"
+        title = "RelatÃ³rio ISO 5055"
+        subtitle = "Grade executiva baseada nos 20 controles crÃ­ticos"
 
     else:
         raise HTTPException(status_code=404, detail="report type not supported")
@@ -10611,14 +10922,14 @@ def _prepare_report_context(report_type: str):
     )
     top_hotspot = hotspot_nodes[0][0].get("name") if hotspot_nodes else "n/a"
     exec_summary = [
-        f"ISO 5055: {_iso_grade_from_score(score_percent)} ({score_percent}%) · {sum(1 for r in iso_rules if r['passed'])}/{len(iso_rules)} controles passados",
-        f"Último snapshot: {latest_snapshot.get('total_nodes', 0)} nós · {latest_snapshot.get('total_edges', 0)} arestas",
-        f"Hotspot mais crítico: {top_hotspot} ({hotspot_nodes[0][1] if hotspot_nodes else 0:.1f})",
+        f"ISO 5055: {_iso_grade_from_score(score_percent)} ({score_percent}%) Â· {sum(1 for r in iso_rules if r['passed'])}/{len(iso_rules)} controles passados",
+        f"Ãšltimo snapshot: {latest_snapshot.get('total_nodes', 0)} nÃ³s Â· {latest_snapshot.get('total_edges', 0)} arestas",
+        f"Hotspot mais crÃ­tico: {top_hotspot} ({hotspot_nodes[0][1] if hotspot_nodes else 0:.1f})",
     ]
     technical_details = [
         f"God Classes: {latest_snapshot.get('god_classes', 0)}",
-        f"Taxa de resolução de chamadas: {(latest_snapshot.get('call_resolution_rate', 0.0) * 100):.1f}%",
-        f"Dependências rastreadas: {len(nodes)} nós · {len(edges)} arestas",
+        f"Taxa de resoluÃ§Ã£o de chamadas: {(latest_snapshot.get('call_resolution_rate', 0.0) * 100):.1f}%",
+        f"DependÃªncias rastreadas: {len(nodes)} nÃ³s Â· {len(edges)} arestas",
     ]
     comparison = ""
     if prev_snapshot:
@@ -10628,8 +10939,8 @@ def _prepare_report_context(report_type: str):
         risk_prev = int(prev_snapshot.get("god_classes", 0) * 5 + prev_snapshot.get("circular_deps", 0) * 5 + prev_snapshot.get("dead_code", 0))
         risk_diff = risk_current - risk_prev
         comparison = (
-            f"Nós {nodes_diff:+}, Arestas {edges_diff:+}, risco {risk_diff:+} "
-            f"(último vs anterior: {prev_snapshot.get('timestamp')} → {latest_snapshot.get('timestamp')})"
+            f"NÃ³s {nodes_diff:+}, Arestas {edges_diff:+}, risco {risk_diff:+} "
+            f"(Ãºltimo vs anterior: {prev_snapshot.get('timestamp')} â†’ {latest_snapshot.get('timestamp')})"
         )
     chart_svg = _render_report_chart(history[-6:])
     return {
@@ -10711,7 +11022,7 @@ def _collect_dependency_packages() -> list[dict]:
 async def get_debt_tracker():
     history = _load_history_entries()
     if not history:
-        raise HTTPException(status_code=404, detail="Nenhum registro de scan disponível.")
+        raise HTTPException(status_code=404, detail="Nenhum registro de scan disponÃ­vel.")
     latest = history[-1]
     risk = _debt_risk_value(latest)
     past_entries = history[-4:]
@@ -10819,9 +11130,9 @@ async def explain_object(node_key: str):
         if len(linked) >= 20:
             break
     if linked:
-        context_parts.append("Relações diretas:\n" + "\n".join(linked))
+        context_parts.append("RelaÃ§Ãµes diretas:\n" + "\n".join(linked))
     context = "\n".join(str(p) for p in context_parts if p)
-    question = "Explique a responsabilidade deste objeto no sistema, riscos e ações de melhoria."
+    question = "Explique a responsabilidade deste objeto no sistema, riscos e aÃ§Ãµes de melhoria."
     ai_result = await ask_ai(question, context)
     state_store.upsert_embedding(
         object_key=node_key,
@@ -11017,7 +11328,7 @@ async def get_metrics():
         )
 
 
-# Task 12.1 — White-Label Branding Configuration
+# Task 12.1 â€” White-Label Branding Configuration
 @app.get("/api/config/branding", response_model=BrandingConfig)
 async def get_branding_config():
     """Return branding configuration from environment variables.
@@ -11034,9 +11345,9 @@ async def get_branding_config():
     )
 
 
-# ──────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # System Settings Configuration
-# ──────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 from pydantic import BaseModel
 
@@ -11045,7 +11356,10 @@ class SettingsConfig(BaseModel):
     neo4j_user: str
     ollama_url: str
     ollama_fast_model: str
+    ollama_chat_model: str
     ollama_complex_model: str
+    ollama_embed_model: str
+    ollama_small_model: str
     sse_enabled: bool
     max_reconnect_attempts: int
     initial_retry_delay: int
@@ -11070,7 +11384,10 @@ async def get_settings():
         neo4j_user=NEO4J_USER,
         ollama_url=OLLAMA_URL,
         ollama_fast_model=OLLAMA_FAST_MODEL,
+        ollama_chat_model=OLLAMA_CHAT_MODEL,
         ollama_complex_model=OLLAMA_COMPLEX_MODEL,
+        ollama_embed_model=OLLAMA_EMBED_MODEL,
+        ollama_small_model=OLLAMA_SMALL_MODEL,
         sse_enabled=SSE_ENABLED,
         max_reconnect_attempts=5,
         initial_retry_delay=1000,
@@ -11222,9 +11539,9 @@ async def run_regression():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# ──────────────────────────────────────────────
-# Demo Service — Tasks 2.1–2.6
-# ──────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# Demo Service â€” Tasks 2.1â€“2.6
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 # Semaphore limiting concurrent demo scans to 3 slots (Task 2.2)
 demo_semaphore = asyncio.Semaphore(3)
@@ -11258,7 +11575,7 @@ class DemoAskResponse(BaseModel):
     model: str
 
 
-# Task 12.1 — White-Label Branding Configuration
+# Task 12.1 â€” White-Label Branding Configuration
 
 def _validate_github_url(url: str) -> bool:
     """Return True if url matches https://github.com/{owner}/{repo} pattern."""
@@ -11314,14 +11631,14 @@ async def demo_scan(request: DemoScanRequest):
 
     Tasks 2.2, 2.5, 2.6.
     """
-    # Task 2.5 — URL validation
+    # Task 2.5 â€” URL validation
     if not _validate_github_url(request.repo_url):
         raise HTTPException(
             status_code=400,
-            detail="URL inválida. Informe um repositório público do GitHub no formato https://github.com/{owner}/{repo}",
+            detail="URL invÃ¡lida. Informe um repositÃ³rio pÃºblico do GitHub no formato https://github.com/{owner}/{repo}",
         )
 
-    # Task 2.2 — Semaphore: return 429 if all 3 slots are busy
+    # Task 2.2 â€” Semaphore: return 429 if all 3 slots are busy
     if demo_semaphore._value == 0:
         raise HTTPException(
             status_code=429,
@@ -11347,10 +11664,10 @@ async def demo_scan(request: DemoScanRequest):
             shutil.rmtree(temp_dir, ignore_errors=True)
             raise HTTPException(
                 status_code=422,
-                detail=f"Falha ao clonar repositório: {clone_result.stderr[:300]}",
+                detail=f"Falha ao clonar repositÃ³rio: {clone_result.stderr[:300]}",
             )
 
-        # Task 2.5 — File count limit
+        # Task 2.5 â€” File count limit
         file_count = await asyncio.get_event_loop().run_in_executor(
             None, _count_files_recursive, temp_dir
         )
@@ -11358,7 +11675,7 @@ async def demo_scan(request: DemoScanRequest):
             shutil.rmtree(temp_dir, ignore_errors=True)
             raise HTTPException(
                 status_code=400,
-                detail=f"Repositório muito grande ({file_count} arquivos). O limite é 50.000 arquivos.",
+                detail=f"RepositÃ³rio muito grande ({file_count} arquivos). O limite Ã© 50.000 arquivos.",
             )
 
         # Simplified scan (max 200 nodes)
@@ -11380,7 +11697,7 @@ async def demo_scan(request: DemoScanRequest):
             expires_at=expires_at,
         )
 
-        # Task 2.6 — Log usage metrics (no PII)
+        # Task 2.6 â€” Log usage metrics (no PII)
         _DEMO_USAGE_LOGGER.info(
             "demo_scan repo=%s nodes=%d edges=%d duration_s=%.2f",
             request.repo_url,
@@ -11414,16 +11731,16 @@ async def demo_ask(request: DemoAskRequest):
     # Validate session
     session = state_store.get_demo_session(request.session_id)
     if not session:
-        raise HTTPException(status_code=404, detail="Sessão demo não encontrada.")
+        raise HTTPException(status_code=404, detail="SessÃ£o demo nÃ£o encontrada.")
 
     now = time.time()
     if session["expires_at"] < now:
-        raise HTTPException(status_code=410, detail="Sessão demo expirada.")
+        raise HTTPException(status_code=410, detail="SessÃ£o demo expirada.")
 
     if session["ask_used"] != 0:
         raise HTTPException(
             status_code=403,
-            detail="Apenas uma pergunta é permitida por sessão demo.",
+            detail="Apenas uma pergunta Ã© permitida por sessÃ£o demo.",
         )
 
     # Mark ask as used before calling Ollama (prevents double-use on concurrent requests)
@@ -11431,15 +11748,15 @@ async def demo_ask(request: DemoAskRequest):
 
     # Build a minimal context from the session
     context = (
-        f"Repositório demo: {session['repo_url']}\n"
-        "Este é um grafo simplificado de um repositório público. "
-        "Responda de forma concisa e útil."
+        f"RepositÃ³rio demo: {session['repo_url']}\n"
+        "Este Ã© um grafo simplificado de um repositÃ³rio pÃºblico. "
+        "Responda de forma concisa e Ãºtil."
     )
 
     prompt = (
-        f"Contexto do repositório:\n{context}\n\n"
+        f"Contexto do repositÃ³rio:\n{context}\n\n"
         f"Pergunta: {request.question}\n\n"
-        "Responda em português de forma clara e objetiva."
+        "Responda em portuguÃªs de forma clara e objetiva."
     )
 
     ask_start = time.time()
@@ -11447,26 +11764,21 @@ async def demo_ask(request: DemoAskRequest):
     model_used = OLLAMA_CHAT_MODEL
     try:
         async with ai_semaphore:
-            async with httpx.AsyncClient(timeout=60.0) as client:
-                resp = await client.post(
-                    f"{OLLAMA_URL}/api/generate",
-                    json={
-                        "model": OLLAMA_CHAT_MODEL,
-                        "prompt": prompt,
-                        "stream": False,
-                    },
-                )
-                resp.raise_for_status()
-                result = resp.json()
-                answer = result.get("response", "").strip()
-                model_used = result.get("model", OLLAMA_CHAT_MODEL)
+            result = await ollama_runtime.generate(
+                model=OLLAMA_CHAT_MODEL,
+                prompt=prompt,
+                timeout=60.0,
+                retries=1,
+            )
+            answer = str(result.get("response", "")).strip()
+            model_used = str(result.get("model", OLLAMA_CHAT_MODEL))
     except Exception as e:
         logger.error("demo_ask Ollama error: %s", e)
-        raise HTTPException(status_code=503, detail="Serviço de IA indisponível.")
+        raise HTTPException(status_code=503, detail="ServiÃ§o de IA indisponÃ­vel.")
 
     ask_duration = time.time() - ask_start
 
-    # Task 2.6 — Log usage metrics (no PII)
+    # Task 2.6 â€” Log usage metrics (no PII)
     _DEMO_USAGE_LOGGER.info(
         "demo_ask repo=%s question_len=%d duration_s=%.2f",
         session["repo_url"],
@@ -11477,7 +11789,7 @@ async def demo_ask(request: DemoAskRequest):
     return DemoAskResponse(answer=answer, model=model_used)
 
 
-# Task 2.4 — Background cleanup of expired demo sessions
+# Task 2.4 â€” Background cleanup of expired demo sessions
 async def _cleanup_expired_demo_sessions() -> None:
     """Periodically remove expired demo sessions and their temp directories."""
     while True:
@@ -11501,9 +11813,9 @@ async def _start_demo_cleanup():
     asyncio.create_task(_cleanup_expired_demo_sessions())
 
 
-# ──────────────────────────────────────────────
-# Watch Mode — WebSocket & REST endpoints
-# ──────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# Watch Mode â€” WebSocket & REST endpoints
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def _extract_bearer_token(token: str | None, authorization: str | None) -> str | None:
     if token and token.strip():
@@ -11652,7 +11964,7 @@ from incremental_scanner import IncrementalScanner, ImpactResult
 from watch_manager import WatchManager
 
 class WatchConnectionManager:
-    """Gerencia conexões WebSocket por projeto."""
+    """Gerencia conexÃµes WebSocket por projeto."""
     
     def __init__(self):
         # project_path -> list of WebSocket connections
@@ -11660,7 +11972,7 @@ class WatchConnectionManager:
         self._lock = asyncio.Lock()
     
     async def connect(self, websocket: WebSocket, project_path: str) -> None:
-        """Adiciona uma conexão WebSocket para um projeto."""
+        """Adiciona uma conexÃ£o WebSocket para um projeto."""
         await websocket.accept()
         async with self._lock:
             if project_path not in self._connections:
@@ -11669,7 +11981,7 @@ class WatchConnectionManager:
             logger.info("WebSocket conectado para projeto: %s", project_path)
     
     async def disconnect(self, websocket: WebSocket, project_path: str) -> None:
-        """Remove uma conexão WebSocket."""
+        """Remove uma conexÃ£o WebSocket."""
         async with self._lock:
             if project_path in self._connections:
                 try:
@@ -11696,7 +12008,7 @@ class WatchConnectionManager:
                     logger.warning("Erro ao enviar para WebSocket: %s", e)
                     dead_connections.append(ws)
             
-            # Remover conexões mortas
+            # Remover conexÃµes mortas
             for ws in dead_connections:
                 try:
                     self._connections[project_path].remove(ws)
@@ -11704,26 +12016,26 @@ class WatchConnectionManager:
                     pass
     
     def get_connection_count(self, project_path: str) -> int:
-        """Retorna o número de conexões ativas para um projeto."""
+        """Retorna o nÃºmero de conexÃµes ativas para um projeto."""
         return len(self._connections.get(project_path, []))
     
     def list_projects(self) -> list[str]:
-        """Lista todos os projetos com conexões ativas."""
+        """Lista todos os projetos com conexÃµes ativas."""
         return list(self._connections.keys())
 
 
-# Instâncias globais
+# InstÃ¢ncias globais
 watch_conn_manager = WatchConnectionManager()
 watch_manager: Optional[WatchManager] = None
 incremental_scanner: Optional[IncrementalScanner] = None
 
 
 async def _on_file_changed_callback(file_path: str, project_path: str) -> None:
-    """Callback chamado quando um arquivo é modificado."""
+    """Callback chamado quando um arquivo Ã© modificado."""
     global incremental_scanner
     
     if not incremental_scanner:
-        logger.warning("IncrementalScanner não inicializado")
+        logger.warning("IncrementalScanner nÃ£o inicializado")
         return
     
     try:
@@ -11745,7 +12057,7 @@ async def _on_file_changed_callback(file_path: str, project_path: str) -> None:
         await watch_conn_manager.broadcast(project_path, payload)
         
     except Exception as e:
-        logger.error("Erro ao processar mudança de arquivo %s: %s", file_path, e, exc_info=True)
+        logger.error("Erro ao processar mudanÃ§a de arquivo %s: %s", file_path, e, exc_info=True)
 
 
 @app.on_event("startup")
@@ -11790,7 +12102,7 @@ async def _init_watch_components():
 @app.websocket("/api/watch/ws/{project_path:path}")
 async def watch_websocket(websocket: WebSocket, project_path: str):
     """
-    WebSocket endpoint para receber atualizações em tempo real.
+    WebSocket endpoint para receber atualizaÃ§Ãµes em tempo real.
     
     Formato de mensagens:
     - Impact: {"type": "impact", "file": "...", "changed_nodes": [...], ...}
@@ -11879,7 +12191,7 @@ async def stop_watch(body: dict):
 @app.get("/api/watch/status")
 async def watch_status():
     """
-    Lista projetos sendo monitorados e número de conexões ativas.
+    Lista projetos sendo monitorados e nÃºmero de conexÃµes ativas.
     
     Returns:
         {
@@ -11909,9 +12221,9 @@ async def watch_status():
     }
 
 
-# ──────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Entry point & CI/CD CLI
-# ──────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="InsightGraph Backend & CI/CD CLI")
     parser.add_argument("mode", nargs="?", default="serve", choices=["serve", "scan", "regression", "watch"], help="Mode to run: serve (API), scan (CLI CI/CD), regression (core test suite), or watch (file watcher)")
@@ -11985,9 +12297,9 @@ if __name__ == "__main__":
         uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)
 
 
-# ──────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # CodeQL API Endpoints
-# ──────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 from dataclasses import asdict as _asdict
 
 @app.get("/api/codeql/projects")
@@ -12169,22 +12481,22 @@ async def get_codeql_results(project_id: str):
 
 
 
-# ──────────────────────────────────────────────
-# Investigative AI — POST /api/ask/investigate
-# ──────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# Investigative AI â€” POST /api/ask/investigate
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @app.post("/api/ask/investigate")
 async def ask_investigate(request: InvestigateRequest):
     """Decompose a question into hypotheses, collect evidence from the graph and
     snapshot history, verify each hypothesis, and return an InvestigationResult.
 
-    Respects ai_semaphore — returns HTTP 429 if the AI is currently busy.
+    Respects ai_semaphore â€” returns HTTP 429 if the AI is currently busy.
     evidence_nodes contains namespace_keys for GraphCanvas highlight.
     """
     if ai_semaphore.locked():
         raise HTTPException(
             status_code=429,
-            detail="O serviço de IA está ocupado. Tente novamente em instantes.",
+            detail="O serviÃ§o de IA estÃ¡ ocupado. Tente novamente em instantes.",
             headers={"Retry-After": "10"},
         )
 
@@ -12196,6 +12508,7 @@ async def ask_investigate(request: InvestigateRequest):
             neo4j_service=neo4j_service,
             memory_nodes=app_state.nodes,
             memory_edges=app_state.edges,
+            ollama_runtime=ollama_runtime,
         )
         try:
             result = await investigator.investigate(request.question)
@@ -12203,15 +12516,15 @@ async def ask_investigate(request: InvestigateRequest):
             logger.error("InvestigativeAI error: %s", exc)
             raise HTTPException(
                 status_code=503,
-                detail="Serviço de IA indisponível. Verifique se o Ollama está em execução.",
+                detail="ServiÃ§o de IA indisponÃ­vel. Verifique se o Ollama estÃ¡ em execuÃ§Ã£o.",
             )
 
     from dataclasses import asdict as _asdict_inv
     return _asdict_inv(result)
 
-# ──────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Refactor Engine (Requirements 8 & 9)
-# ──────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 def _get_refactor_engine() -> RefactorEngine:
     """Lazy-initialize the RefactorEngine singleton."""
@@ -12222,6 +12535,7 @@ def _get_refactor_engine() -> RefactorEngine:
             state_store=state_store,
             memory_nodes=memory_nodes,
             memory_edges=memory_edges,
+            ollama_runtime=ollama_runtime,
         )
     return _get_refactor_engine._instance
 
@@ -12276,8 +12590,8 @@ async def architect_suggest(request: ArchitectRequest):
         raise HTTPException(
             status_code=400,
             detail=(
-                "Grafo insuficiente para análise arquitetural. "
-                f"São necessários pelo menos 10 nós; o grafo atual possui {len(memory_nodes)}."
+                "Grafo insuficiente para anÃ¡lise arquitetural. "
+                f"SÃ£o necessÃ¡rios pelo menos 10 nÃ³s; o grafo atual possui {len(memory_nodes)}."
             ),
         )
 
@@ -12292,9 +12606,9 @@ async def architect_suggest(request: ArchitectRequest):
     return _asdict_arch(suggestion)
 
 
-# ──────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 # Audit Endpoints
-# ──────────────────────────────────────────────
+# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 @app.get("/api/audit/alerts")
 async def get_audit_alerts(

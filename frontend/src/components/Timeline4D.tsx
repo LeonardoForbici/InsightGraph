@@ -174,7 +174,10 @@ const Timeline4D: React.FC<Timeline4DProps> = ({ onCommitSelected, onReturnToPre
       if (!data.commits || data.commits.length === 0) {
         setError('No commits found. Make sure the repository URL is correct and accessible.');
       } else {
-        setCommits(data.commits || []);
+        const ordered = [...(data.commits || [])].sort(
+          (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
+        );
+        setCommits(ordered);
       }
     } catch (err) {
       console.error('Error loading commit history:', err);

@@ -17,6 +17,8 @@ from jinja2 import Environment, FileSystemLoader
 from weasyprint import HTML, CSS
 import httpx
 
+from ollama_runtime import OllamaRuntime, OllamaServiceError
+
 logger = logging.getLogger("insightgraph.report_generator")
 
 
@@ -33,6 +35,7 @@ class ReportGenerator:
         ollama_chat_model: str,
         templates_dir: Path,
         reports_output_dir: Path,
+        ollama_runtime: OllamaRuntime | None = None,
     ):
         self.neo4j_service = neo4j_service
         self.state_store = state_store
@@ -40,6 +43,7 @@ class ReportGenerator:
         self.audit_job = audit_job
         self.ollama_url = ollama_url
         self.ollama_chat_model = ollama_chat_model
+        self.ollama_runtime = ollama_runtime
         self.templates_dir = templates_dir
         self.reports_output_dir = reports_output_dir
         self.reports_output_dir.mkdir(parents=True, exist_ok=True)
@@ -192,6 +196,24 @@ Escreva um parágrafo executivo (máximo 150 palavras) em linguagem não técnic
 Resumo executivo:"""
 
         try:
+            if self.ollama_runtime is not None:
+                result = await self.ollama_runtime.generate(
+                    model=self.ollama_chat_model,
+                    prompt=prompt,
+                    timeout=30.0,
+                    retries=1,
+                    options={
+                        "temperature": 0.7,
+                        "num_predict": 200,
+                    },
+                    keep_alive="5m",
+                )
+                summary = str(result.get("response") or "").strip()
+                if summary:
+                    logger.info("Executive summary generated successfully")
+                    return summary
+                logger.warning("Ollama returned empty executive summary")
+                return self._fallback_summary(data)
             async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.post(
                     f"{self.ollama_url}/api/generate",
@@ -214,6 +236,9 @@ Resumo executivo:"""
                 else:
                     logger.warning(f"Ollama request failed: {response.status_code}")
                     return self._fallback_summary(data)
+        except OllamaServiceError as e:
+            logger.error(f"Failed to generate AI summary: {e}")
+            return self._fallback_summary(data)
         except Exception as e:
             logger.error(f"Failed to generate AI summary: {e}")
             return self._fallback_summary(data)

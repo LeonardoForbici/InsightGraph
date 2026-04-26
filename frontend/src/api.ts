@@ -15,6 +15,7 @@ export interface GraphNode {
     loc?: number;
     complexity?: number;
     status?: 'deleted' | 'impacted';
+    live_change_state?: 'changed' | 'new' | 'impacted';
     impact_distance?: number;
     git_churn?: number;
     hotspot_score?: number;
@@ -228,6 +229,13 @@ export interface AskResponse {
     fallback_summary?: string | null;
     fallback_generated?: boolean;
     fallback_source?: string | null;
+}
+
+export interface AskQuestionOptions {
+    contextNode?: string;
+    project?: string | null;
+    graphContext?: string;
+    conversation?: Array<{ role: 'user' | 'ai'; content: string }>;
 }
 
 export interface SimulateResponse {
@@ -1040,14 +1048,47 @@ export async function fetchDebtTracker(): Promise<DebtTrackerPayload> {
   return res.json();
 }
 
-export async function askQuestion(question: string, contextNode?: string): Promise<AskResponse> {
-    const res = await fetch(`${BASE}/ask`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ question, context_node: contextNode }),
-    });
-    if (!res.ok) throw new Error(await res.text());
-    return res.json();
+export async function askQuestion(question: string, options: AskQuestionOptions = {}): Promise<AskResponse> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 90000);
+    try {
+        const res = await fetch(`${BASE}/ask`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            signal: controller.signal,
+            body: JSON.stringify({
+                question,
+                context_node: options.contextNode,
+                project: options.project,
+                graph_context: options.graphContext,
+                conversation: options.conversation || [],
+            }),
+        });
+        if (!res.ok) {
+            let detail = '';
+            try {
+                const payload = await res.json();
+                detail = payload?.detail || JSON.stringify(payload);
+            } catch {
+                detail = await res.text();
+            }
+            if (res.status === 429) {
+                throw new Error('IA local ocupada no momento. Aguarde alguns segundos e tente novamente.');
+            }
+            if (res.status === 409) {
+                throw new Error('Um scan esta em andamento. Aguarde o scan terminar para consultar a IA.');
+            }
+            throw new Error(detail || 'Falha ao consultar a IA local.');
+        }
+        return res.json();
+    } catch (error) {
+        if ((error as Error)?.name === 'AbortError') {
+            throw new Error('Tempo limite excedido ao consultar a IA local.');
+        }
+        throw error;
+    } finally {
+        clearTimeout(timeout);
+    }
 }
 
 export async function simulateChanges(deletedNodes: string[], addedEdges: any[] = []): Promise<SimulateResponse> {

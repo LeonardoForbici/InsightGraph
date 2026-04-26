@@ -12,6 +12,7 @@ import re
 from dataclasses import dataclass
 from typing import List, Optional
 import httpx
+from ollama_runtime import OllamaRuntime, OllamaServiceError
 
 logger = logging.getLogger(__name__)
 
@@ -48,7 +49,8 @@ class AIQueryEngine:
         neo4j_service,
         rag_store,
         ollama_url: str = "http://localhost:11434",
-        ollama_model: str = "qwen3.5:4b"
+        ollama_model: str = "qwen3.5:4b",
+        ollama_runtime: OllamaRuntime | None = None,
     ):
         """
         Initialize AIQueryEngine.
@@ -63,6 +65,7 @@ class AIQueryEngine:
         self.rag_store = rag_store
         self.ollama_url = ollama_url
         self.ollama_model = ollama_model
+        self.ollama_runtime = ollama_runtime
     
     async def query(
         self,
@@ -257,7 +260,16 @@ Graph Context:
 
 Provide a clear, concise answer. Include specific file references when relevant."""
             
-            # Query Ollama
+            if self.ollama_runtime is not None:
+                data = await self.ollama_runtime.generate(
+                    model=self.ollama_model,
+                    prompt=prompt,
+                    timeout=30.0,
+                    retries=1,
+                    keep_alive="5m",
+                )
+                return str(data.get("response") or "").strip() or "No response generated"
+            # Legacy direct path (kept for compatibility)
             async with httpx.AsyncClient(timeout=30.0) as client:
                 response = await client.post(
                     f"{self.ollama_url}/api/generate",
@@ -267,14 +279,14 @@ Provide a clear, concise answer. Include specific file references when relevant.
                         "stream": False
                     }
                 )
-                
                 if response.status_code == 200:
                     data = response.json()
                     return data.get("response", "No response generated")
-                else:
-                    logger.error(f"Ollama API error: {response.status_code}")
-                    return "Failed to generate response"
-                    
+                logger.error(f"Ollama API error: {response.status_code}")
+                return "Failed to generate response"
+        except OllamaServiceError as e:
+            logger.error(f"Ollama query failed: {e}")
+            return "Failed to generate response"
         except Exception as e:
             logger.error(f"Ollama query failed: {e}")
             return "Failed to generate response"

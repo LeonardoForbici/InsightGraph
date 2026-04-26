@@ -61,6 +61,8 @@ interface SidebarProps {
     onOpenCommitTimeline?: () => void;
     weeklyDigestOpen?: boolean;
     onOpenWeeklyDigest?: () => void;
+    projectManagementOpen?: boolean;
+    onOpenProjectManagement?: () => void;
 }
 
 const LAYERS = [
@@ -149,6 +151,8 @@ export default function Sidebar({
     onOpenCommitTimeline,
     weeklyDigestOpen = false,
     onOpenWeeklyDigest,
+    projectManagementOpen = false,
+    onOpenProjectManagement,
 }: SidebarProps) {
     const [collapsed, setCollapsed] = useState<Record<string, boolean>>({
         filters: false,
@@ -182,6 +186,7 @@ export default function Sidebar({
         { id: 'collab', label: 'War Rooms', active: collaborationOpen, count: '', onClick: onOpenCollaboration },
         { id: 'healer', label: 'Auto Healer', active: autoHealerOpen, count: '', onClick: onOpenAutoHealer },
         { id: 'watch', label: 'Watch Mode', active: watchModeOpen, count: '', onClick: onOpenWatchMode },
+        { id: 'projects-live', label: 'Live Projects', active: projectManagementOpen, count: '', onClick: onOpenProjectManagement },
     ];
     const resourceItems = [
         { id: 'alerts', label: 'Live Alerts', active: liveAlertsOpen, count: '', onClick: onOpenLiveAlerts },

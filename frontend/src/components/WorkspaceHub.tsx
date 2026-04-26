@@ -23,6 +23,7 @@ interface WorkspaceHubProps {
     onOpenCommitTimeline: () => void;
     onOpenWeeklyDigest: () => void;
     onOpenSettings: () => void;
+    onOpenProjectManagement: () => void;
 }
 
 export default function WorkspaceHub({
@@ -47,6 +48,7 @@ export default function WorkspaceHub({
     onOpenCommitTimeline,
     onOpenWeeklyDigest,
     onOpenSettings,
+    onOpenProjectManagement,
 }: WorkspaceHubProps) {
     const [workspaceInput, setWorkspaceInput] = useState('');
     const [scanMode, setScanMode] = useState<'local' | 'github'>('local');
@@ -99,6 +101,7 @@ export default function WorkspaceHub({
         { title: 'Live Alerts', subtitle: 'Alertas em tempo real do sistema', action: onOpenLiveAlerts, accent: 'rose' },
         { title: 'Commit Timeline', subtitle: 'Evolução de commits e mudanças', action: onOpenCommitTimeline, accent: 'cyan' },
         { title: 'Weekly Digest', subtitle: 'Resumo executivo semanal', action: onOpenWeeklyDigest, accent: 'slate' },
+        { title: 'Live Projects', subtitle: 'Workspaces, watchers e impacto cross-project', action: onOpenProjectManagement, accent: 'indigo' },
         { title: 'Settings', subtitle: 'Configuração operacional e integrações', action: onOpenSettings, accent: 'orange' },
     ];
 

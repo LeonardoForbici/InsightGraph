@@ -79,7 +79,6 @@ function edgeTypeRank(type: string): number {
 
 const LAYER_ORDER_PRIORITIES = ['Database', 'Service', 'API', 'Frontend', 'Mobile', 'External', 'Other'];
 const LANE_SPACING = 220;
-const CLUSTER_THRESHOLD = 30;
 const CLUSTER_OVERVIEW_LIMIT = 5;
 
 const normalizeLayer = (layer?: string): string => {
@@ -92,6 +91,52 @@ const normalizeLayer = (layer?: string): string => {
     if (normalized.includes('mobile')) return 'Mobile';
     if (normalized.includes('external') || normalized.includes('third')) return 'External';
     return 'Other';
+};
+
+const BRIDGE_EDGE_TYPE_RE = /(CROSS_PROJECT|CONSUMES_API|HTTP|API|INTEGRATION|EXTERNAL|CROSS|REMOTE)/i;
+
+const normalizeProjectKey = (node: GraphNode): string => {
+    const raw = String(node.project || '').trim();
+    if (raw) return raw;
+    const hints = [
+        String(node.layer || ''),
+        String(node.file || ''),
+        ...(node.labels || []),
+        String(node.name || ''),
+    ]
+        .join(' ')
+        .toLowerCase();
+    if (/(backend|server|api|service)/.test(hints)) return 'backend';
+    if (/(frontend|web|ui|react|angular|vue)/.test(hints)) return 'frontend';
+    if (/(mobile|android|ios|flutter|react-native)/.test(hints)) return 'mobile';
+    if (/(database|sql|table|procedure|repository)/.test(hints)) return 'database';
+    if (/(external|third|integration|gateway|client sdk)/.test(hints)) return 'external';
+    return 'unknown';
+};
+
+const isCrossProjectBridge = (
+    edge: GraphEdge | { source: string; target: string; type: string },
+    projectByNode: Map<string, string>
+): boolean => {
+    if (BRIDGE_EDGE_TYPE_RE.test(edge.type || '')) return true;
+    const sourceProject = projectByNode.get(edge.source) || 'unknown';
+    const targetProject = projectByNode.get(edge.target) || 'unknown';
+    return sourceProject !== targetProject;
+};
+
+const computeProjectCenters = (projectKeys: string[]): Map<string, { x: number; y: number }> => {
+    const centers = new Map<string, { x: number; y: number }>();
+    if (!projectKeys.length) return centers;
+    const radiusX = Math.max(760, projectKeys.length * 260);
+    const radiusY = Math.max(480, projectKeys.length * 180);
+    projectKeys.forEach((project, index) => {
+        const angle = (index / projectKeys.length) * Math.PI * 2;
+        centers.set(project, {
+            x: Math.cos(angle) * radiusX,
+            y: Math.sin(angle) * radiusY,
+        });
+    });
+    return centers;
 };
 
 const getPredictiveColor = (value: number): string => {
@@ -316,6 +361,9 @@ interface GraphCanvasProps {
     highlightedUpstream: Set<string>;
     highlightedDownstream: Set<string>;
     aiHighlightedNodes: string[];
+    changedNodes?: Set<string>;
+    newlyAddedNodes?: Set<string>;
+    runtimeImpactedNodes?: Set<string>;
     selectedNodeKey: string | null;
     onNodeClick: (nodeKey: string, nodeData: GraphNode, screenPosition?: { x: number; y: number }) => void;
     onClearAiHighlights?: () => void;
@@ -365,6 +413,9 @@ const GraphCanvasInnerImpl = (props: GraphCanvasProps, ref: ForwardedRef<GraphCa
         highlightedUpstream,
         highlightedDownstream,
         aiHighlightedNodes,
+        changedNodes,
+        newlyAddedNodes,
+        runtimeImpactedNodes,
         selectedNodeKey,
         onNodeClick,
         onClearAiHighlights,
@@ -409,6 +460,7 @@ const GraphCanvasInnerImpl = (props: GraphCanvasProps, ref: ForwardedRef<GraphCa
     } | null>(null);
     const [inheritanceLoading, setInheritanceLoading] = useState(false);
     const [inheritanceError, setInheritanceError] = useState<string | null>(null);
+    const [showOnlyBridges, setShowOnlyBridges] = useState(false);
     
     // Clustering state (set of expanded layer sizes). Auto-expand small graphs.
     const [expandedClusters, setExpandedClusters] = useState<Set<string>>(new Set());
@@ -632,10 +684,12 @@ const GraphCanvasInnerImpl = (props: GraphCanvasProps, ref: ForwardedRef<GraphCa
         if (filteredNodes.length === 0) return { baseNodes: [], baseEdges: [], clusterSummaries: [], laneMeta: [] };
 
         const layerBuckets = new Map<string, GraphNode[]>();
+        const projectByNode = new Map<string, string>();
         const nodeLayerLookup = new Map<string, string>();
         filteredNodes.forEach((node) => {
             const layerName = normalizeLayer(node.layer || node.labels?.[0]);
             nodeLayerLookup.set(node.namespace_key, layerName);
+            projectByNode.set(node.namespace_key, normalizeProjectKey(node));
             if (!layerBuckets.has(layerName)) layerBuckets.set(layerName, []);
             layerBuckets.get(layerName)!.push(node);
         });
@@ -649,33 +703,62 @@ const GraphCanvasInnerImpl = (props: GraphCanvasProps, ref: ForwardedRef<GraphCa
         orderedLayers.forEach((layerName, index) => layerIndexLookup.set(layerName, index));
 
         const collapsibleLayers = new Set<string>();
-        layerBuckets.forEach((nodes, layerName) => {
-            if (nodes.length > CLUSTER_THRESHOLD) collapsibleLayers.add(layerName);
-        });
 
         const forceExpandAll = expandedClusters.has('*ALL*');
 
-        const clusterSummaries = orderedLayers.map((layerName) => {
-            const nodes = layerBuckets.get(layerName) || [];
+        const projectBuckets = new Map<string, GraphNode[]>();
+        filteredNodes.forEach((node) => {
+            const projectKey = projectByNode.get(node.namespace_key) || 'unknown';
+            if (!projectBuckets.has(projectKey)) projectBuckets.set(projectKey, []);
+            projectBuckets.get(projectKey)!.push(node);
+        });
+        const orderedProjects = Array.from(projectBuckets.keys()).sort((a, b) => {
+            const rank = (project: string) => {
+                const p = project.toLowerCase();
+                if (p.includes('backend')) return 0;
+                if (p.includes('frontend')) return 1;
+                if (p.includes('mobile')) return 2;
+                if (p.includes('database') || p.includes('db')) return 3;
+                if (p.includes('external') || p.includes('integration')) return 4;
+                return 5;
+            };
+            const ra = rank(a);
+            const rb = rank(b);
+            return ra === rb ? a.localeCompare(b) : ra - rb;
+        });
+
+        const bridgeCountByProject = new Map<string, number>();
+        graphEdges.forEach((edge) => {
+            if (!isCrossProjectBridge(edge, projectByNode)) return;
+            const sourceProject = projectByNode.get(edge.source) || 'unknown';
+            const targetProject = projectByNode.get(edge.target) || 'unknown';
+            bridgeCountByProject.set(sourceProject, (bridgeCountByProject.get(sourceProject) || 0) + 1);
+            bridgeCountByProject.set(targetProject, (bridgeCountByProject.get(targetProject) || 0) + 1);
+        });
+
+        const clusterSummaries = orderedProjects.map((projectName) => {
+            const nodes = projectBuckets.get(projectName) || [];
             const sumHotspot = nodes.reduce((acc, node) => acc + (node.hotspot_score || 0), 0);
             return {
-                layer: layerName,
+                layer: projectName,
                 count: nodes.length,
                 avgHotspot: nodes.length ? sumHotspot / nodes.length : 0,
+                bridgeCount: bridgeCountByProject.get(projectName) || 0,
             };
         });
 
         const summaryLookup = new Map(clusterSummaries.map((summary) => [summary.layer, summary]));
-        const laneMeta = orderedLayers.map((layerName, index) => {
-            const nodes = layerBuckets.get(layerName) || [];
-            const summary = summaryLookup.get(layerName);
-            const isCollapsible = collapsibleLayers.has(layerName);
-            const isCollapsed = isCollapsible && !forceExpandAll && !expandedClusters.has(layerName);
+        const laneMeta = orderedProjects.map((projectName, index) => {
+            const nodes = projectBuckets.get(projectName) || [];
+            const summary = summaryLookup.get(projectName);
+            const isCollapsible = false;
+            const isCollapsed = false;
             return {
-                layer: layerName,
+                layer: projectName,
                 index,
                 count: nodes.length,
                 avgHotspot: summary?.avgHotspot ?? 0,
+                bridgeCount: summary?.bridgeCount ?? 0,
                 isCollapsible,
                 isCollapsed,
             };
@@ -689,20 +772,14 @@ const GraphCanvasInnerImpl = (props: GraphCanvasProps, ref: ForwardedRef<GraphCa
         const pushNode = (gn: GraphNode, layerName: string, layerIndex: number) => {
             const annotationMeta = nodeAnnotations?.get(gn.namespace_key);
             const matchesTagFilter = selectedTag ? (tagFilterNodes?.has(gn.namespace_key) ?? false) : false;
-            let highlightClass = '';
-            if (aiHighlightedNodes.includes(gn.namespace_key)) highlightClass = 'highlighted-ai';
-            else if (gn.namespace_key === selectedNodeKey) highlightClass = 'selected-node';
-            else if (highlightedUpstream.has(gn.namespace_key)) highlightClass = 'highlighted-upstream';
-            else if (highlightedDownstream.has(gn.namespace_key)) highlightClass = 'highlighted-downstream';
+            const highlightClass = '';
 
             const isImpactedNode = typeof gn.impact_distance === 'number' && gn.impact_distance > 0;
             const impactOpacity = isImpactedNode ? computeBlastOpacity(gn.impact_distance!) : undefined;
 
-            const dimsOther = aiHighlightedNodes.length > 0 && highlightClass === ''
-                ? 0.4
-                : hasImpactDistance && highlightClass === ''
-                    ? (typeof impactOpacity === 'number' ? impactOpacity : 0.1)
-                    : false;
+            const dimsOther = hasImpactDistance
+                ? (typeof impactOpacity === 'number' ? impactOpacity : 0.1)
+                : false;
             const tagDim = selectedTag && !matchesTagFilter ? 0.2 : false;
             const dimmedValue = tagDim !== false ? tagDim : dimsOther;
             const highlightTagClass = selectedTag && matchesTagFilter ? 'highlighted-tag' : '';
@@ -811,27 +888,38 @@ const GraphCanvasInnerImpl = (props: GraphCanvasProps, ref: ForwardedRef<GraphCa
             ordered.forEach((e, idx) => {
                 const centered = idx - (total - 1) / 2;
                 const offset = 22 + Math.abs(centered) * 14;
+                const isBridge = isCrossProjectBridge(
+                    { source: e.source, target: e.target, type: e.relType },
+                    projectByNode
+                );
+                const srcProject = projectByNode.get(e.source) || 'unknown';
+                const tgtProject = projectByNode.get(e.target) || 'unknown';
                 nsEdges.push({
                     id: `e-${edgeCounter++}`,
                     source: e.source,
                     target: e.target,
                     type: 'smoothstep',
                     label: e.relType,
-                    animated: e.relType === 'CALLS' || e.relType === 'CALLS_RESOLVED',
+                    animated: isBridge || e.relType === 'CALLS' || e.relType === 'CALLS_RESOLVED',
                     pathOptions: {
                         offset,
                         borderRadius: 16,
                     } as any,
                     style: {
-                        stroke: getEdgeColor(e.relType),
-                        strokeWidth: e.relType === 'CALLS' || e.relType === 'CALLS_RESOLVED' ? 2.0 : 1.4,
-                        opacity: 0.95,
-                        strokeDasharray: e.relType === 'IMPORTS' ? '4 4' : undefined,
+                        stroke: isBridge ? '#22d3ee' : getEdgeColor(e.relType),
+                        strokeWidth: isBridge ? 2.8 : e.relType === 'CALLS' || e.relType === 'CALLS_RESOLVED' ? 2.0 : 1.4,
+                        opacity: isBridge ? 0.95 : 0.82,
+                        strokeDasharray: isBridge ? '8 6' : e.relType === 'IMPORTS' ? '4 4' : undefined,
                     },
                     labelStyle: { fontSize: 9, fill: '#8b93b0' },
                     labelBgStyle: { fill: '#0c1024', fillOpacity: 0.88 },
                     labelBgPadding: [4, 2] as [number, number],
-                    markerEnd: { type: MarkerType.ArrowClosed, color: getEdgeColor(e.relType), width: 14, height: 14 },
+                    markerEnd: { type: MarkerType.ArrowClosed, color: isBridge ? '#22d3ee' : getEdgeColor(e.relType), width: 14, height: 14 },
+                    data: {
+                        isBridge,
+                        sourceProject: srcProject,
+                        targetProject: tgtProject,
+                    },
                 } as Edge);
             });
         }
@@ -846,8 +934,33 @@ const GraphCanvasInnerImpl = (props: GraphCanvasProps, ref: ForwardedRef<GraphCa
                     position: { x: node.position.x, y: laneIndex * LANE_SPACING + node.position.y },
                 };
             });
+            const projectGroups = new Map<string, Node[]>();
+            adjusted.forEach((node) => {
+                const projectKey = projectByNode.get(node.id) || 'unknown';
+                if (!projectGroups.has(projectKey)) projectGroups.set(projectKey, []);
+                projectGroups.get(projectKey)!.push(node);
+            });
+            const projectCenters = computeProjectCenters(orderedProjects);
+            const translated = adjusted.map((node) => {
+                const projectKey = projectByNode.get(node.id) || 'unknown';
+                const group = projectGroups.get(projectKey) || [];
+                const centroid = group.reduce(
+                    (acc, current) => ({ x: acc.x + current.position.x, y: acc.y + current.position.y }),
+                    { x: 0, y: 0 }
+                );
+                const size = Math.max(1, group.length);
+                const currentCenter = { x: centroid.x / size, y: centroid.y / size };
+                const targetCenter = projectCenters.get(projectKey) || { x: 0, y: 0 };
+                return {
+                    ...node,
+                    position: {
+                        x: node.position.x + (targetCenter.x - currentCenter.x),
+                        y: node.position.y + (targetCenter.y - currentCenter.y),
+                    },
+                };
+            });
             return {
-                baseNodes: adjusted,
+                baseNodes: translated,
                 baseEdges: laid.edges,
                 clusterSummaries,
                 laneMeta,
@@ -867,9 +980,6 @@ const GraphCanvasInnerImpl = (props: GraphCanvasProps, ref: ForwardedRef<GraphCa
         nodeAnnotations,
         selectedTag,
         tagFilterNodes,
-        aiHighlightedNodes,
-        highlightedUpstream,
-        highlightedDownstream,
         heatmapEnabled,
         predictiveHeatmapType,
     ]);
@@ -913,11 +1023,35 @@ const GraphCanvasInnerImpl = (props: GraphCanvasProps, ref: ForwardedRef<GraphCa
         1000,
     );
 
+    const displayedNodes = useMemo(() => {
+        if (baseNodes.length > 0 && virtualNodes.length === 0) {
+            return baseNodes;
+        }
+        return virtualNodes;
+    }, [baseNodes, virtualNodes]);
+
+    const bridgeNodeIds = useMemo(() => {
+        const ids = new Set<string>();
+        baseEdges.forEach((edge) => {
+            if ((edge.data as any)?.isBridge) {
+                ids.add(edge.source);
+                ids.add(edge.target);
+            }
+        });
+        return ids;
+    }, [baseEdges]);
+
     const visibleEdges = useMemo(() => {
-        return baseEdges.filter((edge) =>
+        const pickBridges = (edges: Edge[]) =>
+            showOnlyBridges ? edges.filter((edge) => Boolean((edge.data as any)?.isBridge)) : edges;
+        if (baseNodes.length > 0 && virtualNodes.length === 0) {
+            return pickBridges(baseEdges);
+        }
+        const edges = baseEdges.filter((edge) =>
             virtualNodeIds.has(edge.source) && virtualNodeIds.has(edge.target)
         );
-    }, [baseEdges, virtualNodeIds]);
+        return pickBridges(edges);
+    }, [baseEdges, baseNodes.length, showOnlyBridges, virtualNodeIds, virtualNodes.length]);
 
     useEffect(() => {
         if (!gestureCommand || gestureCommand.timestamp <= lastGestureTimestampRef.current) return;
@@ -1037,9 +1171,11 @@ const GraphCanvasInnerImpl = (props: GraphCanvasProps, ref: ForwardedRef<GraphCa
 
     // Visually update nodes and edges when soft properties change (bypassing heavy layout computation)
     useEffect(() => {
+        const aiSet = new Set(aiHighlightedNodes);
         setNodes((currentNodes) => {
-            return virtualNodes.map(bn => {
-                const existing = currentNodes.find(n => n.id === bn.id);
+            const currentById = new Map(currentNodes.map((node) => [node.id, node]));
+            return displayedNodes.map(bn => {
+                const existing = currentById.get(bn.id);
                 
                 if (bn.data.isCluster) {
                     return existing && existing.position.x === bn.position.x && existing.position.y === bn.position.y 
@@ -1052,6 +1188,9 @@ const GraphCanvasInnerImpl = (props: GraphCanvasProps, ref: ForwardedRef<GraphCa
               else if (bn.id === selectedNodeKey) highlightClass = 'selected-node';
               else if (highlightedUpstream.has(bn.id)) highlightClass = 'highlighted-upstream';
               else if (highlightedDownstream.has(bn.id)) highlightClass = 'highlighted-downstream';
+              else if (newlyAddedNodes?.has(bn.id)) highlightClass = 'highlighted-live-new';
+              else if (changedNodes?.has(bn.id)) highlightClass = 'highlighted-live-changed';
+              else if (runtimeImpactedNodes?.has(bn.id)) highlightClass = 'highlighted-live-impacted';
               if (pathFinderNodeSet.has(bn.id)) highlightClass = 'highlighted-path';
               if (!highlightClass && waveNodeSet.has(bn.id)) {
                   highlightClass = 'wave-highlight';
@@ -1063,15 +1202,17 @@ const GraphCanvasInnerImpl = (props: GraphCanvasProps, ref: ForwardedRef<GraphCa
                     : highlightClass === ''
                         ? baseDimmed
                         : false;
+                const bridgeDim = showOnlyBridges && !bridgeNodeIds.has(bn.id) ? 0.1 : false;
+                const finalDimmed = bridgeDim !== false ? bridgeDim : dimsOther;
 
-                const newData = { ...bn.data, highlightClass, isHeatmap: heatmapEnabled, dimmed: dimsOther };
+                const newData = { ...bn.data, highlightClass, isHeatmap: heatmapEnabled, dimmed: finalDimmed };
 
                 if (existing) {
                     // Se apenas os dados visuais mudaram, preserve o node inteiro (posição atual do drag, etc) e só mude 'data'
                     if (
                         existing.data.highlightClass === highlightClass && 
                         existing.data.isHeatmap === heatmapEnabled && 
-                        existing.data.dimmed === dimsOther &&
+                        existing.data.dimmed === finalDimmed &&
                         existing.position.x === bn.position.x &&
                         existing.position.y === bn.position.y
                     ) {
@@ -1086,36 +1227,52 @@ const GraphCanvasInnerImpl = (props: GraphCanvasProps, ref: ForwardedRef<GraphCa
         });
 
         setEdges((currentEdges) => {
+            const currentById = new Map(currentEdges.map((edge) => [edge.id, edge]));
             return visibleEdges.map(be => {
+                const isBridge = Boolean((be.data as any)?.isBridge);
+                const bridgeRelatedSelection = Boolean(selectedNodeKey) && (be.source === selectedNodeKey || be.target === selectedNodeKey);
+                const bridgeRelatedAi = aiSet.has(be.source) || aiSet.has(be.target);
                 let opacity = 1;
                 if (aiHighlightedNodes.length > 0) {
-                    opacity = aiHighlightedNodes.includes(be.source) || aiHighlightedNodes.includes(be.target) ? 1 : 0.4;
+                    opacity = aiSet.has(be.source) || aiSet.has(be.target) ? 1 : 0.35;
                 }
+                if (showOnlyBridges && !isBridge) opacity = 0.04;
                 const isPathEdge = pathFinderEdgeKeys.has(`${be.source}::${be.target}`);
                 
-                const existing = currentEdges.find(e => e.id === be.id);
+                const existing = currentById.get(be.id);
                 const pathStyle = isPathEdge
                     ? { stroke: '#38bdf8', strokeWidth: 3, opacity: 1 }
                     : {};
+                const bridgeStyle = isBridge
+                    ? {
+                        stroke: bridgeRelatedSelection ? '#f59e0b' : bridgeRelatedAi ? '#a3e635' : '#22d3ee',
+                        strokeWidth: bridgeRelatedSelection ? 3.6 : 2.8,
+                        strokeDasharray: bridgeRelatedSelection ? undefined : '8 6',
+                    }
+                    : {};
                 if (existing) {
-                    if (existing.style?.opacity === opacity && !isPathEdge) return existing;
-                    return { ...existing, style: { ...(existing.style || {}), opacity, ...pathStyle } };
+                    return { ...existing, style: { ...(existing.style || {}), opacity, ...bridgeStyle, ...pathStyle } };
                 }
                 
-                return { ...be, style: { ...(be.style || {}), opacity, ...pathStyle } };
+                return { ...be, style: { ...(be.style || {}), opacity, ...bridgeStyle, ...pathStyle } };
             });
         });
       }, [
-        virtualNodes,
+        displayedNodes,
         visibleEdges,
         selectedNodeKey,
         aiHighlightedNodes,
         highlightedUpstream,
         highlightedDownstream,
+        changedNodes,
+        newlyAddedNodes,
+        runtimeImpactedNodes,
         heatmapEnabled,
+        bridgeNodeIds,
         waveNodeSet,
         pathFinderNodeSet,
         pathFinderEdgeKeys,
+        showOnlyBridges,
         setNodes,
         setEdges,
       ]);
@@ -1330,21 +1487,21 @@ const GraphCanvasInnerImpl = (props: GraphCanvasProps, ref: ForwardedRef<GraphCa
             {viewMode === '2d' && laneMeta.length > 0 && (
                 <div className="swimlane-overlay">
                     <div className="swimlane-header">
-                        <span className="swimlane-title">Swimlanes</span>
+                        <span className="swimlane-title">Constelações por Projeto</span>
                         <div className="swimlane-actions">
                             <button
                                 className="btn btn-secondary swimlane-action"
                                 onClick={collapseAllClusters}
                                 disabled={!hasCollapsible || !hasExpanded}
                             >
-                                Colapsar todos
+                                Organizar
                             </button>
                             <button
                                 className="btn btn-accent swimlane-action"
                                 onClick={expandAllClusters}
                                 disabled={!hasCollapsible || !hasCollapsed}
                             >
-                                Expandir todos
+                                Expandir
                             </button>
                         </div>
                     </div>
@@ -1353,7 +1510,7 @@ const GraphCanvasInnerImpl = (props: GraphCanvasProps, ref: ForwardedRef<GraphCa
                             <div key={lane.layer} className="swimlane-row">
                                 <div className="swimlane-labels">
                                     <span className="swimlane-name">{lane.layer}</span>
-                                    <span className="swimlane-count">{lane.count} nós</span>
+                                    <span className="swimlane-count">{lane.count} nós · {(lane as any).bridgeCount || 0} bridges</span>
                                 </div>
                                 <div className="swimlane-heat" style={{ background: hotspotColorScale(lane.avgHotspot) }} />
                                 {lane.isCollapsible ? (
@@ -1413,6 +1570,7 @@ const GraphCanvasInnerImpl = (props: GraphCanvasProps, ref: ForwardedRef<GraphCa
                     searchTerm={searchTerm}
                     heatmapEnabled={heatmapEnabled}
                     clustered={clustered3D}
+                    showOnlyBridges={showOnlyBridges}
                     focusNodeKey={selectedNodeKey}
                     focusRequestId={focusRequestId}
                     waveAnimationTrigger={waveAnimationTrigger}
@@ -1468,6 +1626,15 @@ const GraphCanvasInnerImpl = (props: GraphCanvasProps, ref: ForwardedRef<GraphCa
                   style={{ boxShadow: '0 4px 12px rgba(0,0,0,0.2)' }}
                 >
                     🔥 Mapa de Risco (Heatmap)
+                </button>
+
+                <button
+                  className={`btn ${showOnlyBridges ? 'btn-accent' : 'btn-secondary'}`}
+                  onClick={() => setShowOnlyBridges((prev) => !prev)}
+                  style={{ boxShadow: '0 4px 12px rgba(0,0,0,0.2)' }}
+                  title="Mostrar apenas pontes cross-project"
+                >
+                    {showOnlyBridges ? 'Bridges ON' : 'Somente Bridges'}
                 </button>
 
                 <PredictiveHeatmap

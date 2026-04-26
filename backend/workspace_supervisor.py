@@ -1,147 +1,91 @@
-"""
-WorkspaceSupervisor — Gerenciador central de todos os ProjectWorkers.
-
-É o "processo-pai" que:
-  - Mantém um dict de workers ativos por project_id
-  - Inicia/para workers conforme projetos são adicionados/removidos
-  - Controla prioridade (active/background) com base no projeto selecionado no frontend
-  - Expõe status de todos os workers para a API REST
-  - É singleton (uma instância por processo FastAPI)
-
-Uso:
-    supervisor = WorkspaceSupervisor(registry, scanner, cross_engine, stream)
-    await supervisor.boot()               # carrega projetos salvos
-    await supervisor.add_project(proj)    # adiciona projeto em runtime
-    await supervisor.set_active(proj_id)  # eleva prioridade
-    await supervisor.shutdown()           # graceful stop
-"""
-
 from __future__ import annotations
 
 import asyncio
 import logging
-from typing import Optional
 
 from project_worker import ProjectWorker
 
-logger = logging.getLogger("insightgraph.supervisor")
+logger = logging.getLogger("insightgraph.workspace_supervisor")
 
 
 class WorkspaceSupervisor:
-
     def __init__(
         self,
         registry,
         incremental_scanner,
         cross_impact_engine,
+        memory_nodes: list[dict],
         event_stream=None,
-        redis_client=None,
-    ):
+        max_concurrency: int = 4,
+    ) -> None:
         self._registry = registry
         self._scanner = incremental_scanner
-        self._cross = cross_impact_engine
-        self._stream = event_stream
-        self._redis = redis_client
+        self._cross_engine = cross_impact_engine
+        self._memory_nodes = memory_nodes
+        self._event_stream = event_stream
+        self._max_concurrency = max(1, max_concurrency)
 
-        # project_id → ProjectWorker
         self._workers: dict[str, ProjectWorker] = {}
-        self._active_project_id: Optional[str] = None
 
-    # ── Boot / Shutdown ───────────────────────
+    async def boot(self) -> None:
+        projects = self._registry.list_projects()
+        semaphore = asyncio.Semaphore(self._max_concurrency)
 
-    async def boot(self):
-        """Reinicia workers para todos os projetos salvos em todos os workspaces."""
-        workspaces = self._registry.list_workspaces()
-        count = 0
-        for ws in workspaces:
-            projects = self._registry.list_projects(ws.id)
-            for p in projects:
-                await self._spawn(p)
-                count += 1
-        logger.info("WorkspaceSupervisor booted: %d workers iniciados", count)
+        async def _spawn(project) -> None:
+            async with semaphore:
+                await self.add_project(project)
 
-    async def shutdown(self):
-        logger.info("WorkspaceSupervisor shutting down %d workers...", len(self._workers))
-        tasks = [w.stop() for w in self._workers.values()]
-        await asyncio.gather(*tasks, return_exceptions=True)
-        self._workers.clear()
-        logger.info("WorkspaceSupervisor shutdown complete")
+        await asyncio.gather(*[_spawn(project) for project in projects], return_exceptions=False)
+        logger.info("Workspace supervisor boot completed with %d workers", len(self._workers))
 
-    # ── Gestão de projetos ────────────────────
-
-    async def add_project(self, project) -> ProjectWorker:
-        """Cria e inicia um worker para um projeto recém-adicionado."""
-        if project.id in self._workers:
-            return self._workers[project.id]
-        worker = await self._spawn(project)
-        logger.info("Project adicionado ao supervisor: %s", project.name)
-        return worker
-
-    async def remove_project(self, project_id: str):
-        """Para e remove o worker de um projeto."""
-        worker = self._workers.pop(project_id, None)
-        if worker:
+    async def shutdown(self) -> None:
+        workers = list(self._workers.items())
+        self._workers = {}
+        for _, worker in workers:
             await worker.stop()
-            logger.info("Project removido do supervisor: %s", project_id)
 
-    async def restart_project(self, project_id: str):
-        """Para e reinicia o worker de um projeto (ex: após mudança de config)."""
-        await self.remove_project(project_id)
-        p = self._registry.get_project(project_id)
-        if p:
-            await self._spawn(p)
+    async def add_project(self, project):
+        existing = self._workers.get(project.id)
+        if existing:
+            return existing
 
-    # ── Prioridade ────────────────────────────
-
-    def set_active(self, project_id: Optional[str]):
-        """
-        Eleva o projeto selecionado para 'active' (polling rápido).
-        Rebaixa o anterior para 'background'.
-        """
-        if self._active_project_id and self._active_project_id in self._workers:
-            self._workers[self._active_project_id].set_priority("background")
-
-        self._active_project_id = project_id
-
-        if project_id and project_id in self._workers:
-            self._workers[project_id].set_priority("active")
-            logger.debug("Priority escalated: %s → active", project_id)
-
-    # ── Status ────────────────────────────────
-
-    def get_status(self) -> list[dict]:
-        """Retorna snapshot de status de todos os workers."""
-        out = []
-        for pid, worker in self._workers.items():
-            p = worker._project
-            out.append({
-                "project_id": pid,
-                "project_name": p.name,
-                "workspace_id": p.workspace_id,
-                "status": p.status,
-                "priority": worker.priority,
-                "path": p.path,
-                "last_scanned_at": p.last_scanned_at,
-                "last_commit": p.last_commit,
-                "error_message": p.error_message,
-            })
-        return out
-
-    def get_worker(self, project_id: str) -> Optional[ProjectWorker]:
-        return self._workers.get(project_id)
-
-    # ── Interno ───────────────────────────────
-
-    async def _spawn(self, project) -> ProjectWorker:
         worker = ProjectWorker(
             project=project,
             registry=self._registry,
             incremental_scanner=self._scanner,
-            cross_impact_engine=self._cross,
-            event_stream=self._stream,
-            redis_client=self._redis,
-            priority="background",
+            cross_impact_engine=self._cross_engine,
+            memory_nodes=self._memory_nodes,
+            event_stream=self._event_stream,
         )
         self._workers[project.id] = worker
         await worker.start()
         return worker
+
+    async def remove_project(self, project_id: str) -> None:
+        worker = self._workers.pop(project_id, None)
+        if worker:
+            await worker.stop()
+
+    async def restart_project(self, project_id: str) -> None:
+        await self.remove_project(project_id)
+        project = self._registry.get_project(project_id)
+        if project:
+            await self.add_project(project)
+
+    def status(self) -> list[dict]:
+        status_rows: list[dict] = []
+        for project in self._registry.list_projects():
+            status_rows.append(
+                {
+                    "project_id": project.id,
+                    "workspace_id": project.workspace_id,
+                    "name": project.name,
+                    "path": project.path,
+                    "type": project.type,
+                    "status": project.status,
+                    "updated_at": project.updated_at,
+                    "last_error": project.last_error,
+                    "watching": project.id in self._workers,
+                }
+            )
+        return status_rows

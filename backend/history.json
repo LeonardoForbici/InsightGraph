@@ -17014,5 +17014,5633 @@
         "fragility_score": 55.9
       }
     ]
+  },
+  {
+    "timestamp": "2026-04-13T14:12:36.419249",
+    "total_nodes": 909,
+    "total_edges": 13849,
+    "god_classes": 0,
+    "circular_deps": 0,
+    "dead_code": 0,
+    "call_resolution_rate": 3.69,
+    "call_total": 13543,
+    "call_resolved": 500,
+    "call_unresolved": 13043,
+    "node_snapshot": [
+      {
+        "namespace_key": "frontend:frontend/src/components/GraphCanvas.tsx:GraphCanvasInnerImpl",
+        "name": "GraphCanvasInnerImpl",
+        "project": "frontend",
+        "file": "frontend/src/components/GraphCanvas.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 320.0,
+        "fragility_score": 100.0
+      },
+      {
+        "namespace_key": ".kilo:.kilo/worktrees/flat-harmonica/frontend/src/components/GraphCanvas.tsx:GraphCanvasInnerImpl",
+        "name": "GraphCanvasInnerImpl",
+        "project": ".kilo",
+        "file": ".kilo/worktrees/flat-harmonica/frontend/src/components/GraphCanvas.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 260.0,
+        "fragility_score": 100.0
+      },
+      {
+        "namespace_key": ".kilo:.kilo/worktrees/flat-harmonica/frontend/src/App.tsx:App",
+        "name": "App",
+        "project": ".kilo",
+        "file": ".kilo/worktrees/flat-harmonica/frontend/src/App.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 233.0,
+        "fragility_score": 100.0
+      },
+      {
+        "namespace_key": ".kilo:.kilo/worktrees/flat-harmonica/frontend/src/App.tsx:App",
+        "name": "App",
+        "project": ".kilo",
+        "file": ".kilo/worktrees/flat-harmonica/frontend/src/App.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 233.0,
+        "fragility_score": 100.0
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/HandGestureController.tsx:HandGestureController",
+        "name": "HandGestureController",
+        "project": "frontend",
+        "file": "frontend/src/components/HandGestureController.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 171.0,
+        "fragility_score": 100.0
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/HandGestureController.tsx:HandGestureController",
+        "name": "HandGestureController",
+        "project": "frontend",
+        "file": "frontend/src/components/HandGestureController.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 171.0,
+        "fragility_score": 100.0
+      },
+      {
+        "namespace_key": ".kilo:.kilo/worktrees/flat-harmonica/frontend/src/components/ImpactAnalysisPanel.tsx:ImpactAnalysisPanel",
+        "name": "ImpactAnalysisPanel",
+        "project": ".kilo",
+        "file": ".kilo/worktrees/flat-harmonica/frontend/src/components/ImpactAnalysisPanel.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 161.0,
+        "fragility_score": 100.0
+      },
+      {
+        "namespace_key": ".kilo:.kilo/worktrees/flat-harmonica/frontend/src/components/ImpactAnalysisPanel.tsx:ImpactAnalysisPanel",
+        "name": "ImpactAnalysisPanel",
+        "project": ".kilo",
+        "file": ".kilo/worktrees/flat-harmonica/frontend/src/components/ImpactAnalysisPanel.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 161.0,
+        "fragility_score": 100.0
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/ImpactAnalysisPanel.tsx:ImpactAnalysisPanel",
+        "name": "ImpactAnalysisPanel",
+        "project": "frontend",
+        "file": "frontend/src/components/ImpactAnalysisPanel.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 161.0,
+        "fragility_score": 100.0
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/ImpactAnalysisPanel.tsx:ImpactAnalysisPanel",
+        "name": "ImpactAnalysisPanel",
+        "project": "frontend",
+        "file": "frontend/src/components/ImpactAnalysisPanel.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 161.0,
+        "fragility_score": 100.0
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/NodeDetail.tsx:NodeDetail",
+        "name": "NodeDetail",
+        "project": "frontend",
+        "file": "frontend/src/components/NodeDetail.tsx",
+        "labels": [
+          "Entity",
+          "TS_Component"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 136.0,
+        "fragility_score": 100.0
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/NodeDetail.tsx:NodeDetail",
+        "name": "NodeDetail",
+        "project": "frontend",
+        "file": "frontend/src/components/NodeDetail.tsx",
+        "labels": [
+          "Entity",
+          "TS_Function"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 136.0,
+        "fragility_score": 100.0
+      },
+      {
+        "namespace_key": ".kilo:.kilo/worktrees/flat-harmonica/frontend/src/components/NodeDetail.tsx:NodeDetail",
+        "name": "NodeDetail",
+        "project": ".kilo",
+        "file": ".kilo/worktrees/flat-harmonica/frontend/src/components/NodeDetail.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 136.0,
+        "fragility_score": 100.0
+      },
+      {
+        "namespace_key": ".kilo:.kilo/worktrees/flat-harmonica/frontend/src/components/NodeDetail.tsx:NodeDetail",
+        "name": "NodeDetail",
+        "project": ".kilo",
+        "file": ".kilo/worktrees/flat-harmonica/frontend/src/components/NodeDetail.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 136.0,
+        "fragility_score": 100.0
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/NodeDetail.tsx:NodeDetail",
+        "name": "NodeDetail",
+        "project": "frontend",
+        "file": "frontend/src/components/NodeDetail.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 136.0,
+        "fragility_score": 100.0
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/NodeDetail.tsx:NodeDetail",
+        "name": "NodeDetail",
+        "project": "frontend",
+        "file": "frontend/src/components/NodeDetail.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 136.0,
+        "fragility_score": 100.0
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/Dashboard.tsx:Dashboard",
+        "name": "Dashboard",
+        "project": "frontend",
+        "file": "frontend/src/components/Dashboard.tsx",
+        "labels": [
+          "Entity",
+          "TS_Component"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 131.0,
+        "fragility_score": 100.0
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/Dashboard.tsx:Dashboard",
+        "name": "Dashboard",
+        "project": "frontend",
+        "file": "frontend/src/components/Dashboard.tsx",
+        "labels": [
+          "Entity",
+          "TS_Function"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 131.0,
+        "fragility_score": 100.0
+      },
+      {
+        "namespace_key": ".kilo:.kilo/worktrees/flat-harmonica/frontend/src/components/Dashboard.tsx:Dashboard",
+        "name": "Dashboard",
+        "project": ".kilo",
+        "file": ".kilo/worktrees/flat-harmonica/frontend/src/components/Dashboard.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 131.0,
+        "fragility_score": 100.0
+      },
+      {
+        "namespace_key": ".kilo:.kilo/worktrees/flat-harmonica/frontend/src/components/Dashboard.tsx:Dashboard",
+        "name": "Dashboard",
+        "project": ".kilo",
+        "file": ".kilo/worktrees/flat-harmonica/frontend/src/components/Dashboard.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 131.0,
+        "fragility_score": 100.0
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/Dashboard.tsx:Dashboard",
+        "name": "Dashboard",
+        "project": "frontend",
+        "file": "frontend/src/components/Dashboard.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 131.0,
+        "fragility_score": 100.0
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/Dashboard.tsx:Dashboard",
+        "name": "Dashboard",
+        "project": "frontend",
+        "file": "frontend/src/components/Dashboard.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 131.0,
+        "fragility_score": 100.0
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/GraphCanvas3D.tsx:GraphCanvas3D",
+        "name": "GraphCanvas3D",
+        "project": "frontend",
+        "file": "frontend/src/components/GraphCanvas3D.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 102.0,
+        "fragility_score": 100.0
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/GraphCanvas3D.tsx:GraphCanvas3D",
+        "name": "GraphCanvas3D",
+        "project": "frontend",
+        "file": "frontend/src/components/GraphCanvas3D.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 102.0,
+        "fragility_score": 100.0
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/Timeline4D.tsx:Timeline4D",
+        "name": "Timeline4D",
+        "project": "frontend",
+        "file": "frontend/src/components/Timeline4D.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 90.0,
+        "fragility_score": 95.5
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/SettingsScreen.tsx:SettingsScreen",
+        "name": "SettingsScreen",
+        "project": "frontend",
+        "file": "frontend/src/components/SettingsScreen.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 82.0,
+        "fragility_score": 91.9
+      },
+      {
+        "namespace_key": "frontend:frontend/src/App.tsx:App",
+        "name": "App",
+        "project": "frontend",
+        "file": "frontend/src/App.tsx",
+        "labels": [
+          "Entity",
+          "TS_Component"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 71.0,
+        "fragility_score": 86.95
+      },
+      {
+        "namespace_key": "frontend:frontend/src/App.tsx:App",
+        "name": "App",
+        "project": "frontend",
+        "file": "frontend/src/App.tsx",
+        "labels": [
+          "Entity",
+          "TS_Function"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 71.0,
+        "fragility_score": 86.95
+      },
+      {
+        "namespace_key": "frontend:frontend/src/App.tsx:App",
+        "name": "App",
+        "project": "frontend",
+        "file": "frontend/src/App.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 71.0,
+        "fragility_score": 86.95
+      },
+      {
+        "namespace_key": "frontend:frontend/src/App.tsx:App",
+        "name": "App",
+        "project": "frontend",
+        "file": "frontend/src/App.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 71.0,
+        "fragility_score": 86.95
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/TopBar.tsx:TopBar",
+        "name": "TopBar",
+        "project": "frontend",
+        "file": "frontend/src/components/TopBar.tsx",
+        "labels": [
+          "Entity",
+          "TS_Component"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 62.0,
+        "fragility_score": 82.9
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/TopBar.tsx:TopBar",
+        "name": "TopBar",
+        "project": "frontend",
+        "file": "frontend/src/components/TopBar.tsx",
+        "labels": [
+          "Entity",
+          "TS_Function"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 62.0,
+        "fragility_score": 82.9
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/TopBar.tsx:TopBar",
+        "name": "TopBar",
+        "project": "frontend",
+        "file": "frontend/src/components/TopBar.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 62.0,
+        "fragility_score": 82.9
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/TopBar.tsx:TopBar",
+        "name": "TopBar",
+        "project": "frontend",
+        "file": "frontend/src/components/TopBar.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 62.0,
+        "fragility_score": 82.9
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/Sidebar.tsx:Sidebar",
+        "name": "Sidebar",
+        "project": "frontend",
+        "file": "frontend/src/components/Sidebar.tsx",
+        "labels": [
+          "Entity",
+          "TS_Component"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 58.0,
+        "fragility_score": 81.1
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/Sidebar.tsx:Sidebar",
+        "name": "Sidebar",
+        "project": "frontend",
+        "file": "frontend/src/components/Sidebar.tsx",
+        "labels": [
+          "Entity",
+          "TS_Function"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 58.0,
+        "fragility_score": 81.1
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/Sidebar.tsx:Sidebar",
+        "name": "Sidebar",
+        "project": "frontend",
+        "file": "frontend/src/components/Sidebar.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 58.0,
+        "fragility_score": 81.1
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/Sidebar.tsx:Sidebar",
+        "name": "Sidebar",
+        "project": "frontend",
+        "file": "frontend/src/components/Sidebar.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 58.0,
+        "fragility_score": 81.1
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/GestureController.tsx:GestureController",
+        "name": "GestureController",
+        "project": "frontend",
+        "file": "frontend/src/components/GestureController.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 55.0,
+        "fragility_score": 79.75
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/GestureController.tsx:GestureController",
+        "name": "GestureController",
+        "project": "frontend",
+        "file": "frontend/src/components/GestureController.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 55.0,
+        "fragility_score": 79.75
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/SecurityDashboard.tsx:SecurityDashboard",
+        "name": "SecurityDashboard",
+        "project": "frontend",
+        "file": "frontend/src/components/SecurityDashboard.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 48.0,
+        "fragility_score": 76.6
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/SecurityDashboard.tsx:SecurityDashboard",
+        "name": "SecurityDashboard",
+        "project": "frontend",
+        "file": "frontend/src/components/SecurityDashboard.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 48.0,
+        "fragility_score": 76.6
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/CodeQLTimeline.tsx:CodeQLTimeline",
+        "name": "CodeQLTimeline",
+        "project": "frontend",
+        "file": "frontend/src/components/CodeQLTimeline.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 46.0,
+        "fragility_score": 75.7
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/CodeQLTimeline.tsx:CodeQLTimeline",
+        "name": "CodeQLTimeline",
+        "project": "frontend",
+        "file": "frontend/src/components/CodeQLTimeline.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 46.0,
+        "fragility_score": 75.7
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/EvolutionDashboard.tsx:EvolutionDashboard",
+        "name": "EvolutionDashboard",
+        "project": "frontend",
+        "file": "frontend/src/components/EvolutionDashboard.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 46.0,
+        "fragility_score": 75.7
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/EvolutionDashboard.tsx:EvolutionDashboard",
+        "name": "EvolutionDashboard",
+        "project": "frontend",
+        "file": "frontend/src/components/EvolutionDashboard.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 46.0,
+        "fragility_score": 75.7
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/WatchModePanel.tsx:WatchModePanel",
+        "name": "WatchModePanel",
+        "project": "frontend",
+        "file": "frontend/src/components/WatchModePanel.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 45.0,
+        "fragility_score": 75.25
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/WatchModePanel.tsx:WatchModePanel",
+        "name": "WatchModePanel",
+        "project": "frontend",
+        "file": "frontend/src/components/WatchModePanel.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 45.0,
+        "fragility_score": 75.25
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/CodeQLModal.tsx:CodeQLModal",
+        "name": "CodeQLModal",
+        "project": "frontend",
+        "file": "frontend/src/components/CodeQLModal.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 42.0,
+        "fragility_score": 73.9
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/WorkspaceHub.tsx:WorkspaceHub",
+        "name": "WorkspaceHub",
+        "project": "frontend",
+        "file": "frontend/src/components/WorkspaceHub.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 42.0,
+        "fragility_score": 73.9
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/WorkspaceHub.tsx:WorkspaceHub",
+        "name": "WorkspaceHub",
+        "project": "frontend",
+        "file": "frontend/src/components/WorkspaceHub.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 42.0,
+        "fragility_score": 73.9
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/TransactionPanel.tsx:TransactionPanel",
+        "name": "TransactionPanel",
+        "project": "frontend",
+        "file": "frontend/src/components/TransactionPanel.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 41.0,
+        "fragility_score": 73.45
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/TransactionPanel.tsx:TransactionPanel",
+        "name": "TransactionPanel",
+        "project": "frontend",
+        "file": "frontend/src/components/TransactionPanel.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 41.0,
+        "fragility_score": 73.45
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/GraphCanvas.tsx:pushNode",
+        "name": "pushNode",
+        "project": "frontend",
+        "file": "frontend/src/components/GraphCanvas.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 40.0,
+        "fragility_score": 73.0
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/GraphCanvas.tsx:CustomNode",
+        "name": "CustomNode",
+        "project": "frontend",
+        "file": "frontend/src/components/GraphCanvas.tsx",
+        "labels": [
+          "Entity",
+          "TS_Function"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 37.0,
+        "fragility_score": 71.65
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/SimulationPanel.tsx:SimulationPanel",
+        "name": "SimulationPanel",
+        "project": "frontend",
+        "file": "frontend/src/components/SimulationPanel.tsx",
+        "labels": [
+          "Entity",
+          "TS_Component"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 37.0,
+        "fragility_score": 71.65
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/SimulationPanel.tsx:SimulationPanel",
+        "name": "SimulationPanel",
+        "project": "frontend",
+        "file": "frontend/src/components/SimulationPanel.tsx",
+        "labels": [
+          "Entity",
+          "TS_Function"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 37.0,
+        "fragility_score": 71.65
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/GraphCanvas.tsx:CustomNode",
+        "name": "CustomNode",
+        "project": "frontend",
+        "file": "frontend/src/components/GraphCanvas.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 37.0,
+        "fragility_score": 71.65
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/SimulationPanel.tsx:SimulationPanel",
+        "name": "SimulationPanel",
+        "project": "frontend",
+        "file": "frontend/src/components/SimulationPanel.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 37.0,
+        "fragility_score": 71.65
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/SimulationPanel.tsx:SimulationPanel",
+        "name": "SimulationPanel",
+        "project": "frontend",
+        "file": "frontend/src/components/SimulationPanel.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 37.0,
+        "fragility_score": 71.65
+      },
+      {
+        "namespace_key": "frontend:frontend/src/utils/WebSocketClient.ts:WebSocketClient",
+        "name": "WebSocketClient",
+        "project": "frontend",
+        "file": "frontend/src/utils/WebSocketClient.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 37.0,
+        "fragility_score": 71.65
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/LiveAlertFeed.tsx:LiveAlertFeed",
+        "name": "LiveAlertFeed",
+        "project": "frontend",
+        "file": "frontend/src/components/LiveAlertFeed.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 35.0,
+        "fragility_score": 70.75
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/SidebarIntelligence.tsx:SidebarIntelligence",
+        "name": "SidebarIntelligence",
+        "project": "frontend",
+        "file": "frontend/src/components/SidebarIntelligence.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 32.0,
+        "fragility_score": 69.4
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/InvestigationMode.tsx:InvestigationMode",
+        "name": "InvestigationMode",
+        "project": "frontend",
+        "file": "frontend/src/components/InvestigationMode.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 31.0,
+        "fragility_score": 68.95
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/QualityGatePanel.tsx:QualityGatePanel",
+        "name": "QualityGatePanel",
+        "project": "frontend",
+        "file": "frontend/src/components/QualityGatePanel.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 30.0,
+        "fragility_score": 68.5
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/QualityGatePanel.tsx:QualityGatePanel",
+        "name": "QualityGatePanel",
+        "project": "frontend",
+        "file": "frontend/src/components/QualityGatePanel.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 30.0,
+        "fragility_score": 68.5
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/CommitTimeline.tsx:CommitTimeline",
+        "name": "CommitTimeline",
+        "project": "frontend",
+        "file": "frontend/src/components/CommitTimeline.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 27.0,
+        "fragility_score": 67.15
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/AskPanel.tsx:AskPanel",
+        "name": "AskPanel",
+        "project": "frontend",
+        "file": "frontend/src/components/AskPanel.tsx",
+        "labels": [
+          "Entity",
+          "TS_Component"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 26.0,
+        "fragility_score": 66.7
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/AskPanel.tsx:AskPanel",
+        "name": "AskPanel",
+        "project": "frontend",
+        "file": "frontend/src/components/AskPanel.tsx",
+        "labels": [
+          "Entity",
+          "TS_Function"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 26.0,
+        "fragility_score": 66.7
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/AskPanel.tsx:AskPanel",
+        "name": "AskPanel",
+        "project": "frontend",
+        "file": "frontend/src/components/AskPanel.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 26.0,
+        "fragility_score": 66.7
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/AskPanel.tsx:AskPanel",
+        "name": "AskPanel",
+        "project": "frontend",
+        "file": "frontend/src/components/AskPanel.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 26.0,
+        "fragility_score": 66.7
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/SemanticSearchPanel.tsx:SemanticSearchPanel",
+        "name": "SemanticSearchPanel",
+        "project": "frontend",
+        "file": "frontend/src/components/SemanticSearchPanel.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 26.0,
+        "fragility_score": 66.7
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/SemanticSearchPanel.tsx:SemanticSearchPanel",
+        "name": "SemanticSearchPanel",
+        "project": "frontend",
+        "file": "frontend/src/components/SemanticSearchPanel.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 26.0,
+        "fragility_score": 66.7
+      },
+      {
+        "namespace_key": "frontend:frontend/src/utils/FPSMonitor.ts:FPSMonitor",
+        "name": "FPSMonitor",
+        "project": "frontend",
+        "file": "frontend/src/utils/FPSMonitor.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 24.0,
+        "fragility_score": 65.8
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/AIQueryEngine.tsx:AIQueryEngine",
+        "name": "AIQueryEngine",
+        "project": "frontend",
+        "file": "frontend/src/components/AIQueryEngine.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 23.0,
+        "fragility_score": 65.35
+      },
+      {
+        "namespace_key": "frontend:frontend/src/utils/WaveAnimationManager.ts:WaveAnimationManager",
+        "name": "WaveAnimationManager",
+        "project": "frontend",
+        "file": "frontend/src/utils/WaveAnimationManager.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 22.0,
+        "fragility_score": 64.9
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/WeeklyDigestPanel.tsx:WeeklyDigestPanel",
+        "name": "WeeklyDigestPanel",
+        "project": "frontend",
+        "file": "frontend/src/components/WeeklyDigestPanel.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 21.0,
+        "fragility_score": 64.45
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/DashboardPulse.tsx:DashboardPulse",
+        "name": "DashboardPulse",
+        "project": "frontend",
+        "file": "frontend/src/components/DashboardPulse.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 20.0,
+        "fragility_score": 64.0
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/DashboardPulse.tsx:DashboardPulse",
+        "name": "DashboardPulse",
+        "project": "frontend",
+        "file": "frontend/src/components/DashboardPulse.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 20.0,
+        "fragility_score": 64.0
+      },
+      {
+        "namespace_key": "frontend:frontend/src/hooks/useWatchMode.ts:useWatchMode",
+        "name": "useWatchMode",
+        "project": "frontend",
+        "file": "frontend/src/hooks/useWatchMode.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 19.0,
+        "fragility_score": 63.55
+      },
+      {
+        "namespace_key": "frontend:frontend/src/hooks/useWatchMode.ts:useWatchMode",
+        "name": "useWatchMode",
+        "project": "frontend",
+        "file": "frontend/src/hooks/useWatchMode.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 19.0,
+        "fragility_score": 63.55
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/CodeQLModal.tsx:JobProgressCard",
+        "name": "JobProgressCard",
+        "project": "frontend",
+        "file": "frontend/src/components/CodeQLModal.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 18.0,
+        "fragility_score": 63.1
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/CodeQLModal.tsx:ProjectCard",
+        "name": "ProjectCard",
+        "project": "frontend",
+        "file": "frontend/src/components/CodeQLModal.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 18.0,
+        "fragility_score": 63.1
+      },
+      {
+        "namespace_key": "frontend:frontend/src/utils/SSEConnectionManager.ts:SSEConnectionManager",
+        "name": "SSEConnectionManager",
+        "project": "frontend",
+        "file": "frontend/src/utils/SSEConnectionManager.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 18.0,
+        "fragility_score": 63.1
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/EvolutionDashboard.tsx:getTrendCards",
+        "name": "getTrendCards",
+        "project": "frontend",
+        "file": "frontend/src/components/EvolutionDashboard.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 16.0,
+        "fragility_score": 62.2
+      },
+      {
+        "namespace_key": "frontend:frontend/src/utils/MemoryManager.ts:MemoryManager",
+        "name": "MemoryManager",
+        "project": "frontend",
+        "file": "frontend/src/utils/MemoryManager.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 15.0,
+        "fragility_score": 61.75
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/ImpactAnalysisPanel.tsx:TaintPointCard",
+        "name": "TaintPointCard",
+        "project": "frontend",
+        "file": "frontend/src/components/ImpactAnalysisPanel.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 14.0,
+        "fragility_score": 61.3
+      },
+      {
+        "namespace_key": "frontend:frontend/src/api.ts:fetchSecurityVulnerabilities",
+        "name": "fetchSecurityVulnerabilities",
+        "project": "frontend",
+        "file": "frontend/src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 100.0,
+        "complexity": 13.0,
+        "fragility_score": 60.85
+      },
+      {
+        "namespace_key": "frontend:frontend/src/api.ts:fetchSecurityVulnerabilities",
+        "name": "fetchSecurityVulnerabilities",
+        "project": "frontend",
+        "file": "frontend/src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 100.0,
+        "complexity": 13.0,
+        "fragility_score": 60.85
+      },
+      {
+        "namespace_key": "frontend:frontend/src/api.ts:fetchCodeQLHistory",
+        "name": "fetchCodeQLHistory",
+        "project": "frontend",
+        "file": "frontend/src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 100.0,
+        "complexity": 13.0,
+        "fragility_score": 60.85
+      },
+      {
+        "namespace_key": "frontend:frontend/src/api.ts:fetchCodeQLHistory",
+        "name": "fetchCodeQLHistory",
+        "project": "frontend",
+        "file": "frontend/src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 100.0,
+        "complexity": 13.0,
+        "fragility_score": 60.85
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/AnalysisHistory.tsx:AnalysisHistory",
+        "name": "AnalysisHistory",
+        "project": "frontend",
+        "file": "frontend/src/components/AnalysisHistory.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 13.0,
+        "fragility_score": 60.85
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/GraphCanvas.tsx:normalizeLayer",
+        "name": "normalizeLayer",
+        "project": "frontend",
+        "file": "frontend/src/components/GraphCanvas.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 13.0,
+        "fragility_score": 60.85
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/Timeline4D.tsx:loadCommitHistory",
+        "name": "loadCommitHistory",
+        "project": "frontend",
+        "file": "frontend/src/components/Timeline4D.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 12.0,
+        "fragility_score": 60.4
+      },
+      {
+        "namespace_key": "frontend:frontend/src/api.ts:fetchApiInventory",
+        "name": "fetchApiInventory",
+        "project": "frontend",
+        "file": "frontend/src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 100.0,
+        "complexity": 11.0,
+        "fragility_score": 59.95
+      },
+      {
+        "namespace_key": "frontend:frontend/src/api.ts:fetchApiInventory",
+        "name": "fetchApiInventory",
+        "project": "frontend",
+        "file": "frontend/src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 100.0,
+        "complexity": 11.0,
+        "fragility_score": 59.95
+      },
+      {
+        "namespace_key": "frontend:frontend/src/api.ts:fetchTodos",
+        "name": "fetchTodos",
+        "project": "frontend",
+        "file": "frontend/src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 100.0,
+        "complexity": 11.0,
+        "fragility_score": 59.95
+      },
+      {
+        "namespace_key": "frontend:frontend/src/api.ts:fetchTodos",
+        "name": "fetchTodos",
+        "project": "frontend",
+        "file": "frontend/src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 100.0,
+        "complexity": 11.0,
+        "fragility_score": 59.95
+      },
+      {
+        "namespace_key": "frontend:frontend/src/api.ts:fetchGraphActivityHeatmap",
+        "name": "fetchGraphActivityHeatmap",
+        "project": "frontend",
+        "file": "frontend/src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 100.0,
+        "complexity": 11.0,
+        "fragility_score": 59.95
+      },
+      {
+        "namespace_key": "frontend:frontend/src/api.ts:fetchGraphActivityHeatmap",
+        "name": "fetchGraphActivityHeatmap",
+        "project": "frontend",
+        "file": "frontend/src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 100.0,
+        "complexity": 11.0,
+        "fragility_score": 59.95
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/AnalysisHistory.tsx:DetailModal",
+        "name": "DetailModal",
+        "project": "frontend",
+        "file": "frontend/src/components/AnalysisHistory.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 11.0,
+        "fragility_score": 59.95
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/Dashboard.tsx:getValue",
+        "name": "getValue",
+        "project": "frontend",
+        "file": "frontend/src/components/Dashboard.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 11.0,
+        "fragility_score": 59.95
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/GestureController.tsx:getFriendlyMediaError",
+        "name": "getFriendlyMediaError",
+        "project": "frontend",
+        "file": "frontend/src/components/GestureController.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 95.38,
+        "complexity": 19.0,
+        "fragility_score": 61.01
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/GraphCanvas.tsx:getNodeClass",
+        "name": "getNodeClass",
+        "project": "frontend",
+        "file": "frontend/src/components/GraphCanvas.tsx",
+        "labels": [
+          "Entity",
+          "TS_Function"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 10.0,
+        "fragility_score": 59.5
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/GraphCanvas.tsx:getNodeIcon",
+        "name": "getNodeIcon",
+        "project": "frontend",
+        "file": "frontend/src/components/GraphCanvas.tsx",
+        "labels": [
+          "Entity",
+          "TS_Function"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 10.0,
+        "fragility_score": 59.5
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/AnalysisHistory.tsx:HistoryRow",
+        "name": "HistoryRow",
+        "project": "frontend",
+        "file": "frontend/src/components/AnalysisHistory.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 10.0,
+        "fragility_score": 59.5
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/CodeQLModal.tsx:AddProjectForm",
+        "name": "AddProjectForm",
+        "project": "frontend",
+        "file": "frontend/src/components/CodeQLModal.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 10.0,
+        "fragility_score": 59.5
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/GraphCanvas.tsx:getNodeClass",
+        "name": "getNodeClass",
+        "project": "frontend",
+        "file": "frontend/src/components/GraphCanvas.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 10.0,
+        "fragility_score": 59.5
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/GraphCanvas.tsx:getNodeIcon",
+        "name": "getNodeIcon",
+        "project": "frontend",
+        "file": "frontend/src/components/GraphCanvas.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 10.0,
+        "fragility_score": 59.5
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/GraphCanvas.tsx:edgeTypeRank",
+        "name": "edgeTypeRank",
+        "project": "frontend",
+        "file": "frontend/src/components/GraphCanvas.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 10.0,
+        "fragility_score": 59.5
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/ImpactAnalysisPanel.tsx:AffectedItemCard",
+        "name": "AffectedItemCard",
+        "project": "frontend",
+        "file": "frontend/src/components/ImpactAnalysisPanel.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 10.0,
+        "fragility_score": 59.5
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/Timeline4D.tsx:loadGraphSnapshot",
+        "name": "loadGraphSnapshot",
+        "project": "frontend",
+        "file": "frontend/src/components/Timeline4D.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 10.0,
+        "fragility_score": 59.5
+      },
+      {
+        "namespace_key": "frontend:frontend/src/api.ts:fetchInheritance",
+        "name": "fetchInheritance",
+        "project": "frontend",
+        "file": "frontend/src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 100.0,
+        "complexity": 9.0,
+        "fragility_score": 59.05
+      },
+      {
+        "namespace_key": "frontend:frontend/src/api.ts:fetchInheritance",
+        "name": "fetchInheritance",
+        "project": "frontend",
+        "file": "frontend/src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 100.0,
+        "complexity": 9.0,
+        "fragility_score": 59.05
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/SettingsScreen.tsx:StatusBadge",
+        "name": "StatusBadge",
+        "project": "frontend",
+        "file": "frontend/src/components/SettingsScreen.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 9.0,
+        "fragility_score": 59.05
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/GraphCanvas.tsx:getEdgeColor",
+        "name": "getEdgeColor",
+        "project": "frontend",
+        "file": "frontend/src/components/GraphCanvas.tsx",
+        "labels": [
+          "Entity",
+          "TS_Function"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 8.0,
+        "fragility_score": 58.6
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/NodeDetail.tsx:getTypeIcon",
+        "name": "getTypeIcon",
+        "project": "frontend",
+        "file": "frontend/src/components/NodeDetail.tsx",
+        "labels": [
+          "Entity",
+          "TS_Function"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 8.0,
+        "fragility_score": 58.6
+      },
+      {
+        "namespace_key": "frontend:frontend/src/api.ts:fetchSideEffects",
+        "name": "fetchSideEffects",
+        "project": "frontend",
+        "file": "frontend/src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 100.0,
+        "complexity": 8.0,
+        "fragility_score": 58.6
+      },
+      {
+        "namespace_key": "frontend:frontend/src/api.ts:fetchSideEffects",
+        "name": "fetchSideEffects",
+        "project": "frontend",
+        "file": "frontend/src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 100.0,
+        "complexity": 8.0,
+        "fragility_score": 58.6
+      },
+      {
+        "namespace_key": "frontend:frontend/src/api.ts:fetchGitBlame",
+        "name": "fetchGitBlame",
+        "project": "frontend",
+        "file": "frontend/src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 100.0,
+        "complexity": 8.0,
+        "fragility_score": 58.6
+      },
+      {
+        "namespace_key": "frontend:frontend/src/api.ts:fetchGitBlame",
+        "name": "fetchGitBlame",
+        "project": "frontend",
+        "file": "frontend/src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 100.0,
+        "complexity": 8.0,
+        "fragility_score": 58.6
+      },
+      {
+        "namespace_key": "frontend:frontend/src/api.ts:fetchGraphHistory",
+        "name": "fetchGraphHistory",
+        "project": "frontend",
+        "file": "frontend/src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 100.0,
+        "complexity": 8.0,
+        "fragility_score": 58.6
+      },
+      {
+        "namespace_key": "frontend:frontend/src/api.ts:fetchGraphHistory",
+        "name": "fetchGraphHistory",
+        "project": "frontend",
+        "file": "frontend/src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 100.0,
+        "complexity": 8.0,
+        "fragility_score": 58.6
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/GraphCanvas.tsx:getEdgeColor",
+        "name": "getEdgeColor",
+        "project": "frontend",
+        "file": "frontend/src/components/GraphCanvas.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 8.0,
+        "fragility_score": 58.6
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/NodeDetail.tsx:getTypeIcon",
+        "name": "getTypeIcon",
+        "project": "frontend",
+        "file": "frontend/src/components/NodeDetail.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 8.0,
+        "fragility_score": 58.6
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/HandGestureController.tsx:tick",
+        "name": "tick",
+        "project": "frontend",
+        "file": "frontend/src/components/HandGestureController.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 7.0,
+        "fragility_score": 58.15
+      },
+      {
+        "namespace_key": "frontend:frontend/src/api.ts:fetchGraph",
+        "name": "fetchGraph",
+        "project": "frontend",
+        "file": "frontend/src/api.ts",
+        "labels": [
+          "Entity",
+          "TS_Function"
+        ],
+        "layer": "API",
+        "hotspot_score": 100.0,
+        "complexity": 6.0,
+        "fragility_score": 57.7
+      },
+      {
+        "namespace_key": "frontend:frontend/src/api.ts:fetchGraph",
+        "name": "fetchGraph",
+        "project": "frontend",
+        "file": "frontend/src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 100.0,
+        "complexity": 6.0,
+        "fragility_score": 57.7
+      },
+      {
+        "namespace_key": "frontend:frontend/src/api.ts:fetchGraph",
+        "name": "fetchGraph",
+        "project": "frontend",
+        "file": "frontend/src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 100.0,
+        "complexity": 6.0,
+        "fragility_score": 57.7
+      },
+      {
+        "namespace_key": "frontend:frontend/src/api.ts:listSavedViews",
+        "name": "listSavedViews",
+        "project": "frontend",
+        "file": "frontend/src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 100.0,
+        "complexity": 6.0,
+        "fragility_score": 57.7
+      },
+      {
+        "namespace_key": "frontend:frontend/src/api.ts:listSavedViews",
+        "name": "listSavedViews",
+        "project": "frontend",
+        "file": "frontend/src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 100.0,
+        "complexity": 6.0,
+        "fragility_score": 57.7
+      },
+      {
+        "namespace_key": "frontend:frontend/src/api.ts:listAnnotations",
+        "name": "listAnnotations",
+        "project": "frontend",
+        "file": "frontend/src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 100.0,
+        "complexity": 6.0,
+        "fragility_score": 57.7
+      },
+      {
+        "namespace_key": "frontend:frontend/src/api.ts:listAnnotations",
+        "name": "listAnnotations",
+        "project": "frontend",
+        "file": "frontend/src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 100.0,
+        "complexity": 6.0,
+        "fragility_score": 57.7
+      },
+      {
+        "namespace_key": "frontend:frontend/src/api.ts:fetchHotspots",
+        "name": "fetchHotspots",
+        "project": "frontend",
+        "file": "frontend/src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 100.0,
+        "complexity": 6.0,
+        "fragility_score": 57.7
+      },
+      {
+        "namespace_key": "frontend:frontend/src/api.ts:fetchHotspots",
+        "name": "fetchHotspots",
+        "project": "frontend",
+        "file": "frontend/src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 100.0,
+        "complexity": 6.0,
+        "fragility_score": 57.7
+      },
+      {
+        "namespace_key": "frontend:frontend/src/api.ts:semanticSearch",
+        "name": "semanticSearch",
+        "project": "frontend",
+        "file": "frontend/src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 100.0,
+        "complexity": 6.0,
+        "fragility_score": 57.7
+      },
+      {
+        "namespace_key": "frontend:frontend/src/api.ts:semanticSearch",
+        "name": "semanticSearch",
+        "project": "frontend",
+        "file": "frontend/src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 100.0,
+        "complexity": 6.0,
+        "fragility_score": 57.7
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/CodeQLModal.tsx:handleStartAnalysis",
+        "name": "handleStartAnalysis",
+        "project": "frontend",
+        "file": "frontend/src/components/CodeQLModal.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 6.0,
+        "fragility_score": 57.7
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/CodeQLModal.tsx:getStatusIcon",
+        "name": "getStatusIcon",
+        "project": "frontend",
+        "file": "frontend/src/components/CodeQLModal.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 6.0,
+        "fragility_score": 57.7
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/NodeDetail.tsx:ComplexitySparkline",
+        "name": "ComplexitySparkline",
+        "project": "frontend",
+        "file": "frontend/src/components/NodeDetail.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 6.0,
+        "fragility_score": 57.7
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/CodeQLModal.tsx:getStatusColor",
+        "name": "getStatusColor",
+        "project": "frontend",
+        "file": "frontend/src/components/CodeQLModal.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 5.0,
+        "fragility_score": 57.25
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/Dashboard.tsx:sortIndicator",
+        "name": "sortIndicator",
+        "project": "frontend",
+        "file": "frontend/src/components/Dashboard.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 5.0,
+        "fragility_score": 57.25
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/Dashboard.tsx:handleExportHotspots",
+        "name": "handleExportHotspots",
+        "project": "frontend",
+        "file": "frontend/src/components/Dashboard.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 5.0,
+        "fragility_score": 57.25
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/GraphCanvas.tsx:getPredictiveColor",
+        "name": "getPredictiveColor",
+        "project": "frontend",
+        "file": "frontend/src/components/GraphCanvas.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 5.0,
+        "fragility_score": 57.25
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/TopBar.tsx:fetchBranding",
+        "name": "fetchBranding",
+        "project": "frontend",
+        "file": "frontend/src/components/TopBar.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 5.0,
+        "fragility_score": 57.25
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/Dashboard.tsx:load",
+        "name": "load",
+        "project": "frontend",
+        "file": "frontend/src/components/Dashboard.tsx",
+        "labels": [
+          "Entity",
+          "TS_Component"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 4.0,
+        "fragility_score": 56.8
+      },
+      {
+        "namespace_key": "frontend:frontend/src/api.ts:browseSystemFolder",
+        "name": "browseSystemFolder",
+        "project": "frontend",
+        "file": "frontend/src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 100.0,
+        "complexity": 4.0,
+        "fragility_score": 56.8
+      },
+      {
+        "namespace_key": "frontend:frontend/src/api.ts:browseSystemFolder",
+        "name": "browseSystemFolder",
+        "project": "frontend",
+        "file": "frontend/src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 100.0,
+        "complexity": 4.0,
+        "fragility_score": 56.8
+      },
+      {
+        "namespace_key": "frontend:frontend/src/api.ts:fetchTaintPropagation",
+        "name": "fetchTaintPropagation",
+        "project": "frontend",
+        "file": "frontend/src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 100.0,
+        "complexity": 4.0,
+        "fragility_score": 56.8
+      },
+      {
+        "namespace_key": "frontend:frontend/src/api.ts:fetchTaintPropagation",
+        "name": "fetchTaintPropagation",
+        "project": "frontend",
+        "file": "frontend/src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 100.0,
+        "complexity": 4.0,
+        "fragility_score": 56.8
+      },
+      {
+        "namespace_key": "frontend:frontend/src/api.ts:resolveSymbol",
+        "name": "resolveSymbol",
+        "project": "frontend",
+        "file": "frontend/src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 100.0,
+        "complexity": 4.0,
+        "fragility_score": 56.8
+      },
+      {
+        "namespace_key": "frontend:frontend/src/api.ts:resolveSymbol",
+        "name": "resolveSymbol",
+        "project": "frontend",
+        "file": "frontend/src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 100.0,
+        "complexity": 4.0,
+        "fragility_score": 56.8
+      },
+      {
+        "namespace_key": "frontend:frontend/src/api.ts:ragSearch",
+        "name": "ragSearch",
+        "project": "frontend",
+        "file": "frontend/src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 100.0,
+        "complexity": 4.0,
+        "fragility_score": 56.8
+      },
+      {
+        "namespace_key": "frontend:frontend/src/api.ts:ragSearch",
+        "name": "ragSearch",
+        "project": "frontend",
+        "file": "frontend/src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 100.0,
+        "complexity": 4.0,
+        "fragility_score": 56.8
+      },
+      {
+        "namespace_key": "frontend:frontend/src/api.ts:rebuildRagIndex",
+        "name": "rebuildRagIndex",
+        "project": "frontend",
+        "file": "frontend/src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 100.0,
+        "complexity": 4.0,
+        "fragility_score": 56.8
+      },
+      {
+        "namespace_key": "frontend:frontend/src/api.ts:rebuildRagIndex",
+        "name": "rebuildRagIndex",
+        "project": "frontend",
+        "file": "frontend/src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 100.0,
+        "complexity": 4.0,
+        "fragility_score": 56.8
+      },
+      {
+        "namespace_key": "frontend:frontend/src/api.ts:fetchCkMetrics",
+        "name": "fetchCkMetrics",
+        "project": "frontend",
+        "file": "frontend/src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 100.0,
+        "complexity": 4.0,
+        "fragility_score": 56.8
+      },
+      {
+        "namespace_key": "frontend:frontend/src/api.ts:fetchCkMetrics",
+        "name": "fetchCkMetrics",
+        "project": "frontend",
+        "file": "frontend/src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 100.0,
+        "complexity": 4.0,
+        "fragility_score": 56.8
+      },
+      {
+        "namespace_key": "frontend:frontend/src/api.ts:semanticGraphSearch",
+        "name": "semanticGraphSearch",
+        "project": "frontend",
+        "file": "frontend/src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 100.0,
+        "complexity": 4.0,
+        "fragility_score": 56.8
+      },
+      {
+        "namespace_key": "frontend:frontend/src/api.ts:semanticGraphSearch",
+        "name": "semanticGraphSearch",
+        "project": "frontend",
+        "file": "frontend/src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 100.0,
+        "complexity": 4.0,
+        "fragility_score": 56.8
+      },
+      {
+        "namespace_key": "frontend:frontend/src/api.ts:fetchCallResolutionSummary",
+        "name": "fetchCallResolutionSummary",
+        "project": "frontend",
+        "file": "frontend/src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 100.0,
+        "complexity": 4.0,
+        "fragility_score": 56.8
+      },
+      {
+        "namespace_key": "frontend:frontend/src/api.ts:fetchCallResolutionSummary",
+        "name": "fetchCallResolutionSummary",
+        "project": "frontend",
+        "file": "frontend/src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 100.0,
+        "complexity": 4.0,
+        "fragility_score": 56.8
+      },
+      {
+        "namespace_key": "frontend:frontend/src/api.ts:fetchFileContent",
+        "name": "fetchFileContent",
+        "project": "frontend",
+        "file": "frontend/src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 100.0,
+        "complexity": 4.0,
+        "fragility_score": 56.8
+      },
+      {
+        "namespace_key": "frontend:frontend/src/api.ts:fetchFileContent",
+        "name": "fetchFileContent",
+        "project": "frontend",
+        "file": "frontend/src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 100.0,
+        "complexity": 4.0,
+        "fragility_score": 56.8
+      },
+      {
+        "namespace_key": "frontend:frontend/src/api.ts:listWarRooms",
+        "name": "listWarRooms",
+        "project": "frontend",
+        "file": "frontend/src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 100.0,
+        "complexity": 4.0,
+        "fragility_score": 56.8
+      },
+      {
+        "namespace_key": "frontend:frontend/src/api.ts:listWarRooms",
+        "name": "listWarRooms",
+        "project": "frontend",
+        "file": "frontend/src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 100.0,
+        "complexity": 4.0,
+        "fragility_score": 56.8
+      },
+      {
+        "namespace_key": "frontend:frontend/src/api.ts:listCollaborationAnnotations",
+        "name": "listCollaborationAnnotations",
+        "project": "frontend",
+        "file": "frontend/src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 100.0,
+        "complexity": 4.0,
+        "fragility_score": 56.8
+      },
+      {
+        "namespace_key": "frontend:frontend/src/api.ts:listCollaborationAnnotations",
+        "name": "listCollaborationAnnotations",
+        "project": "frontend",
+        "file": "frontend/src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 100.0,
+        "complexity": 4.0,
+        "fragility_score": 56.8
+      },
+      {
+        "namespace_key": "frontend:frontend/src/api.ts:updateRuntimeConfig",
+        "name": "updateRuntimeConfig",
+        "project": "frontend",
+        "file": "frontend/src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 100.0,
+        "complexity": 4.0,
+        "fragility_score": 56.8
+      },
+      {
+        "namespace_key": "frontend:frontend/src/api.ts:updateRuntimeConfig",
+        "name": "updateRuntimeConfig",
+        "project": "frontend",
+        "file": "frontend/src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 100.0,
+        "complexity": 4.0,
+        "fragility_score": 56.8
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/CodeQLModal.tsx:loadProjects",
+        "name": "loadProjects",
+        "project": "frontend",
+        "file": "frontend/src/components/CodeQLModal.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 4.0,
+        "fragility_score": 56.8
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/CodeQLModal.tsx:handleDeleteProject",
+        "name": "handleDeleteProject",
+        "project": "frontend",
+        "file": "frontend/src/components/CodeQLModal.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 4.0,
+        "fragility_score": 56.8
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/CodeQLModal.tsx:handleDeleteDatabase",
+        "name": "handleDeleteDatabase",
+        "project": "frontend",
+        "file": "frontend/src/components/CodeQLModal.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 4.0,
+        "fragility_score": 56.8
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/CodeQLModal.tsx:handleSubmit",
+        "name": "handleSubmit",
+        "project": "frontend",
+        "file": "frontend/src/components/CodeQLModal.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 4.0,
+        "fragility_score": 56.8
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/Dashboard.tsx:getGradeBucket",
+        "name": "getGradeBucket",
+        "project": "frontend",
+        "file": "frontend/src/components/Dashboard.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 4.0,
+        "fragility_score": 56.8
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/Dashboard.tsx:load",
+        "name": "load",
+        "project": "frontend",
+        "file": "frontend/src/components/Dashboard.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 4.0,
+        "fragility_score": 56.8
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/Dashboard.tsx:handleHotspotSort",
+        "name": "handleHotspotSort",
+        "project": "frontend",
+        "file": "frontend/src/components/Dashboard.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 4.0,
+        "fragility_score": 56.8
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/GraphCanvas3D.tsx:animateWaves",
+        "name": "animateWaves",
+        "project": "frontend",
+        "file": "frontend/src/components/GraphCanvas3D.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 4.0,
+        "fragility_score": 56.8
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/ImpactAnalysisPanel.tsx:fragilityColor",
+        "name": "fragilityColor",
+        "project": "frontend",
+        "file": "frontend/src/components/ImpactAnalysisPanel.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 4.0,
+        "fragility_score": 56.8
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/AIQueryEngine.tsx:handleSubmit",
+        "name": "handleSubmit",
+        "project": "frontend",
+        "file": "frontend/src/components/AIQueryEngine.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 95.28,
+        "complexity": 12.0,
+        "fragility_score": 57.8
+      },
+      {
+        "namespace_key": "frontend:frontend/src/api.ts:askQuestion",
+        "name": "askQuestion",
+        "project": "frontend",
+        "file": "frontend/src/api.ts",
+        "labels": [
+          "Entity",
+          "TS_Function"
+        ],
+        "layer": "API",
+        "hotspot_score": 100.0,
+        "complexity": 3.0,
+        "fragility_score": 56.35
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/TopBar.tsx:handleAdd",
+        "name": "handleAdd",
+        "project": "frontend",
+        "file": "frontend/src/components/TopBar.tsx",
+        "labels": [
+          "Entity",
+          "TS_Component"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 3.0,
+        "fragility_score": 56.35
+      },
+      {
+        "namespace_key": "frontend:frontend/src/api.ts:cancelScan",
+        "name": "cancelScan",
+        "project": "frontend",
+        "file": "frontend/src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 100.0,
+        "complexity": 3.0,
+        "fragility_score": 56.35
+      },
+      {
+        "namespace_key": "frontend:frontend/src/api.ts:cancelScan",
+        "name": "cancelScan",
+        "project": "frontend",
+        "file": "frontend/src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 100.0,
+        "complexity": 3.0,
+        "fragility_score": 56.35
+      },
+      {
+        "namespace_key": "frontend:frontend/src/api.ts:upsertTag",
+        "name": "upsertTag",
+        "project": "frontend",
+        "file": "frontend/src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 100.0,
+        "complexity": 3.0,
+        "fragility_score": 56.35
+      },
+      {
+        "namespace_key": "frontend:frontend/src/api.ts:upsertTag",
+        "name": "upsertTag",
+        "project": "frontend",
+        "file": "frontend/src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 100.0,
+        "complexity": 3.0,
+        "fragility_score": 56.35
+      },
+      {
+        "namespace_key": "frontend:frontend/src/api.ts:askQuestion",
+        "name": "askQuestion",
+        "project": "frontend",
+        "file": "frontend/src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 100.0,
+        "complexity": 3.0,
+        "fragility_score": 56.35
+      },
+      {
+        "namespace_key": "frontend:frontend/src/api.ts:askQuestion",
+        "name": "askQuestion",
+        "project": "frontend",
+        "file": "frontend/src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 100.0,
+        "complexity": 3.0,
+        "fragility_score": 56.35
+      },
+      {
+        "namespace_key": "frontend:frontend/src/api.ts:fetchFragilityRanking",
+        "name": "fetchFragilityRanking",
+        "project": "frontend",
+        "file": "frontend/src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 100.0,
+        "complexity": 3.0,
+        "fragility_score": 56.35
+      },
+      {
+        "namespace_key": "frontend:frontend/src/api.ts:fetchFragilityRanking",
+        "name": "fetchFragilityRanking",
+        "project": "frontend",
+        "file": "frontend/src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 100.0,
+        "complexity": 3.0,
+        "fragility_score": 56.35
+      },
+      {
+        "namespace_key": "frontend:frontend/src/api.ts:fetchBidirectionalImpact",
+        "name": "fetchBidirectionalImpact",
+        "project": "frontend",
+        "file": "frontend/src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 100.0,
+        "complexity": 3.0,
+        "fragility_score": 56.35
+      },
+      {
+        "namespace_key": "frontend:frontend/src/api.ts:fetchBidirectionalImpact",
+        "name": "fetchBidirectionalImpact",
+        "project": "frontend",
+        "file": "frontend/src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 100.0,
+        "complexity": 3.0,
+        "fragility_score": 56.35
+      },
+      {
+        "namespace_key": "frontend:frontend/src/api.ts:createCodeQLProject",
+        "name": "createCodeQLProject",
+        "project": "frontend",
+        "file": "frontend/src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 100.0,
+        "complexity": 3.0,
+        "fragility_score": 56.35
+      },
+      {
+        "namespace_key": "frontend:frontend/src/api.ts:createCodeQLProject",
+        "name": "createCodeQLProject",
+        "project": "frontend",
+        "file": "frontend/src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 100.0,
+        "complexity": 3.0,
+        "fragility_score": 56.35
+      },
+      {
+        "namespace_key": "frontend:frontend/src/api.ts:createWarRoom",
+        "name": "createWarRoom",
+        "project": "frontend",
+        "file": "frontend/src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 100.0,
+        "complexity": 3.0,
+        "fragility_score": 56.35
+      },
+      {
+        "namespace_key": "frontend:frontend/src/api.ts:createWarRoom",
+        "name": "createWarRoom",
+        "project": "frontend",
+        "file": "frontend/src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 100.0,
+        "complexity": 3.0,
+        "fragility_score": 56.35
+      },
+      {
+        "namespace_key": "frontend:frontend/src/App.tsx:ensureArray",
+        "name": "ensureArray",
+        "project": "frontend",
+        "file": "frontend/src/App.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 3.0,
+        "fragility_score": 56.35
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/Dashboard.tsx:handleViewImpact",
+        "name": "handleViewImpact",
+        "project": "frontend",
+        "file": "frontend/src/components/Dashboard.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 3.0,
+        "fragility_score": 56.35
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/GraphCanvas.tsx:computeBlastOpacity",
+        "name": "computeBlastOpacity",
+        "project": "frontend",
+        "file": "frontend/src/components/GraphCanvas.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 3.0,
+        "fragility_score": 56.35
+      },
+      {
+        "namespace_key": "frontend:frontend/src/components/TopBar.tsx:handleAdd",
+        "name": "handleAdd",
+        "project": "frontend",
+        "file": "frontend/src/components/TopBar.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 3.0,
+        "fragility_score": 56.35
+      }
+    ]
+  },
+  {
+    "timestamp": "2026-04-21T21:07:42.974769",
+    "total_nodes": 547,
+    "total_edges": 8265,
+    "god_classes": 0,
+    "circular_deps": 0,
+    "dead_code": 0,
+    "call_resolution_rate": 3.56,
+    "call_total": 8026,
+    "call_resolved": 286,
+    "call_unresolved": 7740,
+    "node_snapshot": [
+      {
+        "namespace_key": "frontend:src/components/GraphCanvas.tsx:GraphCanvasInnerImpl",
+        "name": "GraphCanvasInnerImpl",
+        "project": "frontend",
+        "file": "src/components/GraphCanvas.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 377.0,
+        "fragility_score": 100.0
+      },
+      {
+        "namespace_key": "frontend:src/components/HandGestureController.tsx:HandGestureController",
+        "name": "HandGestureController",
+        "project": "frontend",
+        "file": "src/components/HandGestureController.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 171.0,
+        "fragility_score": 100.0
+      },
+      {
+        "namespace_key": "frontend:src/components/HandGestureController.tsx:HandGestureController",
+        "name": "HandGestureController",
+        "project": "frontend",
+        "file": "src/components/HandGestureController.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 171.0,
+        "fragility_score": 100.0
+      },
+      {
+        "namespace_key": "frontend:src/components/ImpactAnalysisPanel.tsx:ImpactAnalysisPanel",
+        "name": "ImpactAnalysisPanel",
+        "project": "frontend",
+        "file": "src/components/ImpactAnalysisPanel.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 161.0,
+        "fragility_score": 100.0
+      },
+      {
+        "namespace_key": "frontend:src/components/ImpactAnalysisPanel.tsx:ImpactAnalysisPanel",
+        "name": "ImpactAnalysisPanel",
+        "project": "frontend",
+        "file": "src/components/ImpactAnalysisPanel.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 161.0,
+        "fragility_score": 100.0
+      },
+      {
+        "namespace_key": "frontend:src/App.tsx:App",
+        "name": "App",
+        "project": "frontend",
+        "file": "src/App.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 160.0,
+        "fragility_score": 100.0
+      },
+      {
+        "namespace_key": "frontend:src/App.tsx:App",
+        "name": "App",
+        "project": "frontend",
+        "file": "src/App.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 160.0,
+        "fragility_score": 100.0
+      },
+      {
+        "namespace_key": "frontend:src/components/NodeDetail.tsx:NodeDetail",
+        "name": "NodeDetail",
+        "project": "frontend",
+        "file": "src/components/NodeDetail.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 136.0,
+        "fragility_score": 100.0
+      },
+      {
+        "namespace_key": "frontend:src/components/NodeDetail.tsx:NodeDetail",
+        "name": "NodeDetail",
+        "project": "frontend",
+        "file": "src/components/NodeDetail.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 136.0,
+        "fragility_score": 100.0
+      },
+      {
+        "namespace_key": "frontend:src/components/Dashboard.tsx:Dashboard",
+        "name": "Dashboard",
+        "project": "frontend",
+        "file": "src/components/Dashboard.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 131.0,
+        "fragility_score": 100.0
+      },
+      {
+        "namespace_key": "frontend:src/components/Dashboard.tsx:Dashboard",
+        "name": "Dashboard",
+        "project": "frontend",
+        "file": "src/components/Dashboard.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 131.0,
+        "fragility_score": 100.0
+      },
+      {
+        "namespace_key": "frontend:src/components/GraphCanvas3D.tsx:GraphCanvas3D",
+        "name": "GraphCanvas3D",
+        "project": "frontend",
+        "file": "src/components/GraphCanvas3D.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 130.0,
+        "fragility_score": 100.0
+      },
+      {
+        "namespace_key": "frontend:src/components/GraphCanvas3D.tsx:GraphCanvas3D",
+        "name": "GraphCanvas3D",
+        "project": "frontend",
+        "file": "src/components/GraphCanvas3D.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 100.0,
+        "complexity": 130.0,
+        "fragility_score": 100.0
+      },
+      {
+        "namespace_key": "frontend:src/components/Timeline4D.tsx:Timeline4D",
+        "name": "Timeline4D",
+        "project": "frontend",
+        "file": "src/components/Timeline4D.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 90.0,
+        "complexity": 90.0,
+        "fragility_score": 90.0
+      },
+      {
+        "namespace_key": "frontend:src/components/SettingsScreen.tsx:SettingsScreen",
+        "name": "SettingsScreen",
+        "project": "frontend",
+        "file": "src/components/SettingsScreen.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 85.0,
+        "complexity": 85.0,
+        "fragility_score": 85.0
+      },
+      {
+        "namespace_key": "frontend:src/components/TopBar.tsx:TopBar",
+        "name": "TopBar",
+        "project": "frontend",
+        "file": "src/components/TopBar.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 62.0,
+        "complexity": 62.0,
+        "fragility_score": 62.0
+      },
+      {
+        "namespace_key": "frontend:src/components/TopBar.tsx:TopBar",
+        "name": "TopBar",
+        "project": "frontend",
+        "file": "src/components/TopBar.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 62.0,
+        "complexity": 62.0,
+        "fragility_score": 62.0
+      },
+      {
+        "namespace_key": "frontend:src/components/Sidebar.tsx:Sidebar",
+        "name": "Sidebar",
+        "project": "frontend",
+        "file": "src/components/Sidebar.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 58.0,
+        "complexity": 58.0,
+        "fragility_score": 58.0
+      },
+      {
+        "namespace_key": "frontend:src/components/Sidebar.tsx:Sidebar",
+        "name": "Sidebar",
+        "project": "frontend",
+        "file": "src/components/Sidebar.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 58.0,
+        "complexity": 58.0,
+        "fragility_score": 58.0
+      },
+      {
+        "namespace_key": "frontend:src/components/GestureController.tsx:GestureController",
+        "name": "GestureController",
+        "project": "frontend",
+        "file": "src/components/GestureController.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 55.0,
+        "complexity": 55.0,
+        "fragility_score": 55.0
+      },
+      {
+        "namespace_key": "frontend:src/components/GestureController.tsx:GestureController",
+        "name": "GestureController",
+        "project": "frontend",
+        "file": "src/components/GestureController.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 55.0,
+        "complexity": 55.0,
+        "fragility_score": 55.0
+      },
+      {
+        "namespace_key": "frontend:src/components/AskPanel.tsx:AskPanel",
+        "name": "AskPanel",
+        "project": "frontend",
+        "file": "src/components/AskPanel.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 50.0,
+        "complexity": 50.0,
+        "fragility_score": 50.0
+      },
+      {
+        "namespace_key": "frontend:src/components/AskPanel.tsx:AskPanel",
+        "name": "AskPanel",
+        "project": "frontend",
+        "file": "src/components/AskPanel.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 50.0,
+        "complexity": 50.0,
+        "fragility_score": 50.0
+      },
+      {
+        "namespace_key": "frontend:src/components/SecurityDashboard.tsx:SecurityDashboard",
+        "name": "SecurityDashboard",
+        "project": "frontend",
+        "file": "src/components/SecurityDashboard.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 48.0,
+        "complexity": 48.0,
+        "fragility_score": 48.0
+      },
+      {
+        "namespace_key": "frontend:src/components/SecurityDashboard.tsx:SecurityDashboard",
+        "name": "SecurityDashboard",
+        "project": "frontend",
+        "file": "src/components/SecurityDashboard.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 48.0,
+        "complexity": 48.0,
+        "fragility_score": 48.0
+      },
+      {
+        "namespace_key": "frontend:src/components/CodeQLTimeline.tsx:CodeQLTimeline",
+        "name": "CodeQLTimeline",
+        "project": "frontend",
+        "file": "src/components/CodeQLTimeline.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 46.0,
+        "complexity": 46.0,
+        "fragility_score": 46.0
+      },
+      {
+        "namespace_key": "frontend:src/components/CodeQLTimeline.tsx:CodeQLTimeline",
+        "name": "CodeQLTimeline",
+        "project": "frontend",
+        "file": "src/components/CodeQLTimeline.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 46.0,
+        "complexity": 46.0,
+        "fragility_score": 46.0
+      },
+      {
+        "namespace_key": "frontend:src/components/EvolutionDashboard.tsx:EvolutionDashboard",
+        "name": "EvolutionDashboard",
+        "project": "frontend",
+        "file": "src/components/EvolutionDashboard.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 46.0,
+        "complexity": 46.0,
+        "fragility_score": 46.0
+      },
+      {
+        "namespace_key": "frontend:src/components/EvolutionDashboard.tsx:EvolutionDashboard",
+        "name": "EvolutionDashboard",
+        "project": "frontend",
+        "file": "src/components/EvolutionDashboard.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 46.0,
+        "complexity": 46.0,
+        "fragility_score": 46.0
+      },
+      {
+        "namespace_key": "frontend:src/components/WatchModePanel.tsx:WatchModePanel",
+        "name": "WatchModePanel",
+        "project": "frontend",
+        "file": "src/components/WatchModePanel.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 45.0,
+        "complexity": 45.0,
+        "fragility_score": 45.0
+      },
+      {
+        "namespace_key": "frontend:src/components/WatchModePanel.tsx:WatchModePanel",
+        "name": "WatchModePanel",
+        "project": "frontend",
+        "file": "src/components/WatchModePanel.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 45.0,
+        "complexity": 45.0,
+        "fragility_score": 45.0
+      },
+      {
+        "namespace_key": "frontend:src/components/CodeQLModal.tsx:CodeQLModal",
+        "name": "CodeQLModal",
+        "project": "frontend",
+        "file": "src/components/CodeQLModal.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 42.0,
+        "complexity": 42.0,
+        "fragility_score": 42.0
+      },
+      {
+        "namespace_key": "frontend:src/components/WorkspaceHub.tsx:WorkspaceHub",
+        "name": "WorkspaceHub",
+        "project": "frontend",
+        "file": "src/components/WorkspaceHub.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 42.0,
+        "complexity": 42.0,
+        "fragility_score": 42.0
+      },
+      {
+        "namespace_key": "frontend:src/components/WorkspaceHub.tsx:WorkspaceHub",
+        "name": "WorkspaceHub",
+        "project": "frontend",
+        "file": "src/components/WorkspaceHub.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 42.0,
+        "complexity": 42.0,
+        "fragility_score": 42.0
+      },
+      {
+        "namespace_key": "frontend:src/components/TransactionPanel.tsx:TransactionPanel",
+        "name": "TransactionPanel",
+        "project": "frontend",
+        "file": "src/components/TransactionPanel.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 41.0,
+        "complexity": 41.0,
+        "fragility_score": 41.0
+      },
+      {
+        "namespace_key": "frontend:src/components/TransactionPanel.tsx:TransactionPanel",
+        "name": "TransactionPanel",
+        "project": "frontend",
+        "file": "src/components/TransactionPanel.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 41.0,
+        "complexity": 41.0,
+        "fragility_score": 41.0
+      },
+      {
+        "namespace_key": "frontend:src/components/GraphCanvas.tsx:CustomNode",
+        "name": "CustomNode",
+        "project": "frontend",
+        "file": "src/components/GraphCanvas.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 37.0,
+        "complexity": 37.0,
+        "fragility_score": 37.0
+      },
+      {
+        "namespace_key": "frontend:src/components/ProjectManagement.tsx:ProjectManagement",
+        "name": "ProjectManagement",
+        "project": "frontend",
+        "file": "src/components/ProjectManagement.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 37.0,
+        "complexity": 37.0,
+        "fragility_score": 37.0
+      },
+      {
+        "namespace_key": "frontend:src/components/ProjectManagement.tsx:ProjectManagement",
+        "name": "ProjectManagement",
+        "project": "frontend",
+        "file": "src/components/ProjectManagement.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 37.0,
+        "complexity": 37.0,
+        "fragility_score": 37.0
+      },
+      {
+        "namespace_key": "frontend:src/components/SimulationPanel.tsx:SimulationPanel",
+        "name": "SimulationPanel",
+        "project": "frontend",
+        "file": "src/components/SimulationPanel.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 37.0,
+        "complexity": 37.0,
+        "fragility_score": 37.0
+      },
+      {
+        "namespace_key": "frontend:src/components/SimulationPanel.tsx:SimulationPanel",
+        "name": "SimulationPanel",
+        "project": "frontend",
+        "file": "src/components/SimulationPanel.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 37.0,
+        "complexity": 37.0,
+        "fragility_score": 37.0
+      },
+      {
+        "namespace_key": "frontend:src/utils/WebSocketClient.ts:WebSocketClient",
+        "name": "WebSocketClient",
+        "project": "frontend",
+        "file": "src/utils/WebSocketClient.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 37.0,
+        "complexity": 37.0,
+        "fragility_score": 37.0
+      },
+      {
+        "namespace_key": "frontend:src/components/LiveAlertFeed.tsx:LiveAlertFeed",
+        "name": "LiveAlertFeed",
+        "project": "frontend",
+        "file": "src/components/LiveAlertFeed.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 35.0,
+        "complexity": 35.0,
+        "fragility_score": 35.0
+      },
+      {
+        "namespace_key": "frontend:src/components/GraphCanvas.tsx:pushNode",
+        "name": "pushNode",
+        "project": "frontend",
+        "file": "src/components/GraphCanvas.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 32.0,
+        "complexity": 32.0,
+        "fragility_score": 32.0
+      },
+      {
+        "namespace_key": "frontend:src/components/SidebarIntelligence.tsx:SidebarIntelligence",
+        "name": "SidebarIntelligence",
+        "project": "frontend",
+        "file": "src/components/SidebarIntelligence.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 32.0,
+        "complexity": 32.0,
+        "fragility_score": 32.0
+      },
+      {
+        "namespace_key": "frontend:src/components/InvestigationMode.tsx:InvestigationMode",
+        "name": "InvestigationMode",
+        "project": "frontend",
+        "file": "src/components/InvestigationMode.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 31.0,
+        "complexity": 31.0,
+        "fragility_score": 31.0
+      },
+      {
+        "namespace_key": "frontend:src/components/QualityGatePanel.tsx:QualityGatePanel",
+        "name": "QualityGatePanel",
+        "project": "frontend",
+        "file": "src/components/QualityGatePanel.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 30.0,
+        "complexity": 30.0,
+        "fragility_score": 30.0
+      },
+      {
+        "namespace_key": "frontend:src/components/QualityGatePanel.tsx:QualityGatePanel",
+        "name": "QualityGatePanel",
+        "project": "frontend",
+        "file": "src/components/QualityGatePanel.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 30.0,
+        "complexity": 30.0,
+        "fragility_score": 30.0
+      },
+      {
+        "namespace_key": "frontend:src/components/CommitTimeline.tsx:CommitTimeline",
+        "name": "CommitTimeline",
+        "project": "frontend",
+        "file": "src/components/CommitTimeline.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 27.0,
+        "complexity": 27.0,
+        "fragility_score": 27.0
+      },
+      {
+        "namespace_key": "frontend:src/components/SemanticSearchPanel.tsx:SemanticSearchPanel",
+        "name": "SemanticSearchPanel",
+        "project": "frontend",
+        "file": "src/components/SemanticSearchPanel.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 26.0,
+        "complexity": 26.0,
+        "fragility_score": 26.0
+      },
+      {
+        "namespace_key": "frontend:src/components/SemanticSearchPanel.tsx:SemanticSearchPanel",
+        "name": "SemanticSearchPanel",
+        "project": "frontend",
+        "file": "src/components/SemanticSearchPanel.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 26.0,
+        "complexity": 26.0,
+        "fragility_score": 26.0
+      },
+      {
+        "namespace_key": "frontend:src/utils/FPSMonitor.ts:FPSMonitor",
+        "name": "FPSMonitor",
+        "project": "frontend",
+        "file": "src/utils/FPSMonitor.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 24.0,
+        "complexity": 24.0,
+        "fragility_score": 24.0
+      },
+      {
+        "namespace_key": "frontend:src/utils/WaveAnimationManager.ts:WaveAnimationManager",
+        "name": "WaveAnimationManager",
+        "project": "frontend",
+        "file": "src/utils/WaveAnimationManager.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 22.0,
+        "complexity": 22.0,
+        "fragility_score": 22.0
+      },
+      {
+        "namespace_key": "frontend:src/components/WeeklyDigestPanel.tsx:WeeklyDigestPanel",
+        "name": "WeeklyDigestPanel",
+        "project": "frontend",
+        "file": "src/components/WeeklyDigestPanel.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 21.0,
+        "complexity": 21.0,
+        "fragility_score": 21.0
+      },
+      {
+        "namespace_key": "frontend:src/components/AIQueryEngine.tsx:AIQueryEngine",
+        "name": "AIQueryEngine",
+        "project": "frontend",
+        "file": "src/components/AIQueryEngine.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 20.0,
+        "complexity": 20.0,
+        "fragility_score": 20.0
+      },
+      {
+        "namespace_key": "frontend:src/components/DashboardPulse.tsx:DashboardPulse",
+        "name": "DashboardPulse",
+        "project": "frontend",
+        "file": "src/components/DashboardPulse.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 20.0,
+        "complexity": 20.0,
+        "fragility_score": 20.0
+      },
+      {
+        "namespace_key": "frontend:src/components/DashboardPulse.tsx:DashboardPulse",
+        "name": "DashboardPulse",
+        "project": "frontend",
+        "file": "src/components/DashboardPulse.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 20.0,
+        "complexity": 20.0,
+        "fragility_score": 20.0
+      },
+      {
+        "namespace_key": "frontend:src/components/GestureController.tsx:getFriendlyMediaError",
+        "name": "getFriendlyMediaError",
+        "project": "frontend",
+        "file": "src/components/GestureController.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 19.0,
+        "complexity": 19.0,
+        "fragility_score": 19.0
+      },
+      {
+        "namespace_key": "frontend:src/components/APIInventoryPanel.tsx:APIInventoryPanel",
+        "name": "APIInventoryPanel",
+        "project": "frontend",
+        "file": "src/components/APIInventoryPanel.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 18.0,
+        "complexity": 18.0,
+        "fragility_score": 18.0
+      },
+      {
+        "namespace_key": "frontend:src/components/APIInventoryPanel.tsx:APIInventoryPanel",
+        "name": "APIInventoryPanel",
+        "project": "frontend",
+        "file": "src/components/APIInventoryPanel.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 18.0,
+        "complexity": 18.0,
+        "fragility_score": 18.0
+      },
+      {
+        "namespace_key": "frontend:src/components/CodeQLModal.tsx:JobProgressCard",
+        "name": "JobProgressCard",
+        "project": "frontend",
+        "file": "src/components/CodeQLModal.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 18.0,
+        "complexity": 18.0,
+        "fragility_score": 18.0
+      },
+      {
+        "namespace_key": "frontend:src/components/CodeQLModal.tsx:ProjectCard",
+        "name": "ProjectCard",
+        "project": "frontend",
+        "file": "src/components/CodeQLModal.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 18.0,
+        "complexity": 18.0,
+        "fragility_score": 18.0
+      },
+      {
+        "namespace_key": "frontend:src/components/CommandPalette.tsx:CommandPalette",
+        "name": "CommandPalette",
+        "project": "frontend",
+        "file": "src/components/CommandPalette.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 18.0,
+        "complexity": 18.0,
+        "fragility_score": 18.0
+      },
+      {
+        "namespace_key": "frontend:src/components/CommandPalette.tsx:CommandPalette",
+        "name": "CommandPalette",
+        "project": "frontend",
+        "file": "src/components/CommandPalette.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 18.0,
+        "complexity": 18.0,
+        "fragility_score": 18.0
+      },
+      {
+        "namespace_key": "frontend:src/components/InventoryPanel.tsx:InventoryPanel",
+        "name": "InventoryPanel",
+        "project": "frontend",
+        "file": "src/components/InventoryPanel.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 18.0,
+        "complexity": 18.0,
+        "fragility_score": 18.0
+      },
+      {
+        "namespace_key": "frontend:src/components/InventoryPanel.tsx:InventoryPanel",
+        "name": "InventoryPanel",
+        "project": "frontend",
+        "file": "src/components/InventoryPanel.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 18.0,
+        "complexity": 18.0,
+        "fragility_score": 18.0
+      },
+      {
+        "namespace_key": "frontend:src/components/SavedViewsPanel.tsx:SavedViewsPanel",
+        "name": "SavedViewsPanel",
+        "project": "frontend",
+        "file": "src/components/SavedViewsPanel.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 18.0,
+        "complexity": 18.0,
+        "fragility_score": 18.0
+      },
+      {
+        "namespace_key": "frontend:src/components/SavedViewsPanel.tsx:SavedViewsPanel",
+        "name": "SavedViewsPanel",
+        "project": "frontend",
+        "file": "src/components/SavedViewsPanel.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 18.0,
+        "complexity": 18.0,
+        "fragility_score": 18.0
+      },
+      {
+        "namespace_key": "frontend:src/hooks/useWatchMode.ts:useWatchMode",
+        "name": "useWatchMode",
+        "project": "frontend",
+        "file": "src/hooks/useWatchMode.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 18.0,
+        "complexity": 18.0,
+        "fragility_score": 18.0
+      },
+      {
+        "namespace_key": "frontend:src/hooks/useWatchMode.ts:useWatchMode",
+        "name": "useWatchMode",
+        "project": "frontend",
+        "file": "src/hooks/useWatchMode.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 18.0,
+        "complexity": 18.0,
+        "fragility_score": 18.0
+      },
+      {
+        "namespace_key": "frontend:src/utils/SSEConnectionManager.ts:SSEConnectionManager",
+        "name": "SSEConnectionManager",
+        "project": "frontend",
+        "file": "src/utils/SSEConnectionManager.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 18.0,
+        "complexity": 18.0,
+        "fragility_score": 18.0
+      },
+      {
+        "namespace_key": "frontend:src/App.tsx:onGraphUpdated",
+        "name": "onGraphUpdated",
+        "project": "frontend",
+        "file": "src/App.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 16.0,
+        "complexity": 16.0,
+        "fragility_score": 16.0
+      },
+      {
+        "namespace_key": "frontend:src/components/CollaborationUI.tsx:CollaborationUI",
+        "name": "CollaborationUI",
+        "project": "frontend",
+        "file": "src/components/CollaborationUI.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 16.0,
+        "complexity": 16.0,
+        "fragility_score": 16.0
+      },
+      {
+        "namespace_key": "frontend:src/components/CollaborationUI.tsx:CollaborationUI",
+        "name": "CollaborationUI",
+        "project": "frontend",
+        "file": "src/components/CollaborationUI.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 16.0,
+        "complexity": 16.0,
+        "fragility_score": 16.0
+      },
+      {
+        "namespace_key": "frontend:src/components/EvolutionDashboard.tsx:getTrendCards",
+        "name": "getTrendCards",
+        "project": "frontend",
+        "file": "src/components/EvolutionDashboard.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 16.0,
+        "complexity": 16.0,
+        "fragility_score": 16.0
+      },
+      {
+        "namespace_key": "frontend:src/components/GestureController.tsx:simulateGestureRecognition",
+        "name": "simulateGestureRecognition",
+        "project": "frontend",
+        "file": "src/components/GestureController.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 16.0,
+        "complexity": 16.0,
+        "fragility_score": 16.0
+      },
+      {
+        "namespace_key": "frontend:src/components/ProjectManagement.tsx:Architecture4DModal",
+        "name": "Architecture4DModal",
+        "project": "frontend",
+        "file": "src/components/ProjectManagement.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 16.0,
+        "complexity": 16.0,
+        "fragility_score": 16.0
+      },
+      {
+        "namespace_key": "frontend:src/components/MethodUsageView.tsx:MethodUsageView",
+        "name": "MethodUsageView",
+        "project": "frontend",
+        "file": "src/components/MethodUsageView.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 15.0,
+        "complexity": 15.0,
+        "fragility_score": 15.0
+      },
+      {
+        "namespace_key": "frontend:src/components/MethodUsageView.tsx:MethodUsageView",
+        "name": "MethodUsageView",
+        "project": "frontend",
+        "file": "src/components/MethodUsageView.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 15.0,
+        "complexity": 15.0,
+        "fragility_score": 15.0
+      },
+      {
+        "namespace_key": "frontend:src/components/ProjectManagement.tsx:ImpactPanel",
+        "name": "ImpactPanel",
+        "project": "frontend",
+        "file": "src/components/ProjectManagement.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 15.0,
+        "complexity": 15.0,
+        "fragility_score": 15.0
+      },
+      {
+        "namespace_key": "frontend:src/components/WaveAnimator.tsx:WaveAnimator",
+        "name": "WaveAnimator",
+        "project": "frontend",
+        "file": "src/components/WaveAnimator.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 15.0,
+        "complexity": 15.0,
+        "fragility_score": 15.0
+      },
+      {
+        "namespace_key": "frontend:src/hooks/useRealtimeEvents.ts:useRealtimeEvents",
+        "name": "useRealtimeEvents",
+        "project": "frontend",
+        "file": "src/hooks/useRealtimeEvents.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 15.0,
+        "complexity": 15.0,
+        "fragility_score": 15.0
+      },
+      {
+        "namespace_key": "frontend:src/hooks/useRealtimeEvents.ts:useRealtimeEvents",
+        "name": "useRealtimeEvents",
+        "project": "frontend",
+        "file": "src/hooks/useRealtimeEvents.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 15.0,
+        "complexity": 15.0,
+        "fragility_score": 15.0
+      },
+      {
+        "namespace_key": "frontend:src/utils/MemoryManager.ts:MemoryManager",
+        "name": "MemoryManager",
+        "project": "frontend",
+        "file": "src/utils/MemoryManager.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 15.0,
+        "complexity": 15.0,
+        "fragility_score": 15.0
+      },
+      {
+        "namespace_key": "frontend:src/components/CommitTimeline.tsx:healthColor",
+        "name": "healthColor",
+        "project": "frontend",
+        "file": "src/components/CommitTimeline.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 14.0,
+        "complexity": 14.0,
+        "fragility_score": 14.0
+      },
+      {
+        "namespace_key": "frontend:src/components/ImpactAnalysisPanel.tsx:TaintPointCard",
+        "name": "TaintPointCard",
+        "project": "frontend",
+        "file": "src/components/ImpactAnalysisPanel.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 14.0,
+        "complexity": 14.0,
+        "fragility_score": 14.0
+      },
+      {
+        "namespace_key": "frontend:src/utils/BatchUpdateManager.ts:BatchUpdateManager",
+        "name": "BatchUpdateManager",
+        "project": "frontend",
+        "file": "src/utils/BatchUpdateManager.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 14.0,
+        "complexity": 14.0,
+        "fragility_score": 14.0
+      },
+      {
+        "namespace_key": "vscode-extension:src/extension.ts:activate",
+        "name": "activate",
+        "project": "vscode-extension",
+        "file": "src/extension.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 14.0,
+        "complexity": 14.0,
+        "fragility_score": 14.0
+      },
+      {
+        "namespace_key": "vscode-extension:src/extension.ts:activate",
+        "name": "activate",
+        "project": "vscode-extension",
+        "file": "src/extension.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 14.0,
+        "complexity": 14.0,
+        "fragility_score": 14.0
+      },
+      {
+        "namespace_key": "frontend:src/api.ts:fetchSecurityVulnerabilities",
+        "name": "fetchSecurityVulnerabilities",
+        "project": "frontend",
+        "file": "src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 13.0,
+        "complexity": 13.0,
+        "fragility_score": 13.0
+      },
+      {
+        "namespace_key": "frontend:src/api.ts:fetchSecurityVulnerabilities",
+        "name": "fetchSecurityVulnerabilities",
+        "project": "frontend",
+        "file": "src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 13.0,
+        "complexity": 13.0,
+        "fragility_score": 13.0
+      },
+      {
+        "namespace_key": "frontend:src/api.ts:fetchCodeQLHistory",
+        "name": "fetchCodeQLHistory",
+        "project": "frontend",
+        "file": "src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 13.0,
+        "complexity": 13.0,
+        "fragility_score": 13.0
+      },
+      {
+        "namespace_key": "frontend:src/api.ts:fetchCodeQLHistory",
+        "name": "fetchCodeQLHistory",
+        "project": "frontend",
+        "file": "src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 13.0,
+        "complexity": 13.0,
+        "fragility_score": 13.0
+      },
+      {
+        "namespace_key": "frontend:src/components/AnalysisHistory.tsx:AnalysisHistory",
+        "name": "AnalysisHistory",
+        "project": "frontend",
+        "file": "src/components/AnalysisHistory.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 13.0,
+        "complexity": 13.0,
+        "fragility_score": 13.0
+      },
+      {
+        "namespace_key": "frontend:src/components/GraphCanvas.tsx:normalizeLayer",
+        "name": "normalizeLayer",
+        "project": "frontend",
+        "file": "src/components/GraphCanvas.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 13.0,
+        "complexity": 13.0,
+        "fragility_score": 13.0
+      },
+      {
+        "namespace_key": "frontend:src/components/GuidedActions.tsx:GuidedActions",
+        "name": "GuidedActions",
+        "project": "frontend",
+        "file": "src/components/GuidedActions.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 13.0,
+        "complexity": 13.0,
+        "fragility_score": 13.0
+      },
+      {
+        "namespace_key": "frontend:src/components/GuidedActions.tsx:GuidedActions",
+        "name": "GuidedActions",
+        "project": "frontend",
+        "file": "src/components/GuidedActions.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 13.0,
+        "complexity": 13.0,
+        "fragility_score": 13.0
+      },
+      {
+        "namespace_key": "frontend:src/components/ImpactNotification.tsx:ImpactNotification",
+        "name": "ImpactNotification",
+        "project": "frontend",
+        "file": "src/components/ImpactNotification.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 13.0,
+        "complexity": 13.0,
+        "fragility_score": 13.0
+      },
+      {
+        "namespace_key": "frontend:src/components/NeonRenderer.tsx:NeonRenderer",
+        "name": "NeonRenderer",
+        "project": "frontend",
+        "file": "src/components/NeonRenderer.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 13.0,
+        "complexity": 13.0,
+        "fragility_score": 13.0
+      },
+      {
+        "namespace_key": "frontend:src/components/NeonRenderer.tsx:NeonRenderer",
+        "name": "NeonRenderer",
+        "project": "frontend",
+        "file": "src/components/NeonRenderer.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 13.0,
+        "complexity": 13.0,
+        "fragility_score": 13.0
+      },
+      {
+        "namespace_key": "frontend:src/components/ProjectManagement.tsx:Sidebar",
+        "name": "Sidebar",
+        "project": "frontend",
+        "file": "src/components/ProjectManagement.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 13.0,
+        "complexity": 13.0,
+        "fragility_score": 13.0
+      },
+      {
+        "namespace_key": "frontend:src/components/WatchImpactToast.tsx:ToastCard",
+        "name": "ToastCard",
+        "project": "frontend",
+        "file": "src/components/WatchImpactToast.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 13.0,
+        "complexity": 13.0,
+        "fragility_score": 13.0
+      },
+      {
+        "namespace_key": "frontend:src/components/AutoHealerPanel.tsx:AutoHealerPanel",
+        "name": "AutoHealerPanel",
+        "project": "frontend",
+        "file": "src/components/AutoHealerPanel.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 12.0,
+        "complexity": 12.0,
+        "fragility_score": 12.0
+      },
+      {
+        "namespace_key": "frontend:src/components/AutoHealerPanel.tsx:AutoHealerPanel",
+        "name": "AutoHealerPanel",
+        "project": "frontend",
+        "file": "src/components/AutoHealerPanel.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 12.0,
+        "complexity": 12.0,
+        "fragility_score": 12.0
+      },
+      {
+        "namespace_key": "frontend:src/components/GraphCanvas.tsx:normalizeProjectKey",
+        "name": "normalizeProjectKey",
+        "project": "frontend",
+        "file": "src/components/GraphCanvas.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 12.0,
+        "complexity": 12.0,
+        "fragility_score": 12.0
+      },
+      {
+        "namespace_key": "frontend:src/components/GraphCanvas3D.tsx:normalizeProjectKey",
+        "name": "normalizeProjectKey",
+        "project": "frontend",
+        "file": "src/components/GraphCanvas3D.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 12.0,
+        "complexity": 12.0,
+        "fragility_score": 12.0
+      },
+      {
+        "namespace_key": "frontend:src/components/GraphDiffViewer.tsx:GraphDiffViewer",
+        "name": "GraphDiffViewer",
+        "project": "frontend",
+        "file": "src/components/GraphDiffViewer.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 12.0,
+        "complexity": 12.0,
+        "fragility_score": 12.0
+      },
+      {
+        "namespace_key": "frontend:src/components/Timeline4D.tsx:loadCommitHistory",
+        "name": "loadCommitHistory",
+        "project": "frontend",
+        "file": "src/components/Timeline4D.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 12.0,
+        "complexity": 12.0,
+        "fragility_score": 12.0
+      },
+      {
+        "namespace_key": "frontend:src/api.ts:fetchApiInventory",
+        "name": "fetchApiInventory",
+        "project": "frontend",
+        "file": "src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 11.0,
+        "complexity": 11.0,
+        "fragility_score": 11.0
+      },
+      {
+        "namespace_key": "frontend:src/api.ts:fetchApiInventory",
+        "name": "fetchApiInventory",
+        "project": "frontend",
+        "file": "src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 11.0,
+        "complexity": 11.0,
+        "fragility_score": 11.0
+      },
+      {
+        "namespace_key": "frontend:src/api.ts:fetchTodos",
+        "name": "fetchTodos",
+        "project": "frontend",
+        "file": "src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 11.0,
+        "complexity": 11.0,
+        "fragility_score": 11.0
+      },
+      {
+        "namespace_key": "frontend:src/api.ts:fetchTodos",
+        "name": "fetchTodos",
+        "project": "frontend",
+        "file": "src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 11.0,
+        "complexity": 11.0,
+        "fragility_score": 11.0
+      },
+      {
+        "namespace_key": "frontend:src/api.ts:fetchGraphActivityHeatmap",
+        "name": "fetchGraphActivityHeatmap",
+        "project": "frontend",
+        "file": "src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 11.0,
+        "complexity": 11.0,
+        "fragility_score": 11.0
+      },
+      {
+        "namespace_key": "frontend:src/api.ts:fetchGraphActivityHeatmap",
+        "name": "fetchGraphActivityHeatmap",
+        "project": "frontend",
+        "file": "src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 11.0,
+        "complexity": 11.0,
+        "fragility_score": 11.0
+      },
+      {
+        "namespace_key": "frontend:src/components/AIQueryEngine.tsx:ChatMessageComponent",
+        "name": "ChatMessageComponent",
+        "project": "frontend",
+        "file": "src/components/AIQueryEngine.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 11.0,
+        "complexity": 11.0,
+        "fragility_score": 11.0
+      },
+      {
+        "namespace_key": "frontend:src/components/AnalysisHistory.tsx:DetailModal",
+        "name": "DetailModal",
+        "project": "frontend",
+        "file": "src/components/AnalysisHistory.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 11.0,
+        "complexity": 11.0,
+        "fragility_score": 11.0
+      },
+      {
+        "namespace_key": "frontend:src/components/AskPanel.tsx:renderGraphContext",
+        "name": "renderGraphContext",
+        "project": "frontend",
+        "file": "src/components/AskPanel.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 11.0,
+        "complexity": 11.0,
+        "fragility_score": 11.0
+      },
+      {
+        "namespace_key": "frontend:src/components/Dashboard.tsx:getValue",
+        "name": "getValue",
+        "project": "frontend",
+        "file": "src/components/Dashboard.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 11.0,
+        "complexity": 11.0,
+        "fragility_score": 11.0
+      },
+      {
+        "namespace_key": "frontend:src/components/GestureController.tsx:startController",
+        "name": "startController",
+        "project": "frontend",
+        "file": "src/components/GestureController.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 11.0,
+        "complexity": 11.0,
+        "fragility_score": 11.0
+      },
+      {
+        "namespace_key": "frontend:src/hooks/useVirtualizedNodes.ts:useVirtualizedNodes",
+        "name": "useVirtualizedNodes",
+        "project": "frontend",
+        "file": "src/hooks/useVirtualizedNodes.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 11.0,
+        "complexity": 11.0,
+        "fragility_score": 11.0
+      },
+      {
+        "namespace_key": "frontend:src/hooks/useVirtualizedNodes.ts:useVirtualizedNodes",
+        "name": "useVirtualizedNodes",
+        "project": "frontend",
+        "file": "src/hooks/useVirtualizedNodes.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 11.0,
+        "complexity": 11.0,
+        "fragility_score": 11.0
+      },
+      {
+        "namespace_key": "frontend:src/api.ts:askQuestion",
+        "name": "askQuestion",
+        "project": "frontend",
+        "file": "src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 10.0,
+        "complexity": 10.0,
+        "fragility_score": 10.0
+      },
+      {
+        "namespace_key": "frontend:src/api.ts:askQuestion",
+        "name": "askQuestion",
+        "project": "frontend",
+        "file": "src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 10.0,
+        "complexity": 10.0,
+        "fragility_score": 10.0
+      },
+      {
+        "namespace_key": "frontend:src/App.tsx:onImpactDetected",
+        "name": "onImpactDetected",
+        "project": "frontend",
+        "file": "src/App.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 10.0,
+        "complexity": 10.0,
+        "fragility_score": 10.0
+      },
+      {
+        "namespace_key": "frontend:src/components/AnalysisHistory.tsx:HistoryRow",
+        "name": "HistoryRow",
+        "project": "frontend",
+        "file": "src/components/AnalysisHistory.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 10.0,
+        "complexity": 10.0,
+        "fragility_score": 10.0
+      },
+      {
+        "namespace_key": "frontend:src/components/CodeQLModal.tsx:AddProjectForm",
+        "name": "AddProjectForm",
+        "project": "frontend",
+        "file": "src/components/CodeQLModal.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 10.0,
+        "complexity": 10.0,
+        "fragility_score": 10.0
+      },
+      {
+        "namespace_key": "frontend:src/components/GraphCanvas.tsx:getNodeClass",
+        "name": "getNodeClass",
+        "project": "frontend",
+        "file": "src/components/GraphCanvas.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 10.0,
+        "complexity": 10.0,
+        "fragility_score": 10.0
+      },
+      {
+        "namespace_key": "frontend:src/components/GraphCanvas.tsx:getNodeIcon",
+        "name": "getNodeIcon",
+        "project": "frontend",
+        "file": "src/components/GraphCanvas.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 10.0,
+        "complexity": 10.0,
+        "fragility_score": 10.0
+      },
+      {
+        "namespace_key": "frontend:src/components/GraphCanvas.tsx:edgeTypeRank",
+        "name": "edgeTypeRank",
+        "project": "frontend",
+        "file": "src/components/GraphCanvas.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 10.0,
+        "complexity": 10.0,
+        "fragility_score": 10.0
+      },
+      {
+        "namespace_key": "frontend:src/components/ImpactAnalysisPanel.tsx:AffectedItemCard",
+        "name": "AffectedItemCard",
+        "project": "frontend",
+        "file": "src/components/ImpactAnalysisPanel.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 10.0,
+        "complexity": 10.0,
+        "fragility_score": 10.0
+      },
+      {
+        "namespace_key": "frontend:src/components/Timeline4D.tsx:loadGraphSnapshot",
+        "name": "loadGraphSnapshot",
+        "project": "frontend",
+        "file": "src/components/Timeline4D.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 10.0,
+        "complexity": 10.0,
+        "fragility_score": 10.0
+      },
+      {
+        "namespace_key": "vscode-extension:src/impact-panel.ts:ImpactPanel",
+        "name": "ImpactPanel",
+        "project": "vscode-extension",
+        "file": "src/impact-panel.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 10.0,
+        "complexity": 10.0,
+        "fragility_score": 10.0
+      },
+      {
+        "namespace_key": "frontend:src/api.ts:fetchInheritance",
+        "name": "fetchInheritance",
+        "project": "frontend",
+        "file": "src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 9.0,
+        "complexity": 9.0,
+        "fragility_score": 9.0
+      },
+      {
+        "namespace_key": "frontend:src/api.ts:fetchInheritance",
+        "name": "fetchInheritance",
+        "project": "frontend",
+        "file": "src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 9.0,
+        "complexity": 9.0,
+        "fragility_score": 9.0
+      },
+      {
+        "namespace_key": "frontend:src/components/AIQueryEngine.tsx:handleSubmit",
+        "name": "handleSubmit",
+        "project": "frontend",
+        "file": "src/components/AIQueryEngine.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 9.0,
+        "complexity": 9.0,
+        "fragility_score": 9.0
+      },
+      {
+        "namespace_key": "frontend:src/components/DebtTrackerPanel.tsx:DebtTrackerPanel",
+        "name": "DebtTrackerPanel",
+        "project": "frontend",
+        "file": "src/components/DebtTrackerPanel.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 9.0,
+        "complexity": 9.0,
+        "fragility_score": 9.0
+      },
+      {
+        "namespace_key": "frontend:src/components/DebtTrackerPanel.tsx:DebtTrackerPanel",
+        "name": "DebtTrackerPanel",
+        "project": "frontend",
+        "file": "src/components/DebtTrackerPanel.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 9.0,
+        "complexity": 9.0,
+        "fragility_score": 9.0
+      },
+      {
+        "namespace_key": "frontend:src/components/GraphCanvas3D.tsx:resolveClusterColor",
+        "name": "resolveClusterColor",
+        "project": "frontend",
+        "file": "src/components/GraphCanvas3D.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 9.0,
+        "complexity": 9.0,
+        "fragility_score": 9.0
+      },
+      {
+        "namespace_key": "frontend:src/components/SettingsScreen.tsx:StatusBadge",
+        "name": "StatusBadge",
+        "project": "frontend",
+        "file": "src/components/SettingsScreen.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 9.0,
+        "complexity": 9.0,
+        "fragility_score": 9.0
+      },
+      {
+        "namespace_key": "frontend:src/components/StatsBar.tsx:StatsBar",
+        "name": "StatsBar",
+        "project": "frontend",
+        "file": "src/components/StatsBar.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 9.0,
+        "complexity": 9.0,
+        "fragility_score": 9.0
+      },
+      {
+        "namespace_key": "frontend:src/components/StatsBar.tsx:StatsBar",
+        "name": "StatsBar",
+        "project": "frontend",
+        "file": "src/components/StatsBar.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 9.0,
+        "complexity": 9.0,
+        "fragility_score": 9.0
+      },
+      {
+        "namespace_key": "frontend:src/utils/AdaptiveQualityManager.ts:AdaptiveQualityManager",
+        "name": "AdaptiveQualityManager",
+        "project": "frontend",
+        "file": "src/utils/AdaptiveQualityManager.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 9.0,
+        "complexity": 9.0,
+        "fragility_score": 9.0
+      },
+      {
+        "namespace_key": "frontend:src/api.ts:fetchSideEffects",
+        "name": "fetchSideEffects",
+        "project": "frontend",
+        "file": "src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 8.0,
+        "complexity": 8.0,
+        "fragility_score": 8.0
+      },
+      {
+        "namespace_key": "frontend:src/api.ts:fetchSideEffects",
+        "name": "fetchSideEffects",
+        "project": "frontend",
+        "file": "src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 8.0,
+        "complexity": 8.0,
+        "fragility_score": 8.0
+      },
+      {
+        "namespace_key": "frontend:src/api.ts:fetchGitBlame",
+        "name": "fetchGitBlame",
+        "project": "frontend",
+        "file": "src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 8.0,
+        "complexity": 8.0,
+        "fragility_score": 8.0
+      },
+      {
+        "namespace_key": "frontend:src/api.ts:fetchGitBlame",
+        "name": "fetchGitBlame",
+        "project": "frontend",
+        "file": "src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 8.0,
+        "complexity": 8.0,
+        "fragility_score": 8.0
+      },
+      {
+        "namespace_key": "frontend:src/api.ts:fetchGraphHistory",
+        "name": "fetchGraphHistory",
+        "project": "frontend",
+        "file": "src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 8.0,
+        "complexity": 8.0,
+        "fragility_score": 8.0
+      },
+      {
+        "namespace_key": "frontend:src/api.ts:fetchGraphHistory",
+        "name": "fetchGraphHistory",
+        "project": "frontend",
+        "file": "src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 8.0,
+        "complexity": 8.0,
+        "fragility_score": 8.0
+      },
+      {
+        "namespace_key": "frontend:src/components/GraphCanvas.tsx:getEdgeColor",
+        "name": "getEdgeColor",
+        "project": "frontend",
+        "file": "src/components/GraphCanvas.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 8.0,
+        "complexity": 8.0,
+        "fragility_score": 8.0
+      },
+      {
+        "namespace_key": "frontend:src/components/GraphCanvas.tsx:rank",
+        "name": "rank",
+        "project": "frontend",
+        "file": "src/components/GraphCanvas.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 8.0,
+        "complexity": 8.0,
+        "fragility_score": 8.0
+      },
+      {
+        "namespace_key": "frontend:src/components/NeonRenderer.tsx:draw",
+        "name": "draw",
+        "project": "frontend",
+        "file": "src/components/NeonRenderer.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 8.0,
+        "complexity": 8.0,
+        "fragility_score": 8.0
+      },
+      {
+        "namespace_key": "frontend:src/components/NodeDetail.tsx:getTypeIcon",
+        "name": "getTypeIcon",
+        "project": "frontend",
+        "file": "src/components/NodeDetail.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 8.0,
+        "complexity": 8.0,
+        "fragility_score": 8.0
+      },
+      {
+        "namespace_key": "frontend:src/utils/LazyNodeRenderer.ts:LazyNodeRenderer",
+        "name": "LazyNodeRenderer",
+        "project": "frontend",
+        "file": "src/utils/LazyNodeRenderer.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 8.0,
+        "complexity": 8.0,
+        "fragility_score": 8.0
+      },
+      {
+        "namespace_key": "frontend:src/components/EvolutionDashboard.tsx:heatmapColor",
+        "name": "heatmapColor",
+        "project": "frontend",
+        "file": "src/components/EvolutionDashboard.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 7.0,
+        "complexity": 7.0,
+        "fragility_score": 7.0
+      },
+      {
+        "namespace_key": "frontend:src/components/HandGestureController.tsx:tick",
+        "name": "tick",
+        "project": "frontend",
+        "file": "src/components/HandGestureController.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 7.0,
+        "complexity": 7.0,
+        "fragility_score": 7.0
+      },
+      {
+        "namespace_key": "frontend:src/utils/EventProcessor.ts:EventProcessor",
+        "name": "EventProcessor",
+        "project": "frontend",
+        "file": "src/utils/EventProcessor.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 7.0,
+        "complexity": 7.0,
+        "fragility_score": 7.0
+      },
+      {
+        "namespace_key": "frontend:src/utils/graphColors.ts:hotspotColorScale",
+        "name": "hotspotColorScale",
+        "project": "frontend",
+        "file": "src/utils/graphColors.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 7.0,
+        "complexity": 7.0,
+        "fragility_score": 7.0
+      },
+      {
+        "namespace_key": "frontend:src/utils/graphColors.ts:getHeatmapColor",
+        "name": "getHeatmapColor",
+        "project": "frontend",
+        "file": "src/utils/graphColors.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 7.0,
+        "complexity": 7.0,
+        "fragility_score": 7.0
+      },
+      {
+        "namespace_key": "frontend:src/api.ts:fetchGraph",
+        "name": "fetchGraph",
+        "project": "frontend",
+        "file": "src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 6.0,
+        "complexity": 6.0,
+        "fragility_score": 6.0
+      },
+      {
+        "namespace_key": "frontend:src/api.ts:fetchGraph",
+        "name": "fetchGraph",
+        "project": "frontend",
+        "file": "src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 6.0,
+        "complexity": 6.0,
+        "fragility_score": 6.0
+      },
+      {
+        "namespace_key": "frontend:src/api.ts:listSavedViews",
+        "name": "listSavedViews",
+        "project": "frontend",
+        "file": "src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 6.0,
+        "complexity": 6.0,
+        "fragility_score": 6.0
+      },
+      {
+        "namespace_key": "frontend:src/api.ts:listSavedViews",
+        "name": "listSavedViews",
+        "project": "frontend",
+        "file": "src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 6.0,
+        "complexity": 6.0,
+        "fragility_score": 6.0
+      },
+      {
+        "namespace_key": "frontend:src/api.ts:listAnnotations",
+        "name": "listAnnotations",
+        "project": "frontend",
+        "file": "src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 6.0,
+        "complexity": 6.0,
+        "fragility_score": 6.0
+      },
+      {
+        "namespace_key": "frontend:src/api.ts:listAnnotations",
+        "name": "listAnnotations",
+        "project": "frontend",
+        "file": "src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 6.0,
+        "complexity": 6.0,
+        "fragility_score": 6.0
+      },
+      {
+        "namespace_key": "frontend:src/api.ts:fetchHotspots",
+        "name": "fetchHotspots",
+        "project": "frontend",
+        "file": "src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 6.0,
+        "complexity": 6.0,
+        "fragility_score": 6.0
+      },
+      {
+        "namespace_key": "frontend:src/api.ts:fetchHotspots",
+        "name": "fetchHotspots",
+        "project": "frontend",
+        "file": "src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 6.0,
+        "complexity": 6.0,
+        "fragility_score": 6.0
+      },
+      {
+        "namespace_key": "frontend:src/api.ts:semanticSearch",
+        "name": "semanticSearch",
+        "project": "frontend",
+        "file": "src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 6.0,
+        "complexity": 6.0,
+        "fragility_score": 6.0
+      },
+      {
+        "namespace_key": "frontend:src/api.ts:semanticSearch",
+        "name": "semanticSearch",
+        "project": "frontend",
+        "file": "src/api.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "API",
+        "hotspot_score": 6.0,
+        "complexity": 6.0,
+        "fragility_score": 6.0
+      },
+      {
+        "namespace_key": "frontend:src/components/CodeQLModal.tsx:handleStartAnalysis",
+        "name": "handleStartAnalysis",
+        "project": "frontend",
+        "file": "src/components/CodeQLModal.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 6.0,
+        "complexity": 6.0,
+        "fragility_score": 6.0
+      },
+      {
+        "namespace_key": "frontend:src/components/CodeQLModal.tsx:getStatusIcon",
+        "name": "getStatusIcon",
+        "project": "frontend",
+        "file": "src/components/CodeQLModal.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 6.0,
+        "complexity": 6.0,
+        "fragility_score": 6.0
+      },
+      {
+        "namespace_key": "frontend:src/components/GestureController.tsx:requestCameraStream",
+        "name": "requestCameraStream",
+        "project": "frontend",
+        "file": "src/components/GestureController.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 6.0,
+        "complexity": 6.0,
+        "fragility_score": 6.0
+      },
+      {
+        "namespace_key": "frontend:src/components/InvestigationMode.tsx:getSuggestionIcon",
+        "name": "getSuggestionIcon",
+        "project": "frontend",
+        "file": "src/components/InvestigationMode.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 6.0,
+        "complexity": 6.0,
+        "fragility_score": 6.0
+      },
+      {
+        "namespace_key": "frontend:src/components/MethodUsageView.tsx:load",
+        "name": "load",
+        "project": "frontend",
+        "file": "src/components/MethodUsageView.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 6.0,
+        "complexity": 6.0,
+        "fragility_score": 6.0
+      },
+      {
+        "namespace_key": "frontend:src/components/NodeDetail.tsx:ComplexitySparkline",
+        "name": "ComplexitySparkline",
+        "project": "frontend",
+        "file": "src/components/NodeDetail.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 6.0,
+        "complexity": 6.0,
+        "fragility_score": 6.0
+      },
+      {
+        "namespace_key": "frontend:src/components/ProjectManagement.tsx:StatusCard",
+        "name": "StatusCard",
+        "project": "frontend",
+        "file": "src/components/ProjectManagement.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 6.0,
+        "complexity": 6.0,
+        "fragility_score": 6.0
+      },
+      {
+        "namespace_key": "frontend:src/components/SidebarIntelligence.tsx:getSeverityColor",
+        "name": "getSeverityColor",
+        "project": "frontend",
+        "file": "src/components/SidebarIntelligence.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 6.0,
+        "complexity": 6.0,
+        "fragility_score": 6.0
+      },
+      {
+        "namespace_key": "frontend:src/components/WatchImpactToast.tsx:WatchImpactToast",
+        "name": "WatchImpactToast",
+        "project": "frontend",
+        "file": "src/components/WatchImpactToast.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 6.0,
+        "complexity": 6.0,
+        "fragility_score": 6.0
+      },
+      {
+        "namespace_key": "frontend:src/components/WatchImpactToast.tsx:WatchImpactToast",
+        "name": "WatchImpactToast",
+        "project": "frontend",
+        "file": "src/components/WatchImpactToast.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 6.0,
+        "complexity": 6.0,
+        "fragility_score": 6.0
+      },
+      {
+        "namespace_key": "frontend:src/components/WatchModePanel.tsx:handleStart",
+        "name": "handleStart",
+        "project": "frontend",
+        "file": "src/components/WatchModePanel.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 6.0,
+        "complexity": 6.0,
+        "fragility_score": 6.0
+      },
+      {
+        "namespace_key": "frontend:src/hooks/useWebSocket.ts:useWebSocket",
+        "name": "useWebSocket",
+        "project": "frontend",
+        "file": "src/hooks/useWebSocket.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 6.0,
+        "complexity": 6.0,
+        "fragility_score": 6.0
+      },
+      {
+        "namespace_key": "frontend:src/hooks/useWebSocket.ts:useWebSocket",
+        "name": "useWebSocket",
+        "project": "frontend",
+        "file": "src/hooks/useWebSocket.ts",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 6.0,
+        "complexity": 6.0,
+        "fragility_score": 6.0
+      },
+      {
+        "namespace_key": "vscode-extension:src/hover-provider.ts:InsightGraphHoverProvider",
+        "name": "InsightGraphHoverProvider",
+        "project": "vscode-extension",
+        "file": "src/hover-provider.ts",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 6.0,
+        "complexity": 6.0,
+        "fragility_score": 6.0
+      },
+      {
+        "namespace_key": "frontend:src/components/AnalysisHistory.tsx:getStatusColor",
+        "name": "getStatusColor",
+        "project": "frontend",
+        "file": "src/components/AnalysisHistory.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 5.0,
+        "complexity": 5.0,
+        "fragility_score": 5.0
+      },
+      {
+        "namespace_key": "frontend:src/components/AskPanel.tsx:normalizeRelevantKeys",
+        "name": "normalizeRelevantKeys",
+        "project": "frontend",
+        "file": "src/components/AskPanel.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 5.0,
+        "complexity": 5.0,
+        "fragility_score": 5.0
+      },
+      {
+        "namespace_key": "frontend:src/components/CodeQLModal.tsx:getStatusColor",
+        "name": "getStatusColor",
+        "project": "frontend",
+        "file": "src/components/CodeQLModal.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 5.0,
+        "complexity": 5.0,
+        "fragility_score": 5.0
+      },
+      {
+        "namespace_key": "frontend:src/components/CommandPalette.tsx:handleKeyDown",
+        "name": "handleKeyDown",
+        "project": "frontend",
+        "file": "src/components/CommandPalette.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 5.0,
+        "complexity": 5.0,
+        "fragility_score": 5.0
+      },
+      {
+        "namespace_key": "frontend:src/components/Dashboard.tsx:sortIndicator",
+        "name": "sortIndicator",
+        "project": "frontend",
+        "file": "src/components/Dashboard.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 5.0,
+        "complexity": 5.0,
+        "fragility_score": 5.0
+      },
+      {
+        "namespace_key": "frontend:src/components/Dashboard.tsx:handleExportHotspots",
+        "name": "handleExportHotspots",
+        "project": "frontend",
+        "file": "src/components/Dashboard.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 5.0,
+        "complexity": 5.0,
+        "fragility_score": 5.0
+      },
+      {
+        "namespace_key": "frontend:src/components/GraphCanvas.tsx:isCrossProjectBridge",
+        "name": "isCrossProjectBridge",
+        "project": "frontend",
+        "file": "src/components/GraphCanvas.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 5.0,
+        "complexity": 5.0,
+        "fragility_score": 5.0
+      },
+      {
+        "namespace_key": "frontend:src/components/GraphCanvas.tsx:getPredictiveColor",
+        "name": "getPredictiveColor",
+        "project": "frontend",
+        "file": "src/components/GraphCanvas.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 5.0,
+        "complexity": 5.0,
+        "fragility_score": 5.0
+      },
+      {
+        "namespace_key": "frontend:src/components/InvestigationMode.tsx:getPriorityColor",
+        "name": "getPriorityColor",
+        "project": "frontend",
+        "file": "src/components/InvestigationMode.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 5.0,
+        "complexity": 5.0,
+        "fragility_score": 5.0
+      },
+      {
+        "namespace_key": "frontend:src/components/LiveAlertFeed.tsx:severityColor",
+        "name": "severityColor",
+        "project": "frontend",
+        "file": "src/components/LiveAlertFeed.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 5.0,
+        "complexity": 5.0,
+        "fragility_score": 5.0
+      },
+      {
+        "namespace_key": "frontend:src/components/ProjectManagement.tsx:formatElapsed",
+        "name": "formatElapsed",
+        "project": "frontend",
+        "file": "src/components/ProjectManagement.tsx",
+        "labels": [
+          "TS_Function",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 5.0,
+        "complexity": 5.0,
+        "fragility_score": 5.0
+      },
+      {
+        "namespace_key": "frontend:src/components/SavedViewsPanel.tsx:handleSave",
+        "name": "handleSave",
+        "project": "frontend",
+        "file": "src/components/SavedViewsPanel.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 5.0,
+        "complexity": 5.0,
+        "fragility_score": 5.0
+      },
+      {
+        "namespace_key": "frontend:src/components/SecurityDashboard.tsx:handleExportVulnerabilities",
+        "name": "handleExportVulnerabilities",
+        "project": "frontend",
+        "file": "src/components/SecurityDashboard.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 5.0,
+        "complexity": 5.0,
+        "fragility_score": 5.0
+      },
+      {
+        "namespace_key": "frontend:src/components/SidebarIntelligence.tsx:getTrendIcon",
+        "name": "getTrendIcon",
+        "project": "frontend",
+        "file": "src/components/SidebarIntelligence.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 5.0,
+        "complexity": 5.0,
+        "fragility_score": 5.0
+      },
+      {
+        "namespace_key": "frontend:src/components/SidebarIntelligence.tsx:getTrendColor",
+        "name": "getTrendColor",
+        "project": "frontend",
+        "file": "src/components/SidebarIntelligence.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 5.0,
+        "complexity": 5.0,
+        "fragility_score": 5.0
+      },
+      {
+        "namespace_key": "frontend:src/components/Timeline4D.tsx:handleKeyDown",
+        "name": "handleKeyDown",
+        "project": "frontend",
+        "file": "src/components/Timeline4D.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 5.0,
+        "complexity": 5.0,
+        "fragility_score": 5.0
+      },
+      {
+        "namespace_key": "frontend:src/components/TopBar.tsx:fetchBranding",
+        "name": "fetchBranding",
+        "project": "frontend",
+        "file": "src/components/TopBar.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 5.0,
+        "complexity": 5.0,
+        "fragility_score": 5.0
+      },
+      {
+        "namespace_key": "frontend:src/components/TransactionPanel.tsx:runPathFinder",
+        "name": "runPathFinder",
+        "project": "frontend",
+        "file": "src/components/TransactionPanel.tsx",
+        "labels": [
+          "TS_Component",
+          "Entity"
+        ],
+        "layer": "Frontend",
+        "hotspot_score": 5.0,
+        "complexity": 5.0,
+        "fragility_score": 5.0
+      }
+    ]
   }
 ]

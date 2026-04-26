@@ -3,7 +3,7 @@ import ForceGraph3D from 'react-force-graph-3d';
 import * as THREE from 'three';
 import type { GraphNode, GraphEdge } from '../api';
 import { getHeatmapColor, hotspotColorScale } from '../utils/graphColors';
-import { getRiskColor, getNodeSize, getBrightness, shouldPulse, applyBrightness } from '../utils/visualEncoding';
+import { getNodeSize, getBrightness, shouldPulse, applyBrightness } from '../utils/visualEncoding';
 import { WaveAnimationManager } from '../utils/WaveAnimationManager';
 
 interface GraphCanvas3DProps {
@@ -17,6 +17,7 @@ interface GraphCanvas3DProps {
     searchTerm: string;
     heatmapEnabled: boolean;
     clustered: boolean;
+    showOnlyBridges: boolean;
     focusNodeKey: string | null;
     focusRequestId: number;
     // NEW: Real-time event handling
@@ -54,6 +55,7 @@ type ClusterNode = {
     id: string;
     name: string;
     color: string;
+    groupColor: string;
     val: number;
     raw: GraphNode;
     group: string;
@@ -71,6 +73,7 @@ type ClusterLink = {
     target: string;
     color: string;
     type: string;
+    isBridge?: boolean;
 };
 
 type ClusterCenter = {
@@ -82,6 +85,44 @@ type ClusterCenter = {
 const easeInOutQuad = (t: number): number => (t < 0.5 ? 2 * t * t : -1 + (4 - 2 * t) * t);
 
 const getClusterGroup = (node: GraphNode): string => node.project || node.layer || 'System';
+const BRIDGE_EDGE_TYPE_RE = /(CROSS_PROJECT|CONSUMES_API|HTTP|API|INTEGRATION|EXTERNAL|CROSS|REMOTE)/i;
+const PROJECT_PALETTE = ['#f59e0b', '#84cc16', '#22d3ee', '#60a5fa', '#a78bfa', '#f472b6', '#f97316', '#14b8a6'];
+
+const hashString = (value: string): number => {
+    let hash = 0;
+    for (let i = 0; i < value.length; i += 1) {
+        hash = ((hash << 5) - hash) + value.charCodeAt(i);
+        hash |= 0;
+    }
+    return Math.abs(hash);
+};
+
+const resolveClusterColor = (group: string): string => {
+    const key = (group || 'unknown').toLowerCase();
+    if (key.includes('backend')) return '#f59e0b';
+    if (key.includes('frontend')) return '#84cc16';
+    if (key.includes('mobile')) return '#22d3ee';
+    if (key.includes('database') || key.includes('db')) return '#60a5fa';
+    if (key.includes('external') || key.includes('integration')) return '#a78bfa';
+    return PROJECT_PALETTE[hashString(key) % PROJECT_PALETTE.length];
+};
+
+const normalizeProjectKey = (node: GraphNode): string => {
+    const raw = String(node.project || '').trim();
+    if (raw) return raw;
+    const hints = [
+        String(node.layer || ''),
+        String(node.file || ''),
+        ...(node.labels || []),
+        String(node.name || ''),
+    ].join(' ').toLowerCase();
+    if (/(backend|server|api|service)/.test(hints)) return 'backend';
+    if (/(frontend|web|ui|react|angular|vue)/.test(hints)) return 'frontend';
+    if (/(mobile|android|ios|flutter|react-native)/.test(hints)) return 'mobile';
+    if (/(database|sql|table|procedure|repository)/.test(hints)) return 'database';
+    if (/(external|third|integration|gateway)/.test(hints)) return 'external';
+    return 'unknown';
+};
 
 const createTextSprite = (text: string, fill: string): THREE.Sprite => {
     const canvas = document.createElement('canvas');
@@ -121,6 +162,7 @@ export default function GraphCanvas3D({
     searchTerm,
     heatmapEnabled,
     clustered,
+    showOnlyBridges,
     focusNodeKey,
     focusRequestId,
     recentChanges: externalRecentChanges,
@@ -190,8 +232,7 @@ export default function GraphCanvas3D({
             if (heatmapEnabled) {
                 baseColor = getHeatmapColor(node.complexity ?? 0);
             } else {
-                // Use risk color from visual encoding, fallback to type color
-                baseColor = getRiskColor(node);
+                baseColor = resolveClusterColor(group);
             }
             
             // Use visual encoding for size
@@ -202,6 +243,7 @@ export default function GraphCanvas3D({
                 name: node.name,
                 raw: node,
                 color: baseColor,
+                groupColor: resolveClusterColor(group),
                 val,
                 group,
                 hotspot: node.hotspot_score ?? 0,
@@ -215,19 +257,40 @@ export default function GraphCanvas3D({
             return clusterNode;
         });
 
-        const links: ClusterLink[] = filteredEdges.map((edge) => ({
-            source: edge.source,
-            target: edge.target,
-            color: edge.type === 'CALLS' ? '#a78bfa' : '#4f8ff7',
-            type: edge.type,
-        }));
+        const projectByNode = new Map<string, string>();
+        filteredNodes.forEach((node) => projectByNode.set(node.namespace_key, normalizeProjectKey(node)));
+        const links: ClusterLink[] = filteredEdges
+            .map((edge) => {
+                const sourceProject = projectByNode.get(edge.source) || 'unknown';
+                const targetProject = projectByNode.get(edge.target) || 'unknown';
+                const isBridge = BRIDGE_EDGE_TYPE_RE.test(edge.type || '') || sourceProject !== targetProject;
+                const sourceColor = resolveClusterColor(sourceProject);
+                return {
+                    source: edge.source,
+                    target: edge.target,
+                    color: isBridge ? 'rgba(34, 211, 238, 0.95)' : edge.type === 'CALLS' ? `${sourceColor}` : `${sourceColor}`,
+                    type: edge.type,
+                    isBridge,
+                };
+            })
+            .filter((link) => (showOnlyBridges ? Boolean(link.isBridge) : true));
 
         return {
             nodes,
             links,
             clusterGroupEntries: Array.from(groups.entries()),
         };
-    }, [graphNodes, graphEdges, searchTerm, heatmapEnabled]);
+    }, [graphNodes, graphEdges, searchTerm, heatmapEnabled, showOnlyBridges]);
+
+    const bridgeNodeSet = useMemo(() => {
+        const set = new Set<string>();
+        graphStructure.links.forEach((link) => {
+            if (!link.isBridge) return;
+            set.add(link.source);
+            set.add(link.target);
+        });
+        return set;
+    }, [graphStructure.links]);
     
     // Update wave manager graph structure when edges change
     useEffect(() => {
@@ -244,13 +307,14 @@ export default function GraphCanvas3D({
     const clusterCenters = useMemo(() => {
         const entries = graphStructure.clusterGroupEntries;
         if (!entries.length) return new Map<string, ClusterCenter>();
-        const radius = Math.max(160, entries.length * 28);
+        const radius = Math.max(240, entries.length * 42);
         const centers = new Map<string, ClusterCenter>();
         entries.forEach(([group], index) => {
             const angle = (index / entries.length) * Math.PI * 2;
+            const verticalBand = ((index % 3) - 1) * 140;
             centers.set(group, {
                 x: Math.cos(angle) * radius,
-                y: 0,
+                y: verticalBand,
                 z: Math.sin(angle) * radius,
             });
         });
@@ -259,7 +323,7 @@ export default function GraphCanvas3D({
 
     const clusterForce = useMemo(() => {
         if (!clusterCenters.size) return null;
-        const strength = 0.08;
+        const strength = 0.11;
         return (alpha: number) => {
             const k = alpha * strength;
             graphStructure.nodes.forEach((node) => {
@@ -287,19 +351,32 @@ export default function GraphCanvas3D({
             const center = clusterCenters.get(group);
             if (!center) return;
             const avgHotspot = nodes.reduce((acc, node) => acc + node.hotspot, 0) / Math.max(1, nodes.length);
-            const radius = Math.min(52, Math.max(22, nodes.length * 0.35 + 6));
+            const radius = Math.min(72, Math.max(28, nodes.length * 0.4 + 10));
             const bubble = new THREE.Group();
+            const clusterColor = resolveClusterColor(group);
             const sphere = new THREE.Mesh(
                 new THREE.SphereGeometry(1, 32, 32),
                 new THREE.MeshBasicMaterial({
-                    color: hotspotColorScale(avgHotspot),
+                    color: clusterColor,
                     transparent: true,
-                    opacity: 0.12,
+                    opacity: 0.1,
                     depthWrite: false,
                 })
             );
             sphere.scale.set(radius, radius, radius);
             bubble.add(sphere);
+            const shell = new THREE.Mesh(
+                new THREE.SphereGeometry(1, 32, 32),
+                new THREE.MeshBasicMaterial({
+                    color: hotspotColorScale(avgHotspot),
+                    transparent: true,
+                    opacity: 0.07,
+                    depthWrite: false,
+                    wireframe: true,
+                })
+            );
+            shell.scale.set(radius * 1.08, radius * 1.08, radius * 1.08);
+            bubble.add(shell);
             const label = createTextSprite(`${group} (${nodes.length})`, '#e0e7ff');
             label.position.set(0, radius + 12, 0);
             bubble.add(label);
@@ -388,6 +465,9 @@ export default function GraphCanvas3D({
             } else {
                 color = node.color;
             }
+            if (showOnlyBridges && !bridgeNodeSet.has(node.id)) {
+                color = '#1f2937';
+            }
             
             // Apply brightness boost for recently changed nodes
             const brightness = getBrightness(node.id, recentChanges);
@@ -397,7 +477,7 @@ export default function GraphCanvas3D({
             
             return color;
         },
-        [aiHighlightedNodes, highlightedUpstream, highlightedDownstream, selectedNodeKey, recentChanges]
+        [aiHighlightedNodes, bridgeNodeSet, highlightedUpstream, highlightedDownstream, selectedNodeKey, recentChanges, showOnlyBridges]
     );
 
     const createNodeObject = useCallback(
@@ -407,13 +487,25 @@ export default function GraphCanvas3D({
                 new THREE.MeshStandardMaterial({
                     color: determineNodeColor(node),
                     transparent: true,
-                    opacity: 0.92,
+                    opacity: showOnlyBridges && !bridgeNodeSet.has(node.id) ? 0.42 : 0.95,
                     metalness: 0.3,
-                    roughness: 0.4,
+                    roughness: 0.32,
+                    emissive: new THREE.Color(determineNodeColor(node)),
+                    emissiveIntensity: showOnlyBridges && !bridgeNodeSet.has(node.id) ? 0.08 : 0.22,
                 })
             );
             const group = new THREE.Group();
             group.add(sphere);
+            const glow = new THREE.Mesh(
+                new THREE.SphereGeometry(1.45, 18, 18),
+                new THREE.MeshBasicMaterial({
+                    color: node.groupColor,
+                    transparent: true,
+                    opacity: showOnlyBridges && !bridgeNodeSet.has(node.id) ? 0.06 : 0.2,
+                    depthWrite: false,
+                })
+            );
+            group.add(glow);
             
             // Base scale from node size
             let scale = Math.min(2.4, 0.6 + node.val / 10);
@@ -435,7 +527,7 @@ export default function GraphCanvas3D({
             
             return group;
         },
-        [determineNodeColor]
+        [bridgeNodeSet, determineNodeColor, showOnlyBridges]
     );
 
     const animateFocus = useCallback(
@@ -617,9 +709,15 @@ export default function GraphCanvas3D({
                 nodeRelSize={6}
                 nodeOpacity={graphStructure.nodes.length > 1200 ? 0.75 : 0.95}
                 linkOpacity={graphStructure.nodes.length > 1200 ? 0.18 : 0.35}
-                linkDirectionalParticles={graphStructure.nodes.length > 1200 ? 0 : graphStructure.nodes.length > 500 ? 1 : 2}
+                linkDirectionalParticles={(link: ClusterLink) => {
+                    if (graphStructure.nodes.length > 1200) return link.isBridge ? 1 : 0;
+                    if (link.isBridge) return 3;
+                    return graphStructure.nodes.length > 500 ? 1 : 2;
+                }}
+                linkDirectionalParticleColor={(link: ClusterLink) => (link.isBridge ? '#a3e635' : '#67e8f9')}
                 linkDirectionalParticleWidth={graphStructure.nodes.length > 1200 ? 0.5 : 1.5}
                 linkColor={(link: ClusterLink) => link.color}
+                linkCurvature={(link: ClusterLink) => (link.isBridge ? 0.18 : 0.02)}
                 nodeThreeObject={createNodeObject}
                 nodeLabel={(node: ClusterNode) => `${node.name}\nHotspot ${node.hotspot.toFixed(0)}`}
             nodeVal={(node: ClusterNode) => Math.max(node.val, 8)}
@@ -629,8 +727,11 @@ export default function GraphCanvas3D({
                     }
                 }}
                 cooldownTicks={graphStructure.nodes.length > 1200 ? 60 : 120}
+                d3AlphaDecay={0.055}
+                d3VelocityDecay={0.42}
+                warmupTicks={40}
                 enableNodeDrag
-                linkWidth={(link: ClusterLink) => (link.type === 'CALLS' ? 2 : 1)}
+                linkWidth={(link: ClusterLink) => (link.isBridge ? 2.8 : link.type === 'CALLS' ? 2 : 1)}
             />
         </div>
     );

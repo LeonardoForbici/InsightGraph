@@ -1,9 +1,0 @@
-{
-  "permission": {
-    "read": {
-      "backend/**": "allow",
-      "frontend/**": "allow",
-      "*": "deny"
-    }
-  }
-}

@@ -23,6 +23,8 @@ from typing import Optional
 
 import httpx
 
+from ollama_runtime import OllamaRuntime, OllamaServiceError
+
 logger = logging.getLogger("insightgraph.weekly_digest")
 
 
@@ -41,10 +43,12 @@ class WeeklyDigestGenerator:
         state_store,
         ollama_url: str = "http://localhost:11434",
         ollama_model: str = "qwen3.5:4b",
+        ollama_runtime: OllamaRuntime | None = None,
     ):
         self._store = state_store
         self._ollama_url = ollama_url.rstrip("/")
         self._model = ollama_model
+        self._runtime = ollama_runtime
 
     # ──────────────────────────────────────────────
     # Public API
@@ -240,6 +244,16 @@ Be direct and opinionated. Don't just describe — recommend. Use bullet points 
 Do not use markdown headers. Write as if briefing a tech lead."""
 
         try:
+            if self._runtime is not None:
+                data = await self._runtime.generate(
+                    model=self._model,
+                    prompt=prompt,
+                    timeout=90.0,
+                    retries=1,
+                    options={"temperature": 0.3, "num_predict": 600},
+                    keep_alive="10m",
+                )
+                return str(data.get("response") or "").strip()
             async with httpx.AsyncClient(timeout=90.0) as client:
                 resp = await client.post(
                     f"{self._ollama_url}/api/generate",
@@ -253,6 +267,9 @@ Do not use markdown headers. Write as if briefing a tech lead."""
                 resp.raise_for_status()
                 data = resp.json()
                 return data.get("response", "").strip()
+        except OllamaServiceError as exc:
+            logger.warning("LLM narrative generation failed: %s", exc)
+            return self._fallback_narrative(summary)
         except Exception as exc:
             logger.warning("LLM narrative generation failed: %s", exc)
             return self._fallback_narrative(summary)

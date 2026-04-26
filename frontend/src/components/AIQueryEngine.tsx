@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { askQuestion } from '../api';
 
 interface CodeReference {
   file: string;
@@ -78,22 +79,7 @@ const AIQueryEngine: React.FC<AIQueryEngineProps> = ({
     setError(null);
 
     try {
-      const response = await fetch('/api/ai/query', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ question: question.trim() })
-      });
-
-      if (!response.ok) {
-        if (response.status === 429) {
-          throw new Error('Rate limit exceeded. Please wait a moment and try again.');
-        }
-        throw new Error('Failed to get AI response');
-      }
-
-      const data = await response.json();
+      const data = await askQuestion(question.trim());
 
       // Add assistant message
       const assistantMessage: ChatMessage = {
@@ -102,8 +88,7 @@ const AIQueryEngine: React.FC<AIQueryEngineProps> = ({
         content: data.answer,
         timestamp: Date.now(),
         relevantNodes: data.relevant_nodes || [],
-        references: data.references || [],
-        confidence: data.confidence
+        references: [],
       };
 
       setMessages(prev => [...prev, assistantMessage]);
@@ -114,7 +99,7 @@ const AIQueryEngine: React.FC<AIQueryEngineProps> = ({
       }
     } catch (err: any) {
       console.error('AI query failed:', err);
-      setError(err.message || 'Failed to process query');
+      setError(err.message || 'Falha ao processar consulta na IA local');
 
       // Add error message
       const errorMessage: ChatMessage = {
